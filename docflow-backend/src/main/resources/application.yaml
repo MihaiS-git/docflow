@@ -1,6 +1,12 @@
 spring:
   application:
     name: docflow rest api
+  autoconfigure:
+    exclude:
+      # Disable DataSource auto-configuration until add Postgres
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      # Disable RabbitMQ auto-configuration until add RabbitMQ
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
 
 #  Actuator & metrics configuration
 management:
@@ -18,7 +24,10 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
-
+  # Disable RabbitMQ health check
+  health:
+    rabbit:
+      enabled: false
 server:
   error:
     include-message: never
