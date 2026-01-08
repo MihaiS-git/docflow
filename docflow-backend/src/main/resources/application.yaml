@@ -1,3 +1,36 @@
 spring:
   application:
     name: docflow rest api
+
+#  Actuator & metrics configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: docflow-backend
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
+
+#  Enable OpenTelemetry (requires Tempo for tracing)
+#otel:
+#  traces:
+#    exporter: otlp
+#  exporter:
+#    otlp:
+#      endpoint: http://tempo:4317
+otel:
+  traces:
+    exporter: none
