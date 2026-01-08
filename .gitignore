@@ -1,0 +1,138 @@
+############################################
+# GLOBAL — OS / EDITORS
+############################################
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.tmp
+*.lock
+
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+
+############################################
+# GLOBAL — SECRETS & SENSITIVE DATA
+# (MANDATORY FOR GDPR / ISO 27001)
+############################################
+.env
+.env.*
+!.env.example
+
+secrets/
+credentials/
+certs/
+keystore/
+
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+*.keystore
+
+
+############################################
+# BACKEND — SPRING BOOT / GRADLE (Java 21)
+############################################
+docflow-backend/.gradle/
+docflow-backend/build/
+docflow-backend/out/
+docflow-backend/target/
+
+docflow-backend/*.log
+docflow-backend/logs/
+
+
+############################################
+# FRONTEND — NEXT.JS (APP ROUTER)
+docflow-frontend/node_modules/
+docflow-frontend/.next/
+docflow-frontend/out/
+docflow-frontend/dist/
+docflow-frontend/.turbo/
+docflow-frontend/.vercel/
+
+docflow-frontend/npm-debug.log*
+docflow-frontend/yarn-debug.log*
+docflow-frontend/yarn-error.log*
+docflow-frontend/pnpm-debug.log*
+
+docflow-frontend/*.log
+docflow-frontend/logs/
+
+# TypeScript incremental build
+docflow-frontend/*.tsbuildinfo
+docflow-frontend/next-env.d.ts
+
+############################################
+# DATABASE — POSTGRES
+############################################
+docflow-infra/postgres/data/
+docflow-infra/postgres/backups/
+
+
+############################################
+# CACHE — REDIS
+############################################
+docflow-infra/redis/data/
+
+
+############################################
+# OBSERVABILITY — PROMETHEUS / GRAFANA / LOKI / TEMPO
+############################################
+docflow-infra/prometheus/data/
+docflow-infra/grafana/data/
+docflow-infra/loki/data/
+docflow-infra/tempo/data/
+docflow-infra/jaeger/data/
+
+############################################
+# DOCKER / CONTAINERS
+############################################
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+**/.docker/
+**/.dockerignore
+
+Dockerfile.*.local
+
+
+############################################
+# TESTING / COVERAGE
+############################################
+coverage/
+*.exec
+jacoco.exec
+test-output/
+
+
+############################################
+# CI / GITHUB ACTIONS (LOCAL ARTIFACTS ONLY)
+############################################
+actions-runner/
+_work/
+.github/workflows/*.log
+.github/workflows/*.retry
+
+
+############################################
+# TEMP / RUNTIME ARTIFACTS
+############################################
+tmp/
+temp/
+.cache/
+
+
+############################################
+# ARTIFACTS (NEVER COMMIT)
+############################################
+*.class
+*.jar
+*.war
+*.ear

@@ -1,0 +1,27 @@
+# Gradle wrapper (Unix)
+ /gradlew text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Java archives
+*.jar binary
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg binary
+
+# Fonts
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+
+# PDFs
+*.pdf binary
