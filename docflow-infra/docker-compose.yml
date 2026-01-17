@@ -4,6 +4,23 @@ services:
     container_name: docflow-backend
     build:
       context: ../docflow-backend
+    depends_on:
+      keycloak:
+        condition: service_started
+      docflow-db: 
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://docflow-db:5432/${DOCFLOW_DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${DOCFLOW_DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DOCFLOW_DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_OPEN_IN_VIEW: "false"
+
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      KEYCLOAK_AUTH_URI: http://localhost:8081/realms/docflow/protocol/openid-connect/auth
+      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/docflow/protocol/openid-connect/token
+      KEYCLOAK_USERINFO_URI: http://keycloak:8080/realms/docflow/protocol/openid-connect/userinfo
+      KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/docflow/protocol/openid-connect/certs
     ports:
       - "8080:8080"
     healthcheck:
@@ -11,6 +28,72 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
+
+  docflow-db:
+    image: postgres:16-alpine
+    container_name: docflow-db
+    environment:
+      POSTGRES_DB: ${DOCFLOW_DB_NAME}
+      POSTGRES_USER: ${DOCFLOW_DB_USER}
+      POSTGRES_PASSWORD: ${DOCFLOW_DB_PASSWORD}
+    volumes:
+      - docflow-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DOCFLOW_DB_USER} -d ${DOCFLOW_DB_NAME}"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: docflow-keycloak-db
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME}
+      POSTGRES_USER: ${KEYCLOAK_DB_USERNAME}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USERNAME} -d ${KEYCLOAK_DB_NAME}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5.0
+    container_name: docflow-keycloak
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KEYCLOAK_DB_NAME}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USERNAME}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+
+      # Internal container networking
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_PORT: 8080
+
+      # External (browser-facing) URL
+      KC_HOSTNAME_URL: http://localhost:8081
+
+      # We are behind Docker port mapping / proxy
+      KC_PROXY: edge
+      KC_HOSTNAME_STRICT: "false"
+
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-docflow.json:/opt/keycloak/data/import/realm-docflow.json:ro
 
   prometheus:
     image: prom/prometheus:v2.52.0
@@ -26,11 +109,13 @@ services:
     ports:
       - "3001:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
 
 volumes:
+  docflow-db-data:
   grafana-data:
+  keycloak-db-data:

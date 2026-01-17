@@ -1,14 +1,37 @@
 spring:
   application:
-    name: docflow rest api
+    name: docflow-rest-api
   autoconfigure:
     exclude:
-      # Disable DataSource auto-configuration until add Postgres
+      # Disable DataSource auto-configuration until Postgres is added
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      # Disable RabbitMQ auto-configuration until add RabbitMQ
+      # Disable RabbitMQ auto-configuration until RabbitMQ is added
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: ${KEYCLOAK_CLIENT_ID:docflow-bff}
+            client-secret: ${KEYCLOAK_CLIENT_SECRET}
+            client-authentication-method: client_secret_basic
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email,roles
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+        provider:
+          keycloak:
+            authorization-uri: ${KEYCLOAK_AUTH_URI:http://localhost:8081/realms/docflow/protocol/openid-connect/auth}
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://keycloak:8080/realms/docflow/protocol/openid-connect/token}
+            jwk-set-uri: ${KEYCLOAK_JWKS_URI:http://keycloak:8080/realms/docflow/protocol/openid-connect/certs}
+            # IMPORTANT:
+            # user-info-uri is intentionally REMOVED
+            # Spring must NOT call /userinfo (it caused 401 + login failure)
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
-#  Actuator & metrics configuration
+# Actuator & metrics
 management:
   endpoints:
     web:
@@ -24,22 +47,32 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
-  # Disable RabbitMQ health check
   health:
     rabbit:
       enabled: false
+
+# Server settings and session cookie configuration
 server:
   error:
     include-message: never
     include-stacktrace: never
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: false   # set true behind HTTPS/Nginx in prod
+        same-site: lax
 
-#  Enable OpenTelemetry (requires Tempo for tracing)
-#otel:
-#  traces:
-#    exporter: otlp
-#  exporter:
-#    otlp:
-#      endpoint: http://tempo:4317
+# Custom application properties
+docflow:
+  security:
+    # Comma-separated list of allowed origins for CORS
+    allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+# Otel configuration to disable tracing
 otel:
   traces:
     exporter: none
+# Logging configuration
+logging:
+  level:
+    org.springframework.security: DEBUG
