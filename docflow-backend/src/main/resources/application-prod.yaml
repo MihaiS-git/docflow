@@ -1,0 +1,8 @@
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true   # behind HTTPS/Nginx in prod
+logging:
+  level:
+    org.springframework.security: INFO

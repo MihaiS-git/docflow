@@ -8,8 +8,7 @@ export default function Home() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const user = await getCurrentUser();
-      console.log("Current user:", user);
+      const user = await getCurrentUser({ redirect: false });
       setIsAuth(!!user);
     };
     checkAuth();

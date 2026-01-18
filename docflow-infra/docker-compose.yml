@@ -10,21 +10,23 @@ services:
       docflow-db: 
         condition: service_healthy
     environment:
+      SPRING_PROFILES_ACTIVE: prod
       SPRING_DATASOURCE_URL: jdbc:postgresql://docflow-db:5432/${DOCFLOW_DB_NAME}
       SPRING_DATASOURCE_USERNAME: ${DOCFLOW_DB_USER}
       SPRING_DATASOURCE_PASSWORD: ${DOCFLOW_DB_PASSWORD}
       SPRING_JPA_HIBERNATE_DDL_AUTO: validate
       SPRING_JPA_OPEN_IN_VIEW: "false"
-
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
-      KEYCLOAK_AUTH_URI: http://localhost:8081/realms/docflow/protocol/openid-connect/auth
-      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/docflow/protocol/openid-connect/token
-      KEYCLOAK_USERINFO_URI: http://keycloak:8080/realms/docflow/protocol/openid-connect/userinfo
-      KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/docflow/protocol/openid-connect/certs
+      KEYCLOAK_AUTH_URI: ${KEYCLOAK_AUTH_URI}
+      KEYCLOAK_TOKEN_URI: ${KEYCLOAK_TOKEN_URI}
+      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI}
+      KEYCLOAK_LOGOUT_URI: ${KEYCLOAK_LOGOUT_URI}
+      DOCFLOW_POST_LOGOUT_REDIRECT: ${FRONTEND_BASE_URL}
+      DOCFLOW_ALLOWED_ORIGINS: ${FRONTEND_BASE_URL}
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "curl", "-f", "${ACTUATOR_HEALTH_URL}"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -84,7 +86,7 @@ services:
       KC_HTTP_PORT: 8080
 
       # External (browser-facing) URL
-      KC_HOSTNAME_URL: http://localhost:8081
+      KC_HOSTNAME_URL: ${KC_HOSTNAME_URL}
 
       # We are behind Docker port mapping / proxy
       KC_PROXY: edge

@@ -3,8 +3,6 @@ spring:
     name: docflow-rest-api
   autoconfigure:
     exclude:
-      # Disable DataSource auto-configuration until Postgres is added
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       # Disable RabbitMQ auto-configuration until RabbitMQ is added
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
   security:
@@ -12,7 +10,7 @@ spring:
       client:
         registration:
           keycloak:
-            client-id: ${KEYCLOAK_CLIENT_ID:docflow-bff}
+            client-id: ${KEYCLOAK_CLIENT_ID}
             client-secret: ${KEYCLOAK_CLIENT_SECRET}
             client-authentication-method: client_secret_basic
             authorization-grant-type: authorization_code
@@ -20,16 +18,22 @@ spring:
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
           keycloak:
-            authorization-uri: ${KEYCLOAK_AUTH_URI:http://localhost:8081/realms/docflow/protocol/openid-connect/auth}
-            token-uri: ${KEYCLOAK_TOKEN_URI:http://keycloak:8080/realms/docflow/protocol/openid-connect/token}
-            jwk-set-uri: ${KEYCLOAK_JWKS_URI:http://keycloak:8080/realms/docflow/protocol/openid-connect/certs}
+            authorization-uri: ${KEYCLOAK_AUTH_URI}
+            token-uri: ${KEYCLOAK_TOKEN_URI}
+            jwk-set-uri: ${KEYCLOAK_JWKS_URI}
             # IMPORTANT:
             # user-info-uri is intentionally REMOVED
             # Spring must NOT call /userinfo (it caused 401 + login failure)
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 # Actuator & metrics
 management:
@@ -43,7 +47,7 @@ management:
         enabled: true
   metrics:
     tags:
-      application: docflow-backend
+      application: docflow-rest-api
     distribution:
       percentiles-histogram:
         http.server.requests: true
@@ -56,23 +60,21 @@ server:
   error:
     include-message: never
     include-stacktrace: never
+  shutdown: graceful
   servlet:
     session:
       cookie:
         http-only: true
-        secure: false   # set true behind HTTPS/Nginx in prod
         same-site: lax
 
 # Custom application properties
 docflow:
   security:
     # Comma-separated list of allowed origins for CORS
-    allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+    allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS}
+    keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI}
+    post-logout-redirect-uri: ${DOCFLOW_POST_LOGOUT_REDIRECT}
 # Otel configuration to disable tracing
 otel:
   traces:
     exporter: none
-# Logging configuration
-logging:
-  level:
-    org.springframework.security: DEBUG
