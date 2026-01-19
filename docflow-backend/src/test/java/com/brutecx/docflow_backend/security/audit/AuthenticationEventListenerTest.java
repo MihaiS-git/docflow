@@ -1,0 +1,80 @@
+package com.brutecx.docflow_backend.security.audit;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.authentication.event.AbstractAuthenticationFailureEvent;
+import org.springframework.security.authentication.event.AuthenticationFailureBadCredentialsEvent;
+import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
+import org.springframework.security.authentication.event.LogoutSuccessEvent;
+import org.springframework.security.core.AuthenticationException;
+
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.mockito.Mockito.*;
+
+class AuthenticationEventListenerTest {
+
+    AuthenticationEventRepository repo = mock(AuthenticationEventRepository.class);
+    HttpServletRequest request = mock(HttpServletRequest.class);
+
+    AuthenticationEventListener listener =
+            new AuthenticationEventListener(repo, request);
+
+    @Test
+    void login_success_is_persisted() {
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(request.getHeader("User-Agent")).thenReturn("JUnit");
+
+        listener.onSuccess(
+                new AuthenticationSuccessEvent(
+                        new TestingAuthenticationToken("user@test", "pwd")
+                )
+        );
+
+        verifySaved(AuthenticationResult.SUCCESS);
+    }
+
+    @Test
+    void login_failure_is_persisted() {
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(request.getHeader("User-Agent")).thenReturn("JUnit");
+
+        AbstractAuthenticationFailureEvent event =
+                new AuthenticationFailureBadCredentialsEvent(
+                        new TestingAuthenticationToken("user@test", "pwd"),
+                        new AuthenticationException("bad credentials") {}
+                );
+
+        listener.onFailure(event);
+
+        verifySaved(AuthenticationResult.FAILURE);
+    }
+
+    @Test
+    void logout_is_persisted() {
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(request.getHeader("User-Agent")).thenReturn("JUnit");
+
+        listener.onLogout(
+                new LogoutSuccessEvent(
+                        new TestingAuthenticationToken("user@test", "pwd")
+                )
+        );
+
+        verifySaved(AuthenticationResult.LOGOUT);
+    }
+
+    private void verifySaved(AuthenticationResult expectedResult) {
+        ArgumentCaptor<AuthenticationEvent> captor =
+                ArgumentCaptor.forClass(AuthenticationEvent.class);
+
+        verify(repo).save(captor.capture());
+
+        AuthenticationEvent event = captor.getValue();
+
+        assertThat(event.getResult()).isEqualTo(expectedResult);
+        assertThat(event.getResult().getValue()).isEqualTo(expectedResult.getValue());
+        assertThat(event.getUsername()).isEqualTo("user@test");
+    }
+}
