@@ -2,8 +2,10 @@ package com.brutecx.docflow_backend.security.audit;
 
 import com.brutecx.docflow_backend.security.audit.identity.IUserIdentityProjectionService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.MDC;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.authentication.event.AbstractAuthenticationFailureEvent;
 import org.springframework.security.authentication.event.AuthenticationFailureBadCredentialsEvent;
@@ -24,6 +26,16 @@ class AuthenticationEventListenerTest {
 
     AuthenticationEventListener listener =
             new AuthenticationEventListener(repo, request, identityProjectionService);
+
+    @BeforeEach
+    void setUp() {
+        MDC.put("requestId", "test-request-id");
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        MDC.clear();
+    }
 
     @Test
     void login_success_is_persisted() {
@@ -51,7 +63,8 @@ class AuthenticationEventListenerTest {
         AbstractAuthenticationFailureEvent event =
                 new AuthenticationFailureBadCredentialsEvent(
                         new TestingAuthenticationToken("user@test", "pwd"),
-                        new AuthenticationException("bad credentials") {}
+                        new AuthenticationException("bad credentials") {
+                        }
                 );
 
         listener.onFailure(event);

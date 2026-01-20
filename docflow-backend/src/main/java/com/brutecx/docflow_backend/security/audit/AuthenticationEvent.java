@@ -11,7 +11,6 @@ import java.util.UUID;
 @Table(name = "authentication_event")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@RequiredArgsConstructor
 public class AuthenticationEvent {
 
     @Id
@@ -50,12 +49,30 @@ public class AuthenticationEvent {
     @Column(name = "user_agent", nullable = false)
     private String userAgent;
 
-    @NonNull
-    @Column(name = "correlation_id", nullable = false)
+    @Column(name = "correlation_id", nullable = true)
     private String correlationId;
 
     @NonNull
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true)
     private String eventFingerprint;
 
+    public AuthenticationEvent(
+            Instant timestamp,
+            String username,
+            AuthenticationResult result,
+            String idp,
+            String ip,
+            String userAgent,
+            String correlationId,
+            String eventFingerprint
+    ) {
+        this.timestamp = timestamp;
+        this.username = username;
+        this.result = result;
+        this.idp = idp;
+        this.ip = ip;
+        this.userAgent = userAgent;
+        this.correlationId = correlationId;
+        this.eventFingerprint = eventFingerprint;
+    }
 }

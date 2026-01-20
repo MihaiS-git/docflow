@@ -54,6 +54,9 @@ services:
       timeout: 30s
       retries: 5
       start_period: 30s
+    ports:
+      - "5433:5432"
+    
 
   keycloak-db:
     image: postgres:16-alpine
