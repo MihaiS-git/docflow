@@ -10,6 +10,7 @@ import org.springframework.security.authentication.event.LogoutSuccessEvent;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Component
@@ -48,27 +49,54 @@ public class AuthenticationEventListener {
                 ? request.getHeader("X-Correlation-Id")
                 : UUID.randomUUID().toString();
 
+        String resolvedUsername =
+                (username != null && !username.isBlank()) ? username : "UNKNOWN";
+
+        String ip = request.getRemoteAddr() != null
+                ? request.getRemoteAddr()
+                : "UNKNOWN";
+
+        String userAgent = request.getHeader("User-Agent") != null
+                ? request.getHeader("User-Agent")
+                : "N/A";
+
+        // ⚠️ IMPORTANT: do NOT use Instant.now() in the fingerprint
+        String eventFingerprint = EventFingerprint.of(List.of(
+                result.name(),
+                "SPRING_SECURITY",   // source
+                resolvedUsername,
+                ip,
+                correlationId
+        ));
+
         AuthenticationEvent entity = new AuthenticationEvent(
                 Instant.now(),
-                username,
+                resolvedUsername,
                 result,
                 "KEYCLOAK",
-                request.getRemoteAddr(),
-                request.getHeader("User-Agent"),
-                correlationId
+                ip,
+                userAgent,
+                correlationId,
+                eventFingerprint
         );
 
-        repository.save(entity);
+        try {
+            repository.save(entity);
+        } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+            // duplicate event → safe to ignore
+            return;
+        }
 
         log.info(
                 "auth_event result={} username={} idp={} ip={} ua={} correlationId={}",
                 result,
-                username,
+                resolvedUsername,
                 "KEYCLOAK",
-                entity.getIp(),
-                entity.getUserAgent(),
+                ip,
+                userAgent,
                 correlationId
         );
     }
+
 
 }

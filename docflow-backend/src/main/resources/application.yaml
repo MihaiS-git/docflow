@@ -30,7 +30,7 @@ spring:
     password: ${DB_PASSWORD}
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create-drop
     open-in-view: false
   lifecycle:
     timeout-per-shutdown-phase: 30s

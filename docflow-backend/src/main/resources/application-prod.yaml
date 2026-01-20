@@ -6,3 +6,14 @@ server:
 logging:
   level:
     org.springframework.security: INFO
+docflow:
+  security:
+    keycloak:
+      admin:
+        enabled: true
+        base-url: ${KEYCLOAK_ADMIN_BASE_URL:http://keycloak:8080}
+        realm: ${KEYCLOAK_REALM:docflow}
+        client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:docflow-admin-events}
+        client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:${KEYCLOAK_ADMIN_CLIENT_SECRET}}
+        poll-fixed-delay-ms: ${KEYCLOAK_ADMIN_POLL_DELAY_MS:5000}
+        page-size: ${KEYCLOAK_ADMIN_PAGE_SIZE:100}

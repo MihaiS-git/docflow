@@ -24,6 +24,11 @@ public class AuthenticationEvent {
     @Column(nullable = false)
     private Instant timestamp;
 
+    /**
+     * Principal identifier.
+     * - Keycloak userId (UUID) for successful auth
+     * - "UNKNOWN" for failed auth
+     */
     @NonNull
     @Column(nullable = false)
     private String username;
@@ -48,5 +53,9 @@ public class AuthenticationEvent {
     @NonNull
     @Column(name = "correlation_id", nullable = false)
     private String correlationId;
+
+    @NonNull
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true)
+    private String eventFingerprint;
 
 }
