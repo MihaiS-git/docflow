@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nimbusds.oauth2.sdk.TokenResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Component
 public class KeycloakAdminClient {
 
@@ -60,6 +61,39 @@ public class KeycloakAdminClient {
             });
         } catch (Exception e) {
             throw new RestClientException("Failed to parse Keycloak events", e);
+        }
+    }
+
+    public KeycloakUser fetchUser(String userId) {
+        try {
+            String token = fetchAccessToken();
+
+            String url = props.baseUrl()
+                    + "/admin/realms/" + props.realm()
+                    + "/users/" + userId;
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(token);
+            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+
+            ResponseEntity<String> res = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    String.class
+            );
+
+            if (!res.getStatusCode().is2xxSuccessful() || res.getBody() == null) {
+                return null;
+            }
+
+            return objectMapper.readValue(res.getBody(), KeycloakUser.class);
+
+        } catch (RestClientException ex) {
+            log.warn("Keycloak fetchUser failed for userId={}", userId, ex);
+            return null; // user deleted or access revoked
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to parse Keycloak user", ex);
         }
     }
 

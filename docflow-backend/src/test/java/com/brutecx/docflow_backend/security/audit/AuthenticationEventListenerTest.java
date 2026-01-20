@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.audit;
 
+import com.brutecx.docflow_backend.security.audit.identity.IUserIdentityProjectionService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -17,9 +18,12 @@ class AuthenticationEventListenerTest {
 
     AuthenticationEventRepository repo = mock(AuthenticationEventRepository.class);
     HttpServletRequest request = mock(HttpServletRequest.class);
+    IUserIdentityProjectionService identityProjectionService =
+            mock(IUserIdentityProjectionService.class);
+
 
     AuthenticationEventListener listener =
-            new AuthenticationEventListener(repo, request);
+            new AuthenticationEventListener(repo, request, identityProjectionService);
 
     @Test
     void login_success_is_persisted() {
@@ -33,6 +37,10 @@ class AuthenticationEventListenerTest {
         );
 
         verifySaved(AuthenticationResult.SUCCESS);
+
+        // optional but recommended
+        verify(identityProjectionService)
+                .ensureProjected("user@test");
     }
 
     @Test

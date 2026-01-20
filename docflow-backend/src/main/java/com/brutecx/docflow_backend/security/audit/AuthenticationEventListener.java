@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.audit;
 
+import com.brutecx.docflow_backend.security.audit.identity.IUserIdentityProjectionService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,17 +22,23 @@ public class AuthenticationEventListener {
     private final AuthenticationEventRepository repository;
     private final HttpServletRequest request;
 
+    private final IUserIdentityProjectionService identityProjectionService;
+
     public AuthenticationEventListener(
             AuthenticationEventRepository repository,
-            HttpServletRequest request
+            HttpServletRequest request,
+            IUserIdentityProjectionService identityProjectionService
     ) {
         this.repository = repository;
         this.request = request;
+        this.identityProjectionService = identityProjectionService;
     }
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
+        String subjectId = event.getAuthentication().getName();
         persist(AuthenticationResult.SUCCESS, event.getAuthentication().getName());
+        identityProjectionService.ensureProjected(subjectId);
     }
 
     @EventListener
