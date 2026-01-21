@@ -22,8 +22,8 @@ If a change is not exported and committed, it **will be lost**.
 - Git is the **only persistent source of configuration**
 
 Running:
-    docker compose down -v
-    docker compose up -d
+docker compose down -v
+docker compose up -d
 must always recreate the same Keycloak behavior.
 
 Startup Behavior
@@ -32,25 +32,23 @@ Keycloak is started with:
 
 --import-realm
 
-
 This means:
-    On a fresh database:
-        the realm is automatically imported from realm-docflow.json
-    On an existing database:
-        import is skipped (safe)
+On a fresh database:
+the realm is automatically imported from realm-docflow.json
+On an existing database:
+import is skipped (safe)
 Never rely on database persistence for configuration.
 
 Admin UI Usage Rules
-    The Admin UI may be used only for:
-        inspecting configuration
-        experimenting / prototyping
-        understanding Keycloak behavior
-    Any UI change is temporary until exported and committed.
-    If you configure something only in the UI, it will be lost on:
-        container rebuild
-        volume removal
-        host migration
-
+The Admin UI may be used only for:
+inspecting configuration
+experimenting / prototyping
+understanding Keycloak behavior
+Any UI change is temporary until exported and committed.
+If you configure something only in the UI, it will be lost on:
+container rebuild
+volume removal
+host migration
 
 Canonical Realm Export Workflow (Keycloak 26.x)
 ⚠️ Important
@@ -59,35 +57,38 @@ You must export from the running container.
 
 Step 1 — Export the realm from the running container
 docker exec docflow-keycloak \
-  /opt/keycloak/bin/kc.sh export \
-  --realm=docflow \
-  --dir=/opt/keycloak/data/export \
-  --users=skip
-
+ /opt/keycloak/bin/kc.sh export \
+ --realm=docflow \
+ --dir=/opt/keycloak/data/export \
+ --users=skip
 
 --users=skip ensures:
-    no users
-    no passwords
-    no personal data
+no users
+no passwords
+no personal data
 This is Git-safe.
 
 Step 2 — Inspect the export directory (mandatory)
-    Keycloak does not guarantee filenames, so always list first:
-        docker exec docflow-keycloak ls -la /opt/keycloak/data/export
-    Typical output:
-        docflow-realm.json
+Keycloak does not guarantee filenames, so always list first:
+docker exec docflow-keycloak ls -la /opt/keycloak/data/export
+Typical output:
+docflow-realm.json
 
 Step 3 — Copy the exported file into the repository
-    Normalize the filename to realm-docflow.json:
-        docker cp \
-        docflow-keycloak:/opt/keycloak/data/export/docflow-realm.json \
-        ./keycloak/realm-docflow.json
+Normalize the filename to realm-docflow.json:
+docker cp \
+ docflow-keycloak:/opt/keycloak/data/export/docflow-realm.json \
+ ./keycloak/realm-docflow.json
 
 Step 4 — (Optional) Clean up the container
-    docker exec docflow-keycloak rm -rf /opt/keycloak/data/export
+docker exec docflow-keycloak rm -rf /opt/keycloak/data/export
+
+!!! STEP 5 
+docflow-admin-events add roles
+    
 
 Step 5 — Commit the change
-    git add keycloak/realm-docflow.json
-    git commit -m "keycloak: export docflow realm configuration"
+git add keycloak/realm-docflow.json
+git commit -m "keycloak: export docflow realm configuration"
 
 From this point on, the configuration is safe.
