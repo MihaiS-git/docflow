@@ -106,6 +106,4 @@ public class AuthenticationEventListener {
                 correlationId
         );
     }
-
-
 }

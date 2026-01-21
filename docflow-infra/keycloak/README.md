@@ -83,11 +83,14 @@ docker cp \
 Step 4 — (Optional) Clean up the container
 docker exec docflow-keycloak rm -rf /opt/keycloak/data/export
 
-!!! STEP 5 
-docflow-admin-events add roles
-    
+!!! STEP 5
+docflow-admin-events -> Manually add roles in Service account roles:
+query-users
+view-events
+view-realm
+view-users
 
-Step 5 — Commit the change
+Step 6 — Commit the change
 git add keycloak/realm-docflow.json
 git commit -m "keycloak: export docflow realm configuration"
 

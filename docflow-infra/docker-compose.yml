@@ -114,12 +114,6 @@ services:
       KC_HOSTNAME_STRICT: true
       KC_HTTP_ENABLED: true
 
-      # KC_HOSTNAME: localhost
-      # KC_HOSTNAME_PORT: 8085
-
-      # KC_HOSTNAME_URL: http://localhost:8085
-      # KC_HOSTNAME_ADMIN: http://localhost:8085
-
       # Use hostname v2 option (can be full URL incl. port)
       KC_HOSTNAME: http://localhost:8085
       KC_HOSTNAME_ADMIN: http://localhost:8085
