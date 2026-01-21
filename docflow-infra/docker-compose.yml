@@ -1,4 +1,19 @@
 services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: docflow-nginx
+    depends_on:
+      backend:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    ports:
+      - "8085:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    networks:
+      - default
+
   backend:
     image: docflow-backend:dev
     container_name: docflow-backend
@@ -7,7 +22,7 @@ services:
     depends_on:
       keycloak:
         condition: service_started
-      docflow-db: 
+      docflow-db:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: prod
@@ -16,24 +31,30 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${DOCFLOW_DB_PASSWORD}
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       SPRING_JPA_OPEN_IN_VIEW: "false"
+
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+
+      # Browser-facing (via nginx)
       KEYCLOAK_AUTH_URI: ${KEYCLOAK_AUTH_URI}
+      KEYCLOAK_LOGOUT_URI: ${KEYCLOAK_LOGOUT_URI}
+
+      # Internal (container → container)
       KEYCLOAK_TOKEN_URI: ${KEYCLOAK_TOKEN_URI}
       KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI}
-      KEYCLOAK_LOGOUT_URI: ${KEYCLOAK_LOGOUT_URI}
+
       DOCFLOW_POST_LOGOUT_REDIRECT: ${FRONTEND_BASE_URL}
       DOCFLOW_ALLOWED_ORIGINS: ${FRONTEND_BASE_URL}
-      # --- Keycloak Admin Events (PULL) ---
-      KEYCLOAK_ADMIN_BASE_URL: http://docflow-keycloak:8080
+
+      # --- Keycloak Admin Events ---
+      KEYCLOAK_ADMIN_BASE_URL: ${KEYCLOAK_ADMIN_BASE_URL}
       KEYCLOAK_REALM: docflow
       KEYCLOAK_ADMIN_CLIENT_ID: docflow-admin-events
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
       KEYCLOAK_ADMIN_POLL_DELAY_MS: 5000
       KEYCLOAK_ADMIN_PAGE_SIZE: 100
-    ports:
-      - "8080:8080"
+
     healthcheck:
-      test: ["CMD", "curl", "-f", "${ACTUATOR_HEALTH_URL}"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -50,13 +71,11 @@ services:
       - docflow-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DOCFLOW_DB_USER} -d ${DOCFLOW_DB_NAME}"]
-      interval: 1m30s
-      timeout: 30s
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 30s
     ports:
       - "5433:5432"
-    
 
   keycloak-db:
     image: postgres:16-alpine
@@ -91,19 +110,20 @@ services:
       KC_DB_USERNAME: ${KEYCLOAK_DB_USERNAME}
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
 
-      # Internal container networking
-      KC_HTTP_ENABLED: "true"
-      KC_HTTP_PORT: 8080
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME_STRICT: true
+      KC_HTTP_ENABLED: true
 
-      # External (browser-facing) URL
-      KC_HOSTNAME_URL: ${KC_HOSTNAME_URL}
+      # KC_HOSTNAME: localhost
+      # KC_HOSTNAME_PORT: 8085
 
-      # We are behind Docker port mapping / proxy
-      KC_PROXY: edge
-      KC_HOSTNAME_STRICT: "false"
+      # KC_HOSTNAME_URL: http://localhost:8085
+      # KC_HOSTNAME_ADMIN: http://localhost:8085
 
-    ports:
-      - "8081:8080"
+      # Use hostname v2 option (can be full URL incl. port)
+      KC_HOSTNAME: http://localhost:8085
+      KC_HOSTNAME_ADMIN: http://localhost:8085
+    ports: [] # keep Keycloak internal; access only via nginx
     volumes:
       - ./keycloak/realm-docflow.json:/opt/keycloak/data/import/realm-docflow.json:ro
 

@@ -3,6 +3,16 @@ server:
     session:
       cookie:
         secure: true   # behind HTTPS/Nginx in prod
+        same-site: none
+  use-forward-headers: true
+  forward-headers-strategy: framework
+  tomcat:
+    use-relative-redirects: true
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
 logging:
   level:
     org.springframework.security: INFO

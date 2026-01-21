@@ -7,7 +7,7 @@ spring:
             client-id: ${KEYCLOAK_CLIENT_ID:docflow-bff}
         provider:
           keycloak:
-            authorization-uri: ${KEYCLOAK_AUTH_URI:http://localhost:8081/realms/docflow/protocol/openid-connect/auth}
+            authorization-uri: ${KEYCLOAK_AUTH_URI:http://localhost:8085/realms/docflow/protocol/openid-connect/auth}
             token-uri: ${KEYCLOAK_TOKEN_URI:http://keycloak:8080/realms/docflow/protocol/openid-connect/token}
             jwk-set-uri: ${KEYCLOAK_JWKS_URI:http://keycloak:8080/realms/docflow/protocol/openid-connect/certs}
   datasource:
@@ -26,7 +26,7 @@ logging:
 docflow:
   security:
     allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
-    keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI:http://localhost:8081/realms/docflow/protocol/openid-connect/logout}
+    keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI:http://localhost:8085/realms/docflow/protocol/openid-connect/logout}
     post-logout-redirect-uri: ${DOCFLOW_POST_LOGOUT_REDIRECT:http://localhost:3000}
     keycloak:
       admin:

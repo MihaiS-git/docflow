@@ -11,11 +11,11 @@ spring:
         registration:
           keycloak:
             client-id: ${KEYCLOAK_CLIENT_ID}
-            client-secret: ${KEYCLOAK_CLIENT_SECRET}
+            client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
             client-authentication-method: client_secret_basic
             authorization-grant-type: authorization_code
             scope: openid,profile,email,roles
-            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            redirect-uri: "http://localhost:8085/login/oauth2/code/{registrationId}"
         provider:
           keycloak:
             authorization-uri: ${KEYCLOAK_AUTH_URI}
@@ -29,8 +29,6 @@ spring:
     username: ${DB_USER}
     password: ${DB_PASSWORD}
   jpa:
-    hibernate:
-      ddl-auto: create-drop
     open-in-view: false
   lifecycle:
     timeout-per-shutdown-phase: 30s
