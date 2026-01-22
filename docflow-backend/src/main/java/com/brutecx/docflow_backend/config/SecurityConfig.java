@@ -4,6 +4,8 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
+import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,7 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.core.Authentication;
+//import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
@@ -45,16 +47,19 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            OAuth2AuthorizationRequestResolver pkceAuthorizationRequestResolver
+            OAuth2AuthorizationRequestResolver pkceAuthorizationRequestResolver,
+            RestAccessDeniedHandler restAccessDeniedHandler,
+            LifecycleAuthorizationManager lifecycleAuthorizationManager
     ) throws Exception {
         http
-                // BFF: keep CSRF enabled; token stored in a cookie readable by JS if needed.
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .ignoringRequestMatchers("/api/auth/logout")
                 )
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/**")
+                        .access(lifecycleAuthorizationManager)
                         .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/prometheus",
@@ -69,6 +74,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex
+                        .accessDeniedHandler(restAccessDeniedHandler)
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                                 request -> request.getRequestURI().startsWith("/api/")
@@ -82,11 +88,9 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .oauth2Login(oauth2 -> oauth2
-                        // FORCE PKCE (Keycloak requires S256 in your config)
                         .authorizationEndpoint(authorization -> authorization
                                 .authorizationRequestResolver(pkceAuthorizationRequestResolver)
                         )
-                        // IMPORTANT: do NOT call UserInfo (you already hit 401 Unauthorized there)
                         .userInfoEndpoint(userInfo -> {
                         })
                         .defaultSuccessUrl("http://localhost:3000", true)
@@ -94,20 +98,21 @@ public class SecurityConfig {
                 .logout(logout -> logout
                         .logoutUrl("/api/auth/logout")
                         .logoutSuccessHandler((req, res, auth) -> {
-                            StringBuilder redirect = new StringBuilder(keycloakLogoutUri);
                             if (auth instanceof OAuth2AuthenticationToken oauth &&
                                     oauth.getPrincipal() instanceof OidcUser oidcUser) {
                                 String idToken = oidcUser.getIdToken().getTokenValue();
-                                redirect.append("?id_token_hint=")
-                                        .append(URLEncoder.encode(idToken, StandardCharsets.UTF_8))
-                                        .append("&post_logout_redirect_uri=");
-                            } else {
-                                redirect.append("?post_logout_redirect_uri=");
+                                String redirect =
+                                        keycloakLogoutUri +
+                                                "?id_token_hint=" + URLEncoder.encode(idToken, StandardCharsets.UTF_8) +
+                                                "&post_logout_redirect_uri=" +
+                                                URLEncoder.encode(postLogoutRedirectUri, StandardCharsets.UTF_8);
+                                res.sendRedirect(redirect);
+                                return;
                             }
-                            redirect.append(
-                                    URLEncoder.encode(postLogoutRedirectUri, StandardCharsets.UTF_8)
-                            );
-                            res.sendRedirect(redirect.toString());
+
+                            // If auth is null / cleared (e.g. blocked user flow),
+                            // do not call Keycloak logout endpoint (it may 400 without id_token_hint).
+                            res.sendRedirect(postLogoutRedirectUri);
                         })
                         .invalidateHttpSession(true)
                         .clearAuthentication(true)
@@ -180,16 +185,16 @@ public class SecurityConfig {
         return source;
     }
 
-    private String extractIdToken(Authentication authentication) {
-        if (authentication == null) {
-            return "";
-        }
-
-        Object principal = authentication.getPrincipal();
-        if (principal instanceof OidcUser oidcUser) {
-            return oidcUser.getIdToken().getTokenValue();
-        }
-
-        return "";
-    }
+//    private String extractIdToken(Authentication authentication) {
+//        if (authentication == null) {
+//            return "";
+//        }
+//
+//        Object principal = authentication.getPrincipal();
+//        if (principal instanceof OidcUser oidcUser) {
+//            return oidcUser.getIdToken().getTokenValue();
+//        }
+//
+//        return "";
+//    }
 }

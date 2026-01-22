@@ -1,6 +1,8 @@
+import { ApiError, ForbiddenError, UnauthenticatedError } from "./apiErrors";
+
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
 ): Promise<T> {
   const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
   const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
@@ -15,11 +17,16 @@ export async function apiFetch<T>(
   });
 
   if (res.status === 401) {
-    throw new Error("Unauthenticated");
+    throw new UnauthenticatedError();
+  }
+
+  if (res.status === 403) {
+    const body = (await res.json()) as { errorCode?: string };
+    throw new ForbiddenError(body.errorCode ?? "ACCESS_DENIED");
   }
 
   if (!res.ok) {
-    throw new Error(`API error ${res.status}`);
+    throw new ApiError(`API error ${res.status}`, res.status);
   }
 
   return res.json();

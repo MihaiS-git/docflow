@@ -1,14 +1,32 @@
 import { apiFetch } from "@/lib/apiFetch";
 import type { AuthUser } from "@/types/AuthUser";
+import { ForbiddenError, UnauthenticatedError } from "./apiErrors";
 
-export async function getCurrentUser({ redirect = false } = {}) {
+export type AuthResult =
+  | { state: "AUTH"; user: AuthUser }
+  | { state: "ANON" }
+  | { state: "BLOCKED"; errorCode: string };
+
+export async function getCurrentUser(
+  { redirect = false } = {}
+): Promise<AuthResult> {
   try {
-    return await apiFetch<AuthUser>("/api/auth/me");
-  } catch {
-    if (redirect) {
-      window.location.href = `${process.env.NEXT_PUBLIC_API_BASE_URL}/oauth2/authorization/keycloak`;
+    const user = await apiFetch<AuthUser>("/api/auth/me");
+    return { state: "AUTH", user };
+  } catch (err) {
+    if (err instanceof UnauthenticatedError) {
+      if (redirect) {
+        window.location.href =
+          `${process.env.NEXT_PUBLIC_API_BASE_URL}/oauth2/authorization/keycloak`;
+      }
+      return { state: "ANON" };
     }
-    return null;
+
+    if (err instanceof ForbiddenError) {
+      return { state: "BLOCKED", errorCode: err.errorCode };
+    }
+
+    throw err; // real bug
   }
 }
 
