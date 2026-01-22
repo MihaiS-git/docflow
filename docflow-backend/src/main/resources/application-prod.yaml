@@ -4,6 +4,7 @@ server:
       cookie:
         secure: true   # behind HTTPS/Nginx in prod
         same-site: none
+      timeout: 30m
   use-forward-headers: true
   forward-headers-strategy: framework
   tomcat:
@@ -13,9 +14,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+
 logging:
   level:
     org.springframework.security: INFO
+
 docflow:
   security:
     keycloak:
@@ -27,3 +30,6 @@ docflow:
         client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
         poll-fixed-delay-ms: ${KEYCLOAK_ADMIN_POLL_DELAY_MS}
         page-size: ${KEYCLOAK_ADMIN_PAGE_SIZE}
+    session:
+      absolute-timeout: 8h
+      max-concurrent-sessions: 1

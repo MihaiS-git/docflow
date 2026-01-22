@@ -49,7 +49,6 @@ public class AuthenticationSuccessListener {
         String email = oidcUser.getEmail();
         String firstName = oidcUser.getGivenName();
         String lastName = oidcUser.getFamilyName();
-        String displayName = oidcUser.getFullName();
 
         Tenant tenant = tenantService.getCurrentTenant();
 
@@ -59,8 +58,7 @@ public class AuthenticationSuccessListener {
                         subject,
                         email,
                         firstName,
-                        lastName,
-                        displayName
+                        lastName
                 ));
 
         updateLastLogin(user);
@@ -72,21 +70,17 @@ public class AuthenticationSuccessListener {
             String subject,
             String email,
             String firstName,
-            String lastName,
-            String displayName) {
-        return User.builder()
-                .tenant(tenant)
-                .externalSubjectId(subject)
-                .email(email)
-                .firstName(firstName != null ? firstName : "")
-                .lastName(lastName != null ? lastName : "")
-                .displayName(
-                        displayName != null
-                                ? displayName
-                                : ((firstName != null ? firstName : "") +
-                                " " +
-                                (lastName != null ? lastName : "")).trim())
-                .build();
+            String lastName
+    ) {
+        User user = new User(
+                subject,
+                email,
+                firstName != null ? firstName : "",
+                lastName != null ? lastName : ""
+        );
+
+        tenant.addUser(user); // enforces tenant invariant
+        return user;
     }
 
     private void updateLastLogin(User user) {

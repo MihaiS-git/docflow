@@ -8,13 +8,13 @@ import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
 @Getter
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(
         name = "users",
         uniqueConstraints = {
@@ -33,7 +33,6 @@ public class User {
     @Column(name = "external_subject_id", nullable = false, length = 128)
     private String externalSubjectId;
 
-    @NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "tenant_id", nullable = false)
     private Tenant tenant;
@@ -62,11 +61,10 @@ public class User {
     @Column(name = "business_phone")
     private String businessPhone;
 
-    @Builder.Default
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private UserStatus status = UserStatus.ACTIVE;
+    private UserStatus status;
 
     @NotNull
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -88,19 +86,44 @@ public class User {
     @Column(name = "last_login_user_agent")
     private String lastLoginUserAgent;
 
+    public User(
+            String externalSubjectId,
+            String email,
+            String firstName,
+            String lastName
+    ) {
+        this.externalSubjectId = Objects.requireNonNull(externalSubjectId);
+        this.email = Objects.requireNonNull(email).toLowerCase(Locale.ROOT);
+        this.firstName = Objects.requireNonNull(firstName);
+        this.lastName = Objects.requireNonNull(lastName);
+        this.status = UserStatus.ACTIVE;
+    }
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
         updatedAt = Instant.now();
 
-        if (displayName == null && firstName != null && lastName != null) {
-            displayName = firstName + " " + lastName;
+        if (displayName == null) {
+            displayName = (firstName + " " + lastName).trim();
+        }
+
+        if (tenant == null) {
+            throw new IllegalStateException("User must belong to a tenant");
         }
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = Instant.now();
+    }
+
+    public void assignToTenant(Tenant tenant) {
+        Objects.requireNonNull(tenant, "tenant");
+        if (this.tenant != null && !this.tenant.equals(tenant)) {
+            throw new IllegalStateException("User already assigned to a tenant");
+        }
+        this.tenant = tenant;
     }
 
 }

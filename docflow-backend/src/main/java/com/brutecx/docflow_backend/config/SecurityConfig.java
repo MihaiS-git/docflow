@@ -6,6 +6,8 @@ import java.util.*;
 
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
+import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
+import com.brutecx.docflow_backend.security.session.SessionSecurityProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,6 +21,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
+import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
@@ -29,7 +33,9 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -44,19 +50,31 @@ public class SecurityConfig {
     @Value("${docflow.security.post-logout-redirect-uri}")
     private String postLogoutRedirectUri;
 
+    @Value("${docflow.security.session.max-concurrent-sessions}")
+    int maxConcurrentSessions;
+
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             OAuth2AuthorizationRequestResolver pkceAuthorizationRequestResolver,
             RestAccessDeniedHandler restAccessDeniedHandler,
-            LifecycleAuthorizationManager lifecycleAuthorizationManager
+            LifecycleAuthorizationManager lifecycleAuthorizationManager,
+            AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter,
+            SessionSecurityProperties sessionSecurityProperties
     ) throws Exception {
         http
+                .addFilterAfter(absoluteSessionTimeoutFilter, SecurityContextHolderFilter.class)
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .ignoringRequestMatchers("/api/auth/logout")
                 )
                 .cors(Customizer.withDefaults())
+                .sessionManagement(session -> session
+                        .sessionFixation(fixation -> fixation.migrateSession())
+                        .maximumSessions(maxConcurrentSessions)
+                        .maxSessionsPreventsLogin(true)
+                        .sessionRegistry(sessionRegistry())
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/**")
                         .access(lifecycleAuthorizationManager)
@@ -185,16 +203,17 @@ public class SecurityConfig {
         return source;
     }
 
-//    private String extractIdToken(Authentication authentication) {
-//        if (authentication == null) {
-//            return "";
-//        }
-//
-//        Object principal = authentication.getPrincipal();
-//        if (principal instanceof OidcUser oidcUser) {
-//            return oidcUser.getIdToken().getTokenValue();
-//        }
-//
-//        return "";
-//    }
+    @Bean
+    public SessionRegistry sessionRegistry() {
+        return new SessionRegistryImpl();
+    }
+
+    /**
+     * Required for Spring Security concurrency control to be notified when sessions are destroyed.
+     * Works without Spring Session.
+     */
+    @Bean
+    public HttpSessionEventPublisher httpSessionEventPublisher() {
+        return new HttpSessionEventPublisher();
+    }
 }

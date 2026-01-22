@@ -7,15 +7,11 @@ import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 @Entity
 @Getter
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(name = "tenants")
 public class Tenant {
 
@@ -37,8 +33,8 @@ public class Tenant {
     @NotNull
     private Instant updatedAt;
 
-    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY)
-    private List<User> users = new ArrayList<>();
+    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY, orphanRemoval = true)
+    private final List<User> users = new ArrayList<>();
 
     @PrePersist
     protected void onCreate() {
@@ -49,5 +45,24 @@ public class Tenant {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = Instant.now();
+    }
+
+    public Tenant(String name) {
+        this.name = Objects.requireNonNull(name);
+        this.status = TenantStatus.ACTIVE;
+    }
+
+    public void suspend() {
+        this.status = TenantStatus.SUSPENDED;
+    }
+
+    public void addUser(User user) {
+        Objects.requireNonNull(user);
+        user.assignToTenant(this);
+        users.add(user);
+    }
+
+    public List<User> getUsers() {
+        return Collections.unmodifiableList(users);
     }
 }
