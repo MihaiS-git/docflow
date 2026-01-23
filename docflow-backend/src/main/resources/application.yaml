@@ -11,8 +11,6 @@ spring:
         registration:
           keycloak:
             client-id: ${KEYCLOAK_CLIENT_ID}
-            client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
-            client-authentication-method: client_secret_basic
             authorization-grant-type: authorization_code
             scope: openid,profile,email,roles
             redirect-uri: "http://localhost:8085/login/oauth2/code/{registrationId}"
