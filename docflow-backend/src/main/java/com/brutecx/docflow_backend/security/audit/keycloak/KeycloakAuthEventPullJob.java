@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.time.Instant;
 import java.util.List;
@@ -51,25 +52,30 @@ public class KeycloakAuthEventPullJob {
         long maxPersistedTime = since;
         int duplicates = 0;
 
-        List<KeycloakAdminClient.KeycloakAdminEvent> events = keycloak.fetchEvents(since);
+        List<KeycloakAdminClient.KeycloakAdminEvent> events;
+        try {
+            events = keycloak.fetchEvents(since);
+        } catch (HttpClientErrorException.Forbidden ex) {
+            // Admin client temporarily unauthorized (token expired / role missing).
+            // This MUST NOT affect user login.
+            log.warn("Keycloak admin events poll forbidden (403). Skipping this cycle.");
+            return;
+        } catch (Exception ex) {
+            // Any other failure must also be isolated
+            log.error("Failed to poll Keycloak admin events", ex);
+            return;
+        }
+
         if (events.isEmpty()) {
             return;
         }
+
 
         // persist only failures coming from Keycloak
         for (KeycloakAdminClient.KeycloakAdminEvent e : events) {
             if (!"LOGIN_ERROR".equalsIgnoreCase(e.type())) {
                 continue;
             }
-
-//            String fingerprint = EventFingerprint.of(List.of(
-//                    e.type(),
-//                    String.valueOf(e.time()),
-//                    e.clientId(),
-//                    e.userId(),
-//                    e.ipAddress(),
-//                    e.sessionId()
-//            ));
 
             String fingerprint = EventFingerprint.of(List.of(
                     e.type(),

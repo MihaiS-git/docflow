@@ -22,6 +22,17 @@ public class AbsoluteSessionTimeoutFilter extends OncePerRequestFilter {
     private final Clock clock = Clock.systemUTC();
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+
+        if (path == null) return false;
+
+        return path.startsWith("/oauth2/")
+                || path.startsWith("/login/oauth2/")
+                || path.startsWith("/login/");
+    }
+
+    @Override
     protected void doFilterInternal(
             HttpServletRequest request,
             HttpServletResponse response,

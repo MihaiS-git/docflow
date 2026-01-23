@@ -29,11 +29,13 @@ public class AuthenticationSuccessListener {
     private final TenantService tenantService;
 
     @EventListener
+    @Transactional
     public void onInteractiveSuccess(InteractiveAuthenticationSuccessEvent event) {
         handleAuthentication(event.getAuthentication());
     }
 
     @EventListener
+    @Transactional
     public void onAuthenticationSuccess(AuthenticationSuccessEvent event) {
         handleAuthentication(event.getAuthentication());
     }

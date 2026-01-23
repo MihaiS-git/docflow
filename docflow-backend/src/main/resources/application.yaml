@@ -63,7 +63,8 @@ server:
     session:
       cookie:
         http-only: true
-        same-site: lax
+        same-site: LAX
+        secure: false
 
 # Custom application properties
 docflow:

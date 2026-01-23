@@ -76,8 +76,7 @@ docflow-realm.json
 
 Step 3 — Copy the exported file into the repository
 
-docker cp docflow-keycloak:/opt/keycloak/data/export/docflow-realm.json \
-keycloak/
+docker cp docflow-keycloak:/opt/keycloak/data/export/docflow-realm.json keycloak/docflow-realm.json
 
 Step 4 — (Optional) Clean up the container
 docker exec docflow-keycloak rm -rf /opt/keycloak/data/export

@@ -1484,7 +1484,7 @@
       "subType" : "anonymous",
       "subComponents" : { },
       "config" : {
-        "allowed-protocol-mapper-types" : [ "oidc-full-name-mapper", "saml-user-property-mapper", "oidc-address-mapper", "saml-user-attribute-mapper", "saml-role-list-mapper", "oidc-usermodel-attribute-mapper", "oidc-usermodel-property-mapper", "oidc-sha256-pairwise-sub-mapper" ]
+        "allowed-protocol-mapper-types" : [ "oidc-address-mapper", "oidc-usermodel-property-mapper", "saml-user-property-mapper", "saml-user-attribute-mapper", "oidc-usermodel-attribute-mapper", "oidc-full-name-mapper", "saml-role-list-mapper", "oidc-sha256-pairwise-sub-mapper" ]
       }
     }, {
       "id" : "e2ce5c3d-716b-45b9-a2eb-52076128b7dd",
@@ -1509,7 +1509,7 @@
       "subType" : "authenticated",
       "subComponents" : { },
       "config" : {
-        "allowed-protocol-mapper-types" : [ "oidc-full-name-mapper", "saml-role-list-mapper", "saml-user-property-mapper", "oidc-sha256-pairwise-sub-mapper", "oidc-usermodel-property-mapper", "oidc-address-mapper", "oidc-usermodel-attribute-mapper", "saml-user-attribute-mapper" ]
+        "allowed-protocol-mapper-types" : [ "oidc-full-name-mapper", "oidc-sha256-pairwise-sub-mapper", "oidc-usermodel-property-mapper", "oidc-address-mapper", "saml-user-property-mapper", "saml-user-attribute-mapper", "saml-role-list-mapper", "oidc-usermodel-attribute-mapper" ]
       }
     } ],
     "org.keycloak.keys.KeyProvider" : [ {
@@ -1657,7 +1657,7 @@
     "authenticationExecutions" : [ {
       "authenticator" : "auth-cookie",
       "authenticatorFlow" : false,
-      "requirement" : "DISABLED",
+      "requirement" : "ALTERNATIVE",
       "priority" : 10,
       "autheticatorFlow" : false,
       "userSetupAllowed" : false
@@ -1678,7 +1678,7 @@
     }, {
       "authenticatorFlow" : true,
       "requirement" : "REQUIRED",
-      "priority" : 32,
+      "priority" : 30,
       "autheticatorFlow" : true,
       "flowAlias" : "Browser-MFA forms",
       "userSetupAllowed" : false
@@ -1686,7 +1686,7 @@
       "authenticator" : "webauthn-authenticator",
       "authenticatorFlow" : false,
       "requirement" : "ALTERNATIVE",
-      "priority" : 33,
+      "priority" : 31,
       "autheticatorFlow" : false,
       "userSetupAllowed" : false
     } ]
@@ -1701,14 +1701,14 @@
       "authenticator" : "auth-username-password-form",
       "authenticatorFlow" : false,
       "requirement" : "REQUIRED",
-      "priority" : 12,
+      "priority" : 10,
       "autheticatorFlow" : false,
       "userSetupAllowed" : false
     }, {
       "authenticator" : "auth-otp-form",
       "authenticatorFlow" : false,
       "requirement" : "REQUIRED",
-      "priority" : 13,
+      "priority" : 11,
       "autheticatorFlow" : false,
       "userSetupAllowed" : false
     } ]
@@ -1781,7 +1781,7 @@
     }, {
       "authenticator" : "auth-otp-form",
       "authenticatorFlow" : false,
-      "requirement" : "REQUIRED",
+      "requirement" : "ALTERNATIVE",
       "priority" : 30,
       "autheticatorFlow" : false,
       "userSetupAllowed" : false
@@ -2228,7 +2228,7 @@
     "name" : "Configure OTP",
     "providerId" : "CONFIGURE_TOTP",
     "enabled" : true,
-    "defaultAction" : true,
+    "defaultAction" : false,
     "priority" : 61,
     "config" : { }
   } ],

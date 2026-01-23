@@ -6,8 +6,10 @@ import java.util.*;
 
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
+import com.brutecx.docflow_backend.security.mfa.MfaAssuranceEnforcementFilter;
+import com.brutecx.docflow_backend.security.oauth2.CookieOAuth2AuthorizationRequestRepository;
 import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
-import com.brutecx.docflow_backend.security.session.SessionSecurityProperties;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,7 +19,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-//import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
@@ -25,9 +26,11 @@ import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
@@ -40,6 +43,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+@Slf4j
 @Configuration
 @Profile({"dev", "prod"})
 public class SecurityConfig {
@@ -60,10 +64,11 @@ public class SecurityConfig {
             RestAccessDeniedHandler restAccessDeniedHandler,
             LifecycleAuthorizationManager lifecycleAuthorizationManager,
             AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter,
-            SessionSecurityProperties sessionSecurityProperties
+            MfaAssuranceEnforcementFilter mfaAssuranceEnforcementFilter
     ) throws Exception {
         http
                 .addFilterAfter(absoluteSessionTimeoutFilter, SecurityContextHolderFilter.class)
+                .addFilterAfter(mfaAssuranceEnforcementFilter, SecurityContextHolderFilter.class)
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .ignoringRequestMatchers("/api/auth/logout")
@@ -76,6 +81,7 @@ public class SecurityConfig {
                         .sessionRegistry(sessionRegistry())
                 )
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
                         .requestMatchers("/api/**")
                         .access(lifecycleAuthorizationManager)
                         .requestMatchers(
@@ -101,6 +107,7 @@ public class SecurityConfig {
                                 new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/keycloak"),
                                 request -> !request.getRequestURI().startsWith("/api/")
                                         && !request.getRequestURI().startsWith("/actuator")
+                                        && !request.getRequestURI().startsWith("/login")
                         )
                 )
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -108,10 +115,20 @@ public class SecurityConfig {
                 .oauth2Login(oauth2 -> oauth2
                         .authorizationEndpoint(authorization -> authorization
                                 .authorizationRequestResolver(pkceAuthorizationRequestResolver)
+                                .authorizationRequestRepository(authorizationRequestRepository())
+                        )
+                        .redirectionEndpoint(redirection -> redirection
+                                .baseUri("/login/oauth2/code/*")
                         )
                         .userInfoEndpoint(userInfo -> {
                         })
-                        .defaultSuccessUrl("http://localhost:3000", true)
+                        .successHandler((request, response, authentication) -> {
+                            response.sendRedirect("http://localhost:3000");
+                        })
+                        .failureHandler((request, response, exception) -> {
+                            log.error("OAuth2 failure handler invoked", exception);
+                            response.sendRedirect("http://localhost:3000");
+                        })
                 )
                 .logout(logout -> logout
                         .logoutUrl("/api/auth/logout")
@@ -128,8 +145,6 @@ public class SecurityConfig {
                                 return;
                             }
 
-                            // If auth is null / cleared (e.g. blocked user flow),
-                            // do not call Keycloak logout endpoint (it may 400 without id_token_hint).
                             res.sendRedirect(postLogoutRedirectUri);
                         })
                         .invalidateHttpSession(true)
@@ -141,13 +156,17 @@ public class SecurityConfig {
     }
 
     @Bean
+    AuthorizationRequestRepository<OAuth2AuthorizationRequest> authorizationRequestRepository() {
+        return new CookieOAuth2AuthorizationRequestRepository();
+    }
+
+    @Bean
     public GrantedAuthoritiesMapper userAuthoritiesMapper() {
         return (authorities) -> {
             Set<GrantedAuthority> mappedAuthorities = new HashSet<>();
 
             authorities.forEach(authority -> {
                 if (authority instanceof OidcUserAuthority oidcAuth) {
-                    // Check both Attributes and ID Token claims
                     Map<String, Object> realmAccess = oidcAuth.getAttributes().containsKey("realm_access")
                             ? (Map<String, Object>) oidcAuth.getAttributes().get("realm_access")
                             : oidcAuth.getIdToken().getClaim("realm_access");
@@ -164,10 +183,6 @@ public class SecurityConfig {
         };
     }
 
-    /**
-     * Forces PKCE (S256) for the /oauth2/authorization/{registrationId} endpoint.
-     * This fixes Keycloak error: "Missing parameter: code_challenge_method".
-     */
     @Bean
     OAuth2AuthorizationRequestResolver pkceAuthorizationRequestResolver(
             ClientRegistrationRepository clientRegistrationRepository
@@ -208,10 +223,6 @@ public class SecurityConfig {
         return new SessionRegistryImpl();
     }
 
-    /**
-     * Required for Spring Security concurrency control to be notified when sessions are destroyed.
-     * Works without Spring Session.
-     */
     @Bean
     public HttpSessionEventPublisher httpSessionEventPublisher() {
         return new HttpSessionEventPublisher();

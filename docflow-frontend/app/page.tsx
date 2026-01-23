@@ -11,8 +11,6 @@ export default function Home() {
     const checkAuth = async () => {
       const result = await getCurrentUser({ redirect: false });
 
-      console.log("Auth check result:", result);
-
       switch (result.state) {
         case "AUTH":
           setAuthState("AUTH");
