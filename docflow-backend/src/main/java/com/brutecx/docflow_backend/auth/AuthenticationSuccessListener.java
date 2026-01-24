@@ -21,18 +21,19 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.time.Instant;
 import java.util.Optional;
 
+/**
+ * Listener for successful authentication events.
+ * Handles both interactive and non-interactive authentication success events.
+ * On successful authentication, it ensures the user exists in the database,
+ * updates their last login information, and associates them with the current tenant.
+ * Works specifically with OIDC users (e.g., from Keycloak).
+ */
 @Component
 @RequiredArgsConstructor
 public class AuthenticationSuccessListener {
 
     private final UserRepository userRepository;
     private final TenantService tenantService;
-
-    @EventListener
-    @Transactional
-    public void onInteractiveSuccess(InteractiveAuthenticationSuccessEvent event) {
-        handleAuthentication(event.getAuthentication());
-    }
 
     @EventListener
     @Transactional

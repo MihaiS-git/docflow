@@ -3,6 +3,10 @@ package com.brutecx.docflow_backend.security.audit.keycloak;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/**
+ * Record representing a Keycloak user with relevant properties.
+ * Includes a method to get the display name of the user.
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record KeycloakUser(
 

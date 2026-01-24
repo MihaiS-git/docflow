@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import java.util.List;
 import java.util.Map;
 
+import com.brutecx.docflow_backend.security.AuthRoleExtractor;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,11 +14,11 @@ import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
-import org.springframework.test.context.ActiveProfiles;
 
 class AuthControllerTest {
 
-    private final AuthController controller = new AuthController();
+    private final AuthController controller =
+            new AuthController(new AuthRoleExtractor());
 
     @Test
     void me_returns401_whenAuthenticationIsNull() {

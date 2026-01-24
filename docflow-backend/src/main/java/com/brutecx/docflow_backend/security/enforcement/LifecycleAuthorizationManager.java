@@ -16,6 +16,16 @@ import org.springframework.stereotype.Component;
 
 import java.util.function.Supplier;
 
+/**
+ * Authorization manager that enforces tenant and user lifecycle status checks.
+ * Throws LifecycleAccessDeniedException if access is denied due to lifecycle status.
+ * Applies only to authenticated human users (OidcUser).
+ * Checks:
+ * 1. Tenant must not be SUSPENDED.
+ * 2. User must be ACTIVE.
+ * If not authenticated or not a human user, allows access to let other mechanisms decide.
+ */
+
 @Component
 @RequiredArgsConstructor
 public class LifecycleAuthorizationManager implements AuthorizationManager<RequestAuthorizationContext> {
@@ -56,8 +66,8 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
                 .findByExternalSubjectId(subject)
                 .orElseThrow(() ->
                         new LifecycleAccessDeniedException(
-                                "USER_NOT_FOUND",
-                                "Local user not found"
+                                "LOCAL_USER_MISSING",
+                                "Local user not provisioned"
                         )
                 );
 

@@ -4,9 +4,12 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+import com.brutecx.docflow_backend.security.KeycloakOidcUserService;
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
 import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
+import com.brutecx.docflow_backend.security.session.SessionSecurityProperties;
+import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -35,6 +38,12 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+/**
+ * Security configuration for the application.
+ * Configures OAuth2 login with PKCE, session management,
+ * CORS, CSRF protection, and authorization rules.
+ * Applies to "dev" and "prod" profiles.
+ */
 @Slf4j
 @Configuration
 @Profile({"dev", "prod"})
@@ -46,8 +55,14 @@ public class SecurityConfig {
     @Value("${docflow.security.post-logout-redirect-uri}")
     private String postLogoutRedirectUri;
 
-    @Value("${docflow.security.session.max-concurrent-sessions}")
-    int maxConcurrentSessions;
+    @Value("${docflow.security.frontend-base-url}")
+    private String frontendBaseUrl;
+
+    private final SessionSecurityProperties sessionSecurityProperties;
+
+    public SecurityConfig(SessionSecurityProperties sessionSecurityProperties) {
+        this.sessionSecurityProperties = sessionSecurityProperties;
+    }
 
     @Bean
     SecurityFilterChain securityFilterChain(
@@ -55,9 +70,12 @@ public class SecurityConfig {
             OAuth2AuthorizationRequestResolver pkceAuthorizationRequestResolver,
             RestAccessDeniedHandler restAccessDeniedHandler,
             LifecycleAuthorizationManager lifecycleAuthorizationManager,
-            AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter
+            AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter,
+            RequestCorrelationIdFilter requestCorrelationIdFilter,
+            KeycloakOidcUserService keycloakOidcUserService
     ) throws Exception {
         http
+                .addFilterBefore(requestCorrelationIdFilter, SecurityContextHolderFilter.class)
                 .addFilterAfter(absoluteSessionTimeoutFilter, SecurityContextHolderFilter.class)
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
@@ -66,7 +84,7 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session
                         .sessionFixation(fixation -> fixation.migrateSession())
-                        .maximumSessions(maxConcurrentSessions)
+                        .maximumSessions(sessionSecurityProperties.maxConcurrentSessions())
                         .maxSessionsPreventsLogin(true)
                         .sessionRegistry(sessionRegistry())
                 )
@@ -109,14 +127,15 @@ public class SecurityConfig {
                         .redirectionEndpoint(redirection -> redirection
                                 .baseUri("/login/oauth2/code/*")
                         )
-                        .userInfoEndpoint(userInfo -> {
-                        })
+                        .userInfoEndpoint(userInfo ->
+                                userInfo.oidcUserService(keycloakOidcUserService)
+                        )
                         .successHandler((request, response, authentication) -> {
-                            response.sendRedirect("http://localhost:3000");
+                            response.sendRedirect(frontendBaseUrl);
                         })
                         .failureHandler((request, response, exception) -> {
                             log.error("OAuth2 failure handler invoked", exception);
-                            response.sendRedirect("http://localhost:3000");
+                            response.sendRedirect(frontendBaseUrl);
                         })
                 )
                 .logout(logout -> logout

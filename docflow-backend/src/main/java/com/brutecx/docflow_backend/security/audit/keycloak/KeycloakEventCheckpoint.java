@@ -8,6 +8,12 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+/**
+ * Entity representing a checkpoint for Keycloak events.
+ * Used to track the last processed event time.
+ * This helps in resuming event processing from the last known point.
+ * The entity is designed to have a single row identified by a fixed key.
+ */
 @Entity
 @Table(name = "keycloak_event_checkpoint")
 @Getter

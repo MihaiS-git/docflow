@@ -25,6 +25,7 @@ services:
       docflow-db:
         condition: service_healthy
     environment:
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
       SPRING_PROFILES_ACTIVE: prod
       SPRING_DATASOURCE_URL: jdbc:postgresql://docflow-db:5432/${DOCFLOW_DB_NAME}
       SPRING_DATASOURCE_USERNAME: ${DOCFLOW_DB_USER}

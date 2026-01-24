@@ -12,6 +12,9 @@ export async function getCurrentUser(
 ): Promise<AuthResult> {
   try {
     const user = await apiFetch<AuthUser>("/api/auth/me");
+
+    console.log("Fetched current user:", user);
+    
     return { state: "AUTH", user };
   } catch (err) {
     if (err instanceof UnauthenticatedError) {

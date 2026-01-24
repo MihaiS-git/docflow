@@ -71,6 +71,7 @@ docflow:
     allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS}
     keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI}
     post-logout-redirect-uri: ${DOCFLOW_POST_LOGOUT_REDIRECT}
+    frontend-base-url: ${FRONTEND_BASE_URL}
 # Otel configuration to disable tracing
 otel:
   traces:

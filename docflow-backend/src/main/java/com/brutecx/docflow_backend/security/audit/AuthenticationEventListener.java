@@ -14,6 +14,12 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Listener for authentication events to log and persist them.
+ * Handles successful logins, failed login attempts, and logouts.
+ * Persists events to the AuthenticationEventRepository and logs them for auditing.
+ * Also ensures user identity projection upon successful authentication.
+ */
 @Component
 public class AuthenticationEventListener {
 
@@ -21,7 +27,6 @@ public class AuthenticationEventListener {
 
     private final AuthenticationEventRepository repository;
     private final HttpServletRequest request;
-
     private final IUserIdentityProjectionService identityProjectionService;
 
     public AuthenticationEventListener(
@@ -53,9 +58,6 @@ public class AuthenticationEventListener {
 
     private void persist(AuthenticationResult result, String username) {
         String correlationId = MDC.get("requestId");
-        String fingerprintCorrelationId = (correlationId != null && !correlationId.isBlank())
-                                ? correlationId
-                                : "N/A";
 
         String resolvedUsername =
                 (username != null && !username.isBlank()) ? username : "UNKNOWN";
@@ -72,13 +74,14 @@ public class AuthenticationEventListener {
 
         String eventFingerprint = EventFingerprint.of(List.of(
                 result.name(),
-                "SPRING_SECURITY",   // source
+                AuthenticationEventSource.SPRING_SECURITY.name(),   // source
                 resolvedUsername,
                 ip,
                 String.valueOf(eventTime.toEpochMilli())
         ));
 
         AuthenticationEvent entity = new AuthenticationEvent(
+                AuthenticationEventSource.SPRING_SECURITY,
                 eventTime,
                 resolvedUsername,
                 result,

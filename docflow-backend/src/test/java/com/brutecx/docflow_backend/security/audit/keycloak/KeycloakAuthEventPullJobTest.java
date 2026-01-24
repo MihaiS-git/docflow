@@ -17,12 +17,8 @@ public class KeycloakAuthEventPullJobTest {
     KeycloakEventCheckpointRepository checkpointRepo = mock(KeycloakEventCheckpointRepository.class);
     AuthenticationEventRepository authEventRepo = mock(AuthenticationEventRepository.class);
 
-    KeycloakAdminPullProperties props = new KeycloakAdminPullProperties(
-            "http://keycloak:8080", "docflow", "cid", "secret", 5000L, 100
-    );
-
     KeycloakAuthEventPullJob job = new KeycloakAuthEventPullJob(
-            keycloak, checkpointRepo, authEventRepo, props
+            keycloak, checkpointRepo, authEventRepo
     );
 
     @Test

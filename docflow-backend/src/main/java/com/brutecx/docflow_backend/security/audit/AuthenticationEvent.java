@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.security.audit;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
@@ -19,7 +20,12 @@ public class AuthenticationEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    @NonNull
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private AuthenticationEventSource source;
+
+    @NotNull
     @Column(nullable = false)
     private Instant timestamp;
 
@@ -28,35 +34,40 @@ public class AuthenticationEvent {
      * - Keycloak userId (UUID) for successful auth
      * - "UNKNOWN" for failed auth
      */
-    @NonNull
+    @NotNull
     @Column(nullable = false)
     private String username;
 
-    @NonNull
+    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private AuthenticationResult result;
 
-    @NonNull
+    @NotNull
     @Column(nullable = false)
     private String idp;
 
-    @NonNull
+    @NotNull
     @Column(nullable = false)
     private String ip;
 
-    @NonNull
+    @NotNull
     @Column(name = "user_agent", nullable = false)
     private String userAgent;
 
+    /**
+     * Correlation ID to link related events across services.
+     * Can be null if not provided in the request.
+     */
     @Column(name = "correlation_id", nullable = true)
     private String correlationId;
 
-    @NonNull
+    @NotNull
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true)
     private String eventFingerprint;
 
     public AuthenticationEvent(
+            AuthenticationEventSource source,
             Instant timestamp,
             String username,
             AuthenticationResult result,
@@ -66,6 +77,7 @@ public class AuthenticationEvent {
             String correlationId,
             String eventFingerprint
     ) {
+        this.source = source;
         this.timestamp = timestamp;
         this.username = username;
         this.result = result;

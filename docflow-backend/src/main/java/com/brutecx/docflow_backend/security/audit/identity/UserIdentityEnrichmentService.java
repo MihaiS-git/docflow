@@ -9,6 +9,11 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Optional;
 
+/**
+ * Service to enrich and ensure the projection of user identity information
+ * from Keycloak into the local UserIdentityProjection repository.
+ * Handles asynchronous updates and checks for data freshness.
+ */
 @Service
 public class UserIdentityEnrichmentService implements IUserIdentityProjectionService {
 

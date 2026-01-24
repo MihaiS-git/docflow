@@ -5,6 +5,12 @@ import lombok.Getter;
 
 import java.time.Instant;
 
+/**
+ * Data Transfer Object (DTO) for structured error responses in the API.
+ * Contains details about the error such as timestamp, status code,
+ * error message, error code, and the request path that caused the error.
+ * Utilizes Lombok for boilerplate code reduction.
+ */
 @Getter
 @Builder
 public class ErrorResponse {

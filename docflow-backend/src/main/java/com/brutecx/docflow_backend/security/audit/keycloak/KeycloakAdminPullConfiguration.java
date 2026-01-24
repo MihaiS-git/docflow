@@ -10,6 +10,10 @@ import org.springframework.web.client.RestClient;
 import java.net.http.HttpClient;
 import java.time.Duration;
 
+/**
+ * Configuration class for Keycloak admin user pull.
+ * Sets up the RestClient with custom timeouts.
+ */
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties(KeycloakAdminPullProperties.class)

@@ -12,6 +12,12 @@ import java.io.IOException;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * A filter that assigns a unique correlation ID to each incoming HTTP request.
+ * The correlation ID is retrieved from the "X-Request-Id" header if present;
+ * otherwise, a new UUID is generated. The correlation ID is stored in the MDC
+ * for logging purposes and added to the response headers.
+ */
 @Component
 public class RequestCorrelationIdFilter extends OncePerRequestFilter {
 

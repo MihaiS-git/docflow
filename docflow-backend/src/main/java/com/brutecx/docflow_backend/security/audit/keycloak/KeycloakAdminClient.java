@@ -16,11 +16,17 @@ import org.springframework.web.client.RestTemplate;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Client for interacting with Keycloak Admin API to fetch events and user details.
+ * Uses client credentials to authenticate.
+ * @see KeycloakAdminPullProperties
+ * @see KeycloakUser
+ * @see KeycloakAdminEvent
+ */
 @Slf4j
 @Component
 public class KeycloakAdminClient {
 
-    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final KeycloakAdminPullProperties props;
     private final RestClient keycloakAdminRestClient;
@@ -32,7 +38,6 @@ public class KeycloakAdminClient {
             RestClient keycloakAdminRestClient
     ) {
         this.keycloakAdminRestClient = keycloakAdminRestClient;
-        this.restTemplate = new RestTemplate();
         this.objectMapper = objectMapper;
         this.props = props;
     }

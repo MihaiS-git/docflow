@@ -11,6 +11,13 @@ import lombok.NoArgsConstructor;
 import java.time.Duration;
 import java.time.Instant;
 
+/**
+ * Entity representing a projection of user identity information.
+ * This entity is used to cache user details fetched from an external identity provider.
+ * It includes fields for username, email, display name, source of identity,
+ * and the timestamp of the last synchronization.
+ * Methods are provided to update the identity information and check its freshness.
+ */
 @Entity
 @Table(name = "user_identity_projection")
 @Getter

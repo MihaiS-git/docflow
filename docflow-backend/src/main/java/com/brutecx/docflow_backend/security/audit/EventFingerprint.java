@@ -4,6 +4,16 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.List;
 
+/**
+ * Utility class for generating event fingerprints.
+ * An event fingerprint is a SHA-256 hash of concatenated event attributes.
+ * Null values are replaced with a hyphen ("-") before hashing.
+ * The parts are joined using a pipe ("|") as a delimiter.
+ * Example:
+ *   parts = ["user123", "LOGIN_SUCCESS", null, "192.168.
+ *   1.1"]
+ *   raw = "user123|LOGIN_SUCCESS|-|
+ */
 public final class EventFingerprint {
 
     public static String of(List<String> parts) {

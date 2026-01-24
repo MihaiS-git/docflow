@@ -1,9 +1,6 @@
 package com.brutecx.docflow_backend.security.audit.keycloak;
 
-import com.brutecx.docflow_backend.security.audit.AuthenticationEvent;
-import com.brutecx.docflow_backend.security.audit.AuthenticationEventRepository;
-import com.brutecx.docflow_backend.security.audit.AuthenticationResult;
-import com.brutecx.docflow_backend.security.audit.EventFingerprint;
+import com.brutecx.docflow_backend.security.audit.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -16,6 +13,14 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Scheduled job to pull authentication failure events from Keycloak admin API
+ * and persist them into the local authentication event repository.
+ * Only LOGIN_ERROR events are processed and stored.
+ * The job maintains a checkpoint to avoid reprocessing events.
+ * Handles duplicates gracefully and logs relevant information for auditing.
+ * The job is enabled via configuration property.
+ */
 @Component
 @ConditionalOnProperty(
         prefix = "docflow.security.keycloak.admin",
@@ -30,18 +35,15 @@ public class KeycloakAuthEventPullJob {
     private final KeycloakAdminClient keycloak;
     private final KeycloakEventCheckpointRepository checkpointRepo;
     private final AuthenticationEventRepository authEventRepo;
-    private final KeycloakAdminPullProperties props;
 
     public KeycloakAuthEventPullJob(
             KeycloakAdminClient keycloak,
             KeycloakEventCheckpointRepository checkpointRepo,
-            AuthenticationEventRepository authEventRepo,
-            KeycloakAdminPullProperties props
+            AuthenticationEventRepository authEventRepo
     ) {
         this.keycloak = keycloak;
         this.checkpointRepo = checkpointRepo;
         this.authEventRepo = authEventRepo;
-        this.props = props;
     }
 
     @Scheduled(
@@ -73,7 +75,6 @@ public class KeycloakAuthEventPullJob {
             return;
         }
 
-
         // persist only failures coming from Keycloak
         for (KeycloakAdminClient.KeycloakAdminEvent e : events) {
             if (!"LOGIN_ERROR".equalsIgnoreCase(e.type())) {
@@ -104,6 +105,7 @@ public class KeycloakAuthEventPullJob {
 
             }
             AuthenticationEvent entity = new AuthenticationEvent(
+                    AuthenticationEventSource.KEYCLOAK_ADMIN_EVENTS,
                     Instant.ofEpochMilli(e.time()),
                     username,
                     AuthenticationResult.FAILURE,

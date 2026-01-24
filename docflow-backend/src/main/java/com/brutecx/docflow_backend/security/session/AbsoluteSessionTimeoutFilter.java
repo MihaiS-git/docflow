@@ -11,15 +11,20 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.Clock;
 import java.time.Duration;
 
+/**
+ * A filter that enforces an absolute session timeout.
+ * If the session has existed longer than the configured absolute timeout,
+ * it will be invalidated, and the user will be logged out.
+ * This filter excludes certain paths from the timeout check,
+ * such as OAuth2 and login endpoints.
+ */
 @Component
 @RequiredArgsConstructor
 public class AbsoluteSessionTimeoutFilter extends OncePerRequestFilter {
 
     private final SessionSecurityProperties props;
-    private final Clock clock = Clock.systemUTC();
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -43,7 +48,7 @@ public class AbsoluteSessionTimeoutFilter extends OncePerRequestFilter {
         if (absoluteTimeout != null && !absoluteTimeout.isZero() && !absoluteTimeout.isNegative()) {
             HttpSession session = request.getSession(false);
             if (session != null) {
-                long nowMillis = clock.millis();
+                long nowMillis = System.currentTimeMillis();
                 long createdMillis = session.getCreationTime();
                 long maxAgeMillis = absoluteTimeout.toMillis();
 

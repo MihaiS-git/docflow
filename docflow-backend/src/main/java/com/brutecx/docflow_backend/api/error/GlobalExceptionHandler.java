@@ -6,6 +6,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+/**
+ * Global exception handler for REST controllers.
+ * Catches specific exceptions and returns structured error responses.
+ * Handles IllegalArgumentException with 400 Bad Request
+ * and generic Exception with 500 Internal Server Error.
+ * Uses ErrorResponse DTO for consistent error response format.
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
