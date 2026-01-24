@@ -1,0 +1,63 @@
+{
+  "groups": [
+    {
+      "name": "docflow.security.keycloak.admin",
+      "type": "com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminPullProperties",
+      "sourceType": "com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminPullProperties"
+    },
+    {
+      "name": "docflow.security.session",
+      "type": "com.brutecx.docflow_backend.security.session.SessionSecurityProperties",
+      "sourceType": "com.brutecx.docflow_backend.security.session.SessionSecurityProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "docflow.security.keycloak.admin.base-url",
+      "type": "java.lang.String",
+      "sourceType": "com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminPullProperties"
+    },
+    {
+      "name": "docflow.security.keycloak.admin.client-id",
+      "type": "java.lang.String",
+      "sourceType": "com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminPullProperties"
+    },
+    {
+      "name": "docflow.security.keycloak.admin.client-secret",
+      "type": "java.lang.String",
+      "sourceType": "com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminPullProperties"
+    },
+    {
+      "name": "docflow.security.keycloak.admin.page-size",
+      "type": "java.lang.Integer",
+      "sourceType": "com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminPullProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "docflow.security.keycloak.admin.poll-fixed-delay-ms",
+      "type": "java.lang.Long",
+      "sourceType": "com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminPullProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "docflow.security.keycloak.admin.realm",
+      "type": "java.lang.String",
+      "sourceType": "com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminPullProperties"
+    },
+    {
+      "name": "docflow.security.session.absolute-timeout",
+      "type": "java.time.Duration",
+      "sourceType": "com.brutecx.docflow_backend.security.session.SessionSecurityProperties"
+    },
+    {
+      "name": "docflow.security.session.max-concurrent-sessions",
+      "type": "java.lang.Integer",
+      "sourceType": "com.brutecx.docflow_backend.security.session.SessionSecurityProperties",
+      "defaultValue": 0
+    }
+  ],
+  "hints": [],
+  "ignored": {
+    "properties": []
+  }
+}

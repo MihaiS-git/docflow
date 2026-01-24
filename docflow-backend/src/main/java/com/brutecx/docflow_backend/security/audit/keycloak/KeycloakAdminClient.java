@@ -9,6 +9,7 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -22,11 +23,15 @@ public class KeycloakAdminClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final KeycloakAdminPullProperties props;
+    private final RestClient keycloakAdminRestClient;
+
 
     public KeycloakAdminClient(
             ObjectMapper objectMapper,
-            KeycloakAdminPullProperties props
+            KeycloakAdminPullProperties props,
+            RestClient keycloakAdminRestClient
     ) {
+        this.keycloakAdminRestClient = keycloakAdminRestClient;
         this.restTemplate = new RestTemplate();
         this.objectMapper = objectMapper;
         this.props = props;
@@ -41,23 +46,23 @@ public class KeycloakAdminClient {
                 + "?dateFrom=" + (sinceTimeMs > 0 ? sinceTimeMs : 0)
                 + "&max=" + props.pageSize();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        String body;
+        try {
+            body = keycloakAdminRestClient.get()
+                    .uri(url)
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(String.class);
+        } catch (Exception ex) {
+            throw new RestClientException("Keycloak events fetch failed", ex);
+        }
 
-        ResponseEntity<String> res = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                new HttpEntity<>(headers),
-                String.class
-        );
-
-        if (!res.getStatusCode().is2xxSuccessful() || res.getBody() == null) {
-            throw new RestClientException("Keycloak events fetch failed: " + res.getStatusCode());
+        if (body == null || body.isBlank()) {
+            throw new RestClientException("Keycloak events fetch failed: empty body");
         }
 
         try {
-            return objectMapper.readValue(res.getBody(), new TypeReference<>() {
+            return objectMapper.readValue(body, new TypeReference<>() {
             });
         } catch (Exception e) {
             throw new RestClientException("Failed to parse Keycloak events", e);
@@ -72,23 +77,17 @@ public class KeycloakAdminClient {
                     + "/admin/realms/" + props.realm()
                     + "/users/" + userId;
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(token);
-            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+            String body = keycloakAdminRestClient.get()
+                    .uri(url)
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(String.class);
 
-            ResponseEntity<String> res = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    new HttpEntity<>(headers),
-                    String.class
-            );
-
-            if (!res.getStatusCode().is2xxSuccessful() || res.getBody() == null) {
+            if (body == null || body.isBlank()) {
                 return null;
             }
 
-            return objectMapper.readValue(res.getBody(), KeycloakUser.class);
-
+            return objectMapper.readValue(body, KeycloakUser.class);
         } catch (RestClientException ex) {
             log.warn("Keycloak fetchUser failed for userId={}", userId, ex);
             return null; // user deleted or access revoked
@@ -102,25 +101,28 @@ public class KeycloakAdminClient {
                 + "/realms/" + props.realm()
                 + "/protocol/openid-connect/token";
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", "client_credentials");
         form.add("client_id", props.clientId());
         form.add("client_secret", props.clientSecret());
 
-        ResponseEntity<TokenResponse> res = restTemplate.exchange(
-                tokenUrl,
-                HttpMethod.POST,
-                new HttpEntity<>(form, headers),
-                TokenResponse.class
-        );
-
-        if (!res.getStatusCode().is2xxSuccessful() || res.getBody() == null || res.getBody().accessToken == null) {
-            throw new RestClientException("Keycloak token fetch failed: " + res.getStatusCode());
+        TokenResponse tokenResponse;
+        try {
+            tokenResponse = keycloakAdminRestClient.post()
+                    .uri(tokenUrl)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(TokenResponse.class);
+        } catch (Exception ex) {
+            throw new RestClientException("Keycloak token fetch failed", ex);
         }
-        return res.getBody().accessToken;
+
+        if (tokenResponse == null || tokenResponse.accessToken == null || tokenResponse.accessToken.isBlank()) {
+            throw new RestClientException("Keycloak token fetch failed: empty token");
+        }
+
+        return tokenResponse.accessToken;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
