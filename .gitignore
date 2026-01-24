@@ -43,10 +43,15 @@ docflow-backend/.gradle/
 docflow-backend/build/
 docflow-backend/out/
 docflow-backend/target/
+docflow-backend/bin/
 
 docflow-backend/*.log
 docflow-backend/logs/
 
+**/bin/
+**/build/
+**/out/
+.gradle/
 
 ############################################
 # FRONTEND — NEXT.JS (APP ROUTER)

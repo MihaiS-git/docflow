@@ -2,7 +2,6 @@ package com.brutecx.docflow_backend.user;
 
 import com.brutecx.docflow_backend.tenant.Tenant;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
