@@ -33,7 +33,7 @@ public class Tenant {
     @NotNull
     private Instant updatedAt;
 
-    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY, orphanRemoval = true)
+    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY, cascade = CascadeType.PERSIST, orphanRemoval = true)
     private final List<User> users = new ArrayList<>();
 
     @PrePersist

@@ -6,8 +6,6 @@ import java.util.*;
 
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
-import com.brutecx.docflow_backend.security.mfa.MfaAssuranceEnforcementFilter;
-import com.brutecx.docflow_backend.security.oauth2.CookieOAuth2AuthorizationRequestRepository;
 import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,20 +17,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
-import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
-import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
@@ -63,12 +55,10 @@ public class SecurityConfig {
             OAuth2AuthorizationRequestResolver pkceAuthorizationRequestResolver,
             RestAccessDeniedHandler restAccessDeniedHandler,
             LifecycleAuthorizationManager lifecycleAuthorizationManager,
-            AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter,
-            MfaAssuranceEnforcementFilter mfaAssuranceEnforcementFilter
+            AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter
     ) throws Exception {
         http
                 .addFilterAfter(absoluteSessionTimeoutFilter, SecurityContextHolderFilter.class)
-                .addFilterAfter(mfaAssuranceEnforcementFilter, SecurityContextHolderFilter.class)
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .ignoringRequestMatchers("/api/auth/logout")
@@ -115,7 +105,6 @@ public class SecurityConfig {
                 .oauth2Login(oauth2 -> oauth2
                         .authorizationEndpoint(authorization -> authorization
                                 .authorizationRequestResolver(pkceAuthorizationRequestResolver)
-                                .authorizationRequestRepository(authorizationRequestRepository())
                         )
                         .redirectionEndpoint(redirection -> redirection
                                 .baseUri("/login/oauth2/code/*")
@@ -153,34 +142,6 @@ public class SecurityConfig {
                 );
 
         return http.build();
-    }
-
-    @Bean
-    AuthorizationRequestRepository<OAuth2AuthorizationRequest> authorizationRequestRepository() {
-        return new CookieOAuth2AuthorizationRequestRepository();
-    }
-
-    @Bean
-    public GrantedAuthoritiesMapper userAuthoritiesMapper() {
-        return (authorities) -> {
-            Set<GrantedAuthority> mappedAuthorities = new HashSet<>();
-
-            authorities.forEach(authority -> {
-                if (authority instanceof OidcUserAuthority oidcAuth) {
-                    Map<String, Object> realmAccess = oidcAuth.getAttributes().containsKey("realm_access")
-                            ? (Map<String, Object>) oidcAuth.getAttributes().get("realm_access")
-                            : oidcAuth.getIdToken().getClaim("realm_access");
-
-                    if (realmAccess != null && realmAccess.containsKey("roles")) {
-                        List<String> roles = (List<String>) realmAccess.get("roles");
-                        roles.forEach(role -> mappedAuthorities.add(new SimpleGrantedAuthority("ROLE_" + role)));
-                    }
-                }
-                mappedAuthorities.add(authority);
-            });
-
-            return mappedAuthorities;
-        };
     }
 
     @Bean

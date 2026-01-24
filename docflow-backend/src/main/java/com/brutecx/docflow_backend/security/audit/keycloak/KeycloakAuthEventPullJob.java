@@ -44,7 +44,10 @@ public class KeycloakAuthEventPullJob {
         this.props = props;
     }
 
-    @Scheduled(fixedDelayString = "${docflow.security.keycloak.admin.poll-fixed-delay-ms}")
+    @Scheduled(
+            initialDelayString = "${docflow.security.keycloak.admin.initial-delay-ms:30000}",
+            fixedDelayString = "${docflow.security.keycloak.admin.poll-fixed-delay-ms}"
+    )
     public void pull() {
         long since = checkpointRepo.findById(CHECKPOINT_ID)
                 .map(KeycloakEventCheckpoint::getLastEventTimeMs)

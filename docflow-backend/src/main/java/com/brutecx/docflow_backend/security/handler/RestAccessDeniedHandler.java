@@ -2,7 +2,6 @@ package com.brutecx.docflow_backend.security.handler;
 
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAccessDeniedException;
-import com.brutecx.docflow_backend.security.mfa.MfaRequiredAccessDeniedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,7 +22,6 @@ import java.io.IOException;
 public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
     private final ObjectMapper objectMapper;
-
 
     @Override
     public void handle(
@@ -49,8 +47,6 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                     "Set-Cookie",
                     "JSESSIONID=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax"
             );
-        } else if (ex instanceof MfaRequiredAccessDeniedException mfaEx) {
-            errorCode = mfaEx.getErrorCode();
         }
 
         ErrorResponse body = ErrorResponse.of(
