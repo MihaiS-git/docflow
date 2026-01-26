@@ -3,7 +3,7 @@
 import { AdminUserRow } from "@/app/admin/AdminUserRow";
 import { useEffect, useState } from "react";
 import { AdminUser } from "@/types/admin/AdminUser";
-import { fetchAdminUsers } from "@/lib/adminUsers";
+import { fetchAdminUsers } from "@/lib/admin/adminUsers";
 import { RequireAdmin } from "@/lib/auth/RequireAdmin";
 
 export default function AdminUsersPage() {

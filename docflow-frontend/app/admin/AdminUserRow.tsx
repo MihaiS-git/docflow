@@ -1,6 +1,6 @@
 "use client";
 
-import { lockUser, disableUser, activateUser } from "@/lib/adminUsers";
+import { lockUser, disableUser, activateUser } from "@/lib/admin/adminUsers";
 import { AdminUser } from "@/types/admin/AdminUser";
 
 type Props = {

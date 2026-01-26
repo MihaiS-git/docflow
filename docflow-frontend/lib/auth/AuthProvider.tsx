@@ -1,12 +1,23 @@
 "use client";
 
-import { fetchIdentity, fetchLocalUser, login as startLogin, logout as startLogout } from "@/lib/auth";
-import { setAuthErrorHandler } from "@/lib/authEvents";
+import {
+  fetchIdentity,
+  fetchLocalUser,
+  login as startLogin,
+  logout as startLogout,
+} from "@/lib/auth/auth";
+import { setAuthErrorHandler } from "@/lib/auth/authEvents";
 import { ForbiddenError } from "@/lib/apiErrors";
 import { AuthStatus } from "@/types/auth/AuthStatus";
 import { AuthUser } from "@/types/auth/AuthUser";
 import { LocalUser } from "@/types/auth/LocalUser";
-import { createContext, useCallback, useEffect, useMemo, useReducer } from "react";
+import {
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+} from "react";
 
 type State = {
   status: AuthStatus;

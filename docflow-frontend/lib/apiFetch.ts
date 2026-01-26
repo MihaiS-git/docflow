@@ -1,5 +1,5 @@
 import { ApiError, ForbiddenError, UnauthenticatedError } from "./apiErrors";
-import { emitAuthError } from "./authEvents";
+import { emitAuthError } from "./auth/authEvents";
 
 export async function apiFetch<T>(
   path: string,
