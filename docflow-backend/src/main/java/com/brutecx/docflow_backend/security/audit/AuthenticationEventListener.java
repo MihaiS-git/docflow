@@ -9,6 +9,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.security.authentication.event.AbstractAuthenticationFailureEvent;
 import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.security.authentication.event.LogoutSuccessEvent;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -41,9 +44,22 @@ public class AuthenticationEventListener {
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
-        String subjectId = event.getAuthentication().getName();
         persist(AuthenticationResult.SUCCESS, event.getAuthentication().getName());
+
+        String subjectId = resolveSubjectId(event.getAuthentication());
+        log.info("Triggering identity projection subjectId={}", subjectId);
         identityProjectionService.ensureProjected(subjectId);
+    }
+
+    private String resolveSubjectId(Authentication authentication) {
+        if (authentication == null) {
+            return "UNKNOWN";
+        }
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof OidcUser oidcUser) {
+            return oidcUser.getSubject();
+        }
+        return "UNKNOWN";
     }
 
     @EventListener
