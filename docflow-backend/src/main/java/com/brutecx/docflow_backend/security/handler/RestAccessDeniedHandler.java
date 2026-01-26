@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class RestAccessDeniedHandler implements AccessDeniedHandler {
@@ -29,6 +31,16 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
             HttpServletResponse response,
             AccessDeniedException ex
     ) throws IOException, ServletException {
+
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+
+        log.error(
+                "ACCESS DENIED → uri={}, authorities={}, exception={}",
+                request.getRequestURI(),
+                auth != null ? auth.getAuthorities() : "NO_AUTH",
+                ex.getClass().getSimpleName()
+        );
+
 
         String errorCode = "ACCESS_DENIED";
 

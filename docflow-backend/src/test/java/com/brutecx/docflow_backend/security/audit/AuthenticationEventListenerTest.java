@@ -52,7 +52,7 @@ class AuthenticationEventListenerTest {
 
         // optional but recommended
         verify(identityProjectionService)
-                .ensureProjected("user@test");
+                .ensureProjected("UNKNOWN");
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.brutecx.docflow_backend.user.User;
 import com.brutecx.docflow_backend.user.UserRepository;
 import com.brutecx.docflow_backend.user.UserStatus;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.core.Authentication;
@@ -26,6 +27,7 @@ import java.util.function.Supplier;
  * If not authenticated or not a human user, allows access to let other mechanisms decide.
  */
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class LifecycleAuthorizationManager implements AuthorizationManager<RequestAuthorizationContext> {
@@ -40,6 +42,14 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
     ) {
         Authentication authentication = authenticationSupplier.get();
 
+        if (authentication != null) {
+            log.error(
+                    "SECURITY DEBUG → uri={}, authorities={}",
+                    context.getRequest().getRequestURI(),
+                    authentication.getAuthorities()
+            );
+        }
+
         // Not authenticated → let other mechanisms decide
         if (authentication == null || !authentication.isAuthenticated()) {
             return new AuthorizationDecision(true);
@@ -52,6 +62,7 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
 
         // 1. Tenant lifecycle
         Tenant tenant = tenantService.getCurrentTenant();
+
         if (tenant.getStatus() == TenantStatus.SUSPENDED) {
             throw new LifecycleAccessDeniedException(
                     "TENANT_SUSPENDED",

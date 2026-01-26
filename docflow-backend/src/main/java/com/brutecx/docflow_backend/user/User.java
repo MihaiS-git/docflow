@@ -125,4 +125,23 @@ public class User {
         this.tenant = tenant;
     }
 
+    // ----------------------------
+    // Lifecycle state transitions
+    // ----------------------------
+
+    public void lock() {
+        if (this.status == UserStatus.DISABLED) {
+            throw new IllegalStateException("Disabled user cannot be locked");
+        }
+        this.status = UserStatus.LOCKED;
+    }
+
+    public void disable() {
+        this.status = UserStatus.DISABLED;
+    }
+
+    public void activate() {
+        this.status = UserStatus.ACTIVE;
+    }
+
 }

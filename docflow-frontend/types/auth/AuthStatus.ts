@@ -1,0 +1,1 @@
+export type AuthStatus = "ANON" | "AUTH" | "LOADING" | "BLOCKED";

@@ -17,6 +17,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authorization.AuthorityAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -33,6 +35,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -74,54 +77,91 @@ public class SecurityConfig {
             RequestCorrelationIdFilter requestCorrelationIdFilter,
             KeycloakOidcUserService keycloakOidcUserService
     ) throws Exception {
+
         http
                 .addFilterBefore(requestCorrelationIdFilter, SecurityContextHolderFilter.class)
                 .addFilterAfter(absoluteSessionTimeoutFilter, SecurityContextHolderFilter.class)
+
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .ignoringRequestMatchers("/api/auth/logout")
+                        // IMPORTANT for SPA: accept raw XSRF-TOKEN cookie value in X-XSRF-TOKEN header
+                        // (disable Spring Security's default XOR-masked token expectation)
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                        .ignoringRequestMatchers("/api/auth/logout", "/api/csrf")
                 )
+
                 .cors(Customizer.withDefaults())
+
                 .sessionManagement(session -> session
                         .sessionFixation(fixation -> fixation.migrateSession())
                         .maximumSessions(sessionSecurityProperties.maxConcurrentSessions())
                         .maxSessionsPreventsLogin(true)
                         .sessionRegistry(sessionRegistry())
                 )
+
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
-                        .requestMatchers("/api/**")
-                        .access(lifecycleAuthorizationManager)
+
+                        // -------- public / infra --------
                         .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/prometheus",
                                 "/login/**",
                                 "/oauth2/**"
                         ).permitAll()
-                        // Example role-based protection points (adjust when real routes exist)
+
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/audit/**").hasAnyRole("AUDITOR", "ADMIN")
-                        .requestMatchers("/api/review/**").hasAnyRole("REVIEWER", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
+
+                        // -------- ADMIN APIs (LIFECYCLE + RBAC) --------
+                        .requestMatchers("/api/admin/**").access(
+                                AuthorizationManagers.allOf(
+                                        lifecycleAuthorizationManager,
+                                        AuthorityAuthorizationManager.hasRole("ADMIN")
+                                )
+                        )
+
+                        // -------- AUDIT APIs --------
+                        .requestMatchers("/api/audit/**").access(
+                                AuthorizationManagers.allOf(
+                                        lifecycleAuthorizationManager,
+                                        AuthorityAuthorizationManager.hasAnyRole("AUDITOR", "ADMIN")
+                                )
+                        )
+
+                        // -------- REVIEW APIs --------
+                        .requestMatchers("/api/review/**").access(
+                                AuthorizationManagers.allOf(
+                                        lifecycleAuthorizationManager,
+                                        AuthorityAuthorizationManager.hasAnyRole("REVIEWER", "ADMIN")
+                                )
+                        )
+
+                        // -------- ALL OTHER API CALLS --------
+                        .requestMatchers("/api/**").access(lifecycleAuthorizationManager)
+
                         .anyRequest().authenticated()
                 )
+
                 .exceptionHandling(ex -> ex
                         .accessDeniedHandler(restAccessDeniedHandler)
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                                request -> request.getRequestURI().startsWith("/api/")
+                                req -> req.getRequestURI().startsWith("/api/")
                         )
                         .defaultAuthenticationEntryPointFor(
                                 new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/keycloak"),
-                                request -> !request.getRequestURI().startsWith("/api/")
-                                        && !request.getRequestURI().startsWith("/actuator")
-                                        && !request.getRequestURI().startsWith("/login")
+                                req -> !req.getRequestURI().startsWith("/api/")
+                                        && !req.getRequestURI().startsWith("/actuator")
+                                        && !req.getRequestURI().startsWith("/login")
                         )
                 )
+
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
+
                 .oauth2Login(oauth2 -> oauth2
-                        .authorizationEndpoint(authorization -> authorization
+                        .authorizationEndpoint(authz -> authz
                                 .authorizationRequestResolver(pkceAuthorizationRequestResolver)
                         )
                         .redirectionEndpoint(redirection -> redirection
@@ -130,29 +170,30 @@ public class SecurityConfig {
                         .userInfoEndpoint(userInfo ->
                                 userInfo.oidcUserService(keycloakOidcUserService)
                         )
-                        .successHandler((request, response, authentication) -> {
-                            response.sendRedirect(frontendBaseUrl);
-                        })
-                        .failureHandler((request, response, exception) -> {
-                            log.error("OAuth2 failure handler invoked", exception);
-                            response.sendRedirect(frontendBaseUrl);
+                        .successHandler((req, res, auth) -> res.sendRedirect(frontendBaseUrl))
+                        .failureHandler((req, res, ex) -> {
+                            log.error("OAuth2 failure handler invoked", ex);
+                            res.sendRedirect(frontendBaseUrl);
                         })
                 )
+
                 .logout(logout -> logout
                         .logoutUrl("/api/auth/logout")
                         .logoutSuccessHandler((req, res, auth) -> {
                             if (auth instanceof OAuth2AuthenticationToken oauth &&
                                     oauth.getPrincipal() instanceof OidcUser oidcUser) {
-                                String idToken = oidcUser.getIdToken().getTokenValue();
+
                                 String redirect =
                                         keycloakLogoutUri +
-                                                "?id_token_hint=" + URLEncoder.encode(idToken, StandardCharsets.UTF_8) +
+                                                "?id_token_hint=" + URLEncoder.encode(
+                                                oidcUser.getIdToken().getTokenValue(), StandardCharsets.UTF_8
+                                        ) +
                                                 "&post_logout_redirect_uri=" +
                                                 URLEncoder.encode(postLogoutRedirectUri, StandardCharsets.UTF_8);
+
                                 res.sendRedirect(redirect);
                                 return;
                             }
-
                             res.sendRedirect(postLogoutRedirectUri);
                         })
                         .invalidateHttpSession(true)
