@@ -41,6 +41,7 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
             RequestAuthorizationContext context
     ) {
         Authentication authentication = authenticationSupplier.get();
+        String uri = context.getRequest().getRequestURI();
 
         if (authentication != null) {
             log.error(
@@ -60,33 +61,59 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
             return new AuthorizationDecision(true);
         }
 
+        String subject = oidcUser.getSubject();
+        String email = oidcUser.getEmail();
+        log.info("Lifecycle check: subject={}, email={}, uri={}", subject, email, uri);
+
         // 1. Tenant lifecycle
-        Tenant tenant = tenantService.getCurrentTenant();
+        Tenant tenant;
+        try {
+            tenant = tenantService.getCurrentTenant();
+        } catch (Exception ex) {
+            log.warn(
+                    "LIFECYCLE DENIED → tenant resolution failed for principal subject={} email={} uri={}",
+                    subject,
+                    email,
+                    context.getRequest().getRequestURI()
+            );
+            return new AuthorizationDecision(false);
+        }
 
         if (tenant.getStatus() == TenantStatus.SUSPENDED) {
-            throw new LifecycleAccessDeniedException(
-                    "TENANT_SUSPENDED",
-                    "Tenant is suspended"
+            log.warn(
+                    "LIFECYCLE DENIED → tenant suspended for principal subject={} email={} tenantId={}",
+                    subject,
+                    email,
+                    tenant.getId()
             );
+            return new AuthorizationDecision(false);
         }
 
         // 2. User lifecycle
-        String subject = oidcUser.getSubject();
-
         User user = userRepository
                 .findByExternalSubjectId(subject)
-                .orElseThrow(() ->
-                        new LifecycleAccessDeniedException(
-                                "LOCAL_USER_MISSING",
-                                "Local user not provisioned"
-                        )
-                );
+                .orElse(null);
+
+        log.info("Resolved user for lifecycle check: {}", user);
+
+        if (user == null) {
+            log.warn(
+                    "LIFECYCLE DENIED → local user missing for principal subject={} email={} uri={}",
+                    subject,
+                    email,
+                    context.getRequest().getRequestURI()
+            );
+            return new AuthorizationDecision(false);
+        }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
-            throw new LifecycleAccessDeniedException(
-                    "USER_" + user.getStatus().name(),
-                    "User is " + user.getStatus().name().toLowerCase()
+            log.warn(
+                    "LIFECYCLE DENIED → user inactive for principal subject={} email={} status={}",
+                    subject,
+                    email,
+                    user.getStatus()
             );
+            return new AuthorizationDecision(false);
         }
 
         return new AuthorizationDecision(true);

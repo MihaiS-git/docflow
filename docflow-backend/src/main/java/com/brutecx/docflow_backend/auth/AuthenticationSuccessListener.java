@@ -5,13 +5,13 @@ import com.brutecx.docflow_backend.tenant.TenantService;
 import com.brutecx.docflow_backend.user.User;
 import com.brutecx.docflow_backend.user.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -28,7 +28,7 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class AuthenticationSuccessListener {
 
-    private final UserRepository userRepository;
+    private final UserRepository UserRepository;
     private final TenantService tenantService;
 
     @EventListener
@@ -51,7 +51,7 @@ public class AuthenticationSuccessListener {
 
         Tenant tenant = tenantService.getCurrentTenant();
 
-        User user = userRepository.findByExternalSubjectId(subject)
+        User user = UserRepository.findByExternalSubjectId(subject)
                 .orElseGet(() -> createNewUser(
                         tenant,
                         subject,
@@ -61,7 +61,7 @@ public class AuthenticationSuccessListener {
                 ));
 
         updateLastLogin(user);
-        userRepository.save(user);
+        UserRepository.save(user);
     }
 
     private User createNewUser(

@@ -4,6 +4,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedHandler;
 import com.brutecx.docflow_backend.security.KeycloakOidcUserService;
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
@@ -72,6 +73,7 @@ public class SecurityConfig {
             HttpSecurity http,
             OAuth2AuthorizationRequestResolver pkceAuthorizationRequestResolver,
             RestAccessDeniedHandler restAccessDeniedHandler,
+            LifecycleAccessDeniedHandler lifecycleAccessDeniedHandler,
             LifecycleAuthorizationManager lifecycleAuthorizationManager,
             AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter,
             RequestCorrelationIdFilter requestCorrelationIdFilter,
@@ -145,6 +147,7 @@ public class SecurityConfig {
 
                 .exceptionHandling(ex -> ex
                         .accessDeniedHandler(restAccessDeniedHandler)
+                        .accessDeniedHandler(lifecycleAccessDeniedHandler)
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                                 req -> req.getRequestURI().startsWith("/api/")

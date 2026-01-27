@@ -19,6 +19,20 @@ export function disableUser(userId: string) {
   });
 }
 
+export function assignRole(userId: string, roleName: string) {
+  return apiFetch<void>(
+    `/api/admin/users/${userId}/assign-role?roleName=${encodeURIComponent(roleName)}`,
+    { method: "POST" }
+  );
+}
+
+export function revokeRole(userId: string, roleName: string) {
+  return apiFetch<void>(
+    `/api/admin/users/${userId}/revoke-role?roleName=${encodeURIComponent(roleName)}`,
+    { method: "POST" }
+  );
+}
+
 export function fetchAdminUsers(): Promise<AdminUser[]> {
   return apiFetch<AdminUser[]>("/api/admin/users");
 }

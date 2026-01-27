@@ -87,6 +87,8 @@ query-users
 view-events
 view-realm
 view-users
+------------
+manage-users
 
 Step 6 — Commit the change
 git add keycloak/realm-docflow.json

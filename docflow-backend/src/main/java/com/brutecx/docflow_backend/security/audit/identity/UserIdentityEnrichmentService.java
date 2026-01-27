@@ -2,10 +2,10 @@ package com.brutecx.docflow_backend.security.audit.identity;
 
 import com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminClient;
 import com.brutecx.docflow_backend.security.audit.keycloak.KeycloakUser;
-import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.util.Optional;

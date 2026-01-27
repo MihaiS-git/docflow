@@ -4,6 +4,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -31,6 +32,20 @@ public class AuthRoleExtractor {
                 .filter(role -> !role.equalsIgnoreCase("uma_authorization"))
                 .filter(role -> !role.equalsIgnoreCase("offline_access"))
                 .map(role -> role.toUpperCase(Locale.ROOT))
+                .sorted()
+                .toList();
+    }
+
+    public List<String> filterRealmRoles(Collection<String> roles) {
+        if (roles == null) {
+            return List.of();
+        }
+
+        return roles.stream()
+                .map(String::toUpperCase)
+                .filter(role -> !role.startsWith("DEFAULT-ROLES-"))
+                .filter(role -> !role.equals("OFFLINE_ACCESS"))
+                .filter(role -> !role.equals("UMA_AUTHORIZATION"))
                 .sorted()
                 .toList();
     }

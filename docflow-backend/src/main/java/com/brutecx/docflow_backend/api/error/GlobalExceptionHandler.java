@@ -16,6 +16,42 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(LifecycleAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleLifecycleAccessDenied(
+            LifecycleAccessDeniedException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.FORBIDDEN.value(),
+                                HttpStatus.FORBIDDEN.getReasonPhrase(),
+                                "LIFECYCLE_ACCESS_DENIED",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
+
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(
+            UserNotFoundException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.NOT_FOUND.value(),
+                                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                                "USER_NOT_FOUND",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(
             IllegalArgumentException ex,
@@ -51,4 +87,5 @@ public class GlobalExceptionHandler {
                         )
                 );
     }
+
 }
