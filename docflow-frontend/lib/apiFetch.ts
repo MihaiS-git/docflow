@@ -1,3 +1,4 @@
+import { ErrorResponse } from "./api/ErrorResponse";
 import { ApiError, ForbiddenError, UnauthenticatedError } from "./apiErrors";
 import { emitAuthError } from "./auth/authEvents";
 
@@ -32,17 +33,27 @@ export async function apiFetch<T>(
   }
 
   if (res.status === 403) {
-    let errorCode = "ACCESS_DENIED";
+    let body: ErrorResponse | undefined;
 
     try {
-      const body = (await res.json()) as { errorCode?: string };
-      errorCode = body.errorCode ?? errorCode;
-    } catch {
-      // CSRF or filter-level 403s may have no body
+      body = (await res.json()) as ErrorResponse;
+    } catch {}
+
+    if (!body) {
+      body = {
+        status: 403,
+        error: "Forbidden",
+        errorCode: "ACCESS_DENIED",
+        message: "Access denied",
+        path: path,
+      };
     }
 
-    emitAuthError({ type: "403", errorCode });
-    throw new ForbiddenError(errorCode);
+    if (body.errorCode !== "SELF_ACTION_FORBIDDEN") {
+      emitAuthError({ type: "403", errorCode: body.errorCode });
+    }
+
+    throw new ForbiddenError(body);
   }
 
   if (!res.ok) {

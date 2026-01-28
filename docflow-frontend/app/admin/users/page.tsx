@@ -21,6 +21,10 @@ export default function AdminUsersPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const updateUser = (updated: AdminUser) => {
+    setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+  };
+
   if (loading) return <div>Loading…</div>;
 
   return (
@@ -38,7 +42,12 @@ export default function AdminUsersPage() {
         </thead>
         <tbody>
           {users.map((u) => (
-            <AdminUserRow key={u.id} user={u} allRoles={roles} />
+            <AdminUserRow
+              key={u.id}
+              user={u}
+              allRoles={roles}
+              onUserUpdated={updateUser}
+            />
           ))}
         </tbody>
       </table>

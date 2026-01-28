@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.security.session;
 
+import com.brutecx.docflow_backend.security.audit.lifecycle.ILifecycleDeniedAuditService;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.session.SessionInformation;
 import org.springframework.security.core.session.SessionRegistry;
@@ -8,19 +11,28 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+@Slf4j
 @Service
 public class SessionRevocationService {
 
     private final SessionRegistry sessionRegistry;
+    private final ILifecycleDeniedAuditService lifecycleDeniedAuditService;
 
-    public SessionRevocationService(@Autowired(required = false) SessionRegistry sessionRegistry) {
+    public SessionRevocationService(
+            @Autowired(required = false) SessionRegistry sessionRegistry,
+            ILifecycleDeniedAuditService lifecycleDeniedAuditService
+    ) {
         this.sessionRegistry = sessionRegistry;
+        this.lifecycleDeniedAuditService = lifecycleDeniedAuditService;
     }
 
     /**
      * Invalidates all active sessions for a given OIDC subject.
      */
-    public int revokeSessionsBySubject(String externalSubjectId) {
+    public int revokeSessionsBySubject(
+            String targetExternalSubjectId,
+            String actorExternalSubjectId
+    ) {
         if (sessionRegistry == null) {
             // Test / non-session context → nothing to revoke
             return 0;
@@ -33,7 +45,11 @@ public class SessionRevocationService {
                 continue;
             }
 
-            if (!externalSubjectId.equals(oidcUser.getSubject())) {
+            if (!targetExternalSubjectId.equals(oidcUser.getSubject())) {
+                continue;
+            }
+
+            if (targetExternalSubjectId.equals(actorExternalSubjectId)) {
                 continue;
             }
 
@@ -43,6 +59,18 @@ public class SessionRevocationService {
                 session.expireNow();
                 revoked++;
             }
+        }
+
+        if (revoked > 0) {
+            lifecycleDeniedAuditService.record(
+                    MDC.get("requestId"),                 // same correlation model already used
+                    targetExternalSubjectId,
+                    "USER_SESSION_REVOKED",
+                    "ADMIN_ACTION",
+                    "SESSION_INVALIDATION",
+                    "N/A",
+                    "N/A"
+            );
         }
 
         return revoked;

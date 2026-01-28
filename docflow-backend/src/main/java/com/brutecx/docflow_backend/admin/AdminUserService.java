@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.admin;
 
+import com.brutecx.docflow_backend.api.error.SelfActionForbiddenException;
 import com.brutecx.docflow_backend.security.AuthRoleExtractor;
 import com.brutecx.docflow_backend.security.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.security.audit.admin.IAdminAuditEventService;
@@ -58,23 +59,21 @@ public class AdminUserService {
     @Transactional
     public void lockUser(UUID userId) {
         User target = userRepository.getRequired(userId);
-        log.info("Target user {}", target);
         User actor = userService.getRequiredCurrentUser();
-        log.info("Actor user {}", actor);
+
+        if (actor.getId().equals(target.getId())) {
+            throw new SelfActionForbiddenException("You cannot lock your own account");
+        }
 
         if (target.getStatus() == UserStatus.LOCKED) {
-            log.info("User {} is already locked", target);
             return; // idempotent
         }
         target.lock();
-        userRepository.flush();
 
-        log.info("User {} locked", target);
-
-        sessionRevocationService.revokeSessionsBySubject(
-                target.getExternalSubjectId()
+        int revokedSessions = sessionRevocationService.revokeSessionsBySubject(
+                target.getExternalSubjectId(),
+                actor.getExternalSubjectId()
         );
-        log.info("Sessions revoked for user {}", target);
 
         try {
             adminAuditEventService.record(
@@ -84,10 +83,9 @@ public class AdminUserService {
                     target.getId(),
                     new UserStateChangeMetadata(
                             UserStateChangeReason.MANUAL_ADMIN_ACTION,
-                            null
+                            "revokedSessions=" + revokedSessions
                     )
             );
-            log.info("Audit record peristed.");
 
         } catch (Exception e) {
             log.error(
@@ -106,12 +104,18 @@ public class AdminUserService {
         User target = userRepository.getRequired(userId);
         User actor = userService.getRequiredCurrentUser();
 
+        if (actor.getId().equals(target.getId())) {
+            throw new SelfActionForbiddenException("You cannot disable your own account");
+        }
+
         if (target.getStatus() == UserStatus.DISABLED) {
             return; // idempotent
         }
         target.disable();
-        sessionRevocationService.revokeSessionsBySubject(
-                target.getExternalSubjectId()
+
+        int revokedSessions = sessionRevocationService.revokeSessionsBySubject(
+                target.getExternalSubjectId(),
+                actor.getExternalSubjectId()
         );
 
         adminAuditEventService.record(
@@ -121,7 +125,7 @@ public class AdminUserService {
                 target.getId(),
                 new UserStateChangeMetadata(
                         UserStateChangeReason.MANUAL_ADMIN_ACTION,
-                        null
+                        "revokedSessions=" + revokedSessions
                 )
         );
     }

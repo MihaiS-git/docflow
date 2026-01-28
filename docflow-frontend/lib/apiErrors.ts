@@ -1,9 +1,13 @@
+import { ErrorResponse } from "./api/ErrorResponse";
+
 export class ApiError extends Error {
   readonly status: number;
+  readonly response?: ErrorResponse;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, response?: ErrorResponse) {
     super(message);
     this.status = status;
+    this.response = response;
   }
 }
 
@@ -16,8 +20,8 @@ export class UnauthenticatedError extends ApiError {
 export class ForbiddenError extends ApiError {
   readonly errorCode: string;
 
-  constructor(errorCode: string) {
-    super("Forbidden", 403);
-    this.errorCode = errorCode;
+  constructor(response: ErrorResponse) {
+    super(response.message, response.status, response);
+    this.errorCode = response.errorCode;
   }
 }

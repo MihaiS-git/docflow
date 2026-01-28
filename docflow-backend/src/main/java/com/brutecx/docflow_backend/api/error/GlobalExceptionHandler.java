@@ -16,6 +16,24 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(SelfActionForbiddenException.class)
+    public ResponseEntity<ErrorResponse> handleSelfActionForbidden(
+            SelfActionForbiddenException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.FORBIDDEN.value(),
+                                HttpStatus.FORBIDDEN.getReasonPhrase(),
+                                "SELF_ACTION_FORBIDDEN",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
+
     @ExceptionHandler(LifecycleAccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleLifecycleAccessDenied(
             LifecycleAccessDeniedException ex,

@@ -4,19 +4,23 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.security.KeycloakOidcUserService;
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
 import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
 import com.brutecx.docflow_backend.security.session.SessionSecurityProperties;
 import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.ServletContextInitializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.authorization.AuthorityAuthorizationManager;
 import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.Customizer;
@@ -31,7 +35,6 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequest
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -61,6 +64,9 @@ public class SecurityConfig {
     @Value("${docflow.security.frontend-base-url}")
     private String frontendBaseUrl;
 
+    @Value("${spring.profiles.active:dev}")
+    private String activeProfile;
+
     private final SessionSecurityProperties sessionSecurityProperties;
 
     public SecurityConfig(SessionSecurityProperties sessionSecurityProperties) {
@@ -75,7 +81,8 @@ public class SecurityConfig {
             LifecycleAuthorizationManager lifecycleAuthorizationManager,
             AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter,
             RequestCorrelationIdFilter requestCorrelationIdFilter,
-            KeycloakOidcUserService keycloakOidcUserService
+            KeycloakOidcUserService keycloakOidcUserService,
+            ObjectMapper objectMapper
     ) throws Exception {
 
         http
@@ -98,6 +105,24 @@ public class SecurityConfig {
                         .maxSessionsPreventsLogin(true)
                         .sessionRegistry(sessionRegistry())
                 )
+
+                .headers(headers -> {
+                    headers
+                            .contentTypeOptions(Customizer.withDefaults())
+                            .xssProtection(Customizer.withDefaults())
+                            .frameOptions(frame -> frame.sameOrigin())
+                            .contentSecurityPolicy(csp ->
+                                    csp.policyDirectives("default-src 'self'; frame-ancestors 'self'")
+                            );
+
+                    // NOTE: If TLS is later terminated exclusively at NGINX,
+                    // HSTS must be moved to NGINX and removed from Spring.
+                    if ("prod".equals(activeProfile)) {
+                        headers.httpStrictTransportSecurity(hsts ->
+                                hsts.includeSubDomains(true).maxAgeInSeconds(31536000)
+                        );
+                    }
+                })
 
                 .authorizeHttpRequests(auth -> auth
 
@@ -144,17 +169,24 @@ public class SecurityConfig {
                 )
 
                 .exceptionHandling(ex -> ex
-                        .accessDeniedHandler(restAccessDeniedHandler)
-                        .defaultAuthenticationEntryPointFor(
-                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                                req -> req.getRequestURI().startsWith("/api/")
-                        )
-                        .defaultAuthenticationEntryPointFor(
-                                new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/keycloak"),
-                                req -> !req.getRequestURI().startsWith("/api/")
-                                        && !req.getRequestURI().startsWith("/actuator")
-                                        && !req.getRequestURI().startsWith("/login")
-                        )
+                                .accessDeniedHandler(restAccessDeniedHandler)
+                                .authenticationEntryPoint((req, res, authEx) -> {
+                                    if (req.getRequestURI().startsWith("/api/")) {
+                                        ErrorResponse body = ErrorResponse.of(
+                                                HttpStatus.UNAUTHORIZED.value(),
+                                                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                                                "UNAUTHORIZED",
+                                                "Authentication required",
+                                                req.getRequestURI()
+                                        );
+                                        res.setStatus(HttpStatus.UNAUTHORIZED.value());
+                                        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                                        objectMapper.writeValue(res.getOutputStream(), body);
+                                        return;
+                                    }
+                                    new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/keycloak")
+                                            .commence(req, res, authEx);
+                                })
                 )
 
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -247,5 +279,16 @@ public class SecurityConfig {
     @Bean
     public HttpSessionEventPublisher httpSessionEventPublisher() {
         return new HttpSessionEventPublisher();
+    }
+
+    @Bean
+    ServletContextInitializer sessionCookieInitializer() {
+        return servletContext -> {
+            var cookie = servletContext.getSessionCookieConfig();
+            cookie.setHttpOnly(true);
+            cookie.setSecure("prod".equals(activeProfile));
+            cookie.setName("JSESSIONID");
+            cookie.setPath("/");
+        };
     }
 }

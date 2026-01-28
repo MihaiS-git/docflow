@@ -9,16 +9,17 @@ import {
   revokeRole,
 } from "@/lib/admin/adminUsers";
 import { AdminUser } from "@/types/admin/AdminUser";
+import { ForbiddenError } from "@/lib/apiErrors";
+import { toast } from "sonner";
 
 type Props = {
   user: AdminUser;
   allRoles: string[];
+  onUserUpdated: (user: AdminUser) => void;
 };
 
-export function AdminUserRow({ user, allRoles }: Props) {
+export function AdminUserRow({ user, allRoles, onUserUpdated }: Props) {
   const [selectedRole, setSelectedRole] = useState("");
-
-  const reload = () => window.location.reload();
 
   // Runtime-safe: backend may not provide roles yet
   const userRoles = useMemo(() => user.roles ?? [], [user.roles]);
@@ -31,7 +32,47 @@ export function AdminUserRow({ user, allRoles }: Props) {
   const onGrant = async () => {
     if (!selectedRole) return;
     await assignRole(user.id, selectedRole);
-    reload();
+    onUserUpdated({
+      ...user,
+      roles: [...(user.roles ?? []), selectedRole],
+    });
+    setSelectedRole("");
+  };
+
+  const onActivate = async () => {
+    await activateUser(user.id);
+    onUserUpdated({ ...user, status: "ACTIVE" });
+  };
+
+  const onLock = async () => {
+    try {
+      await lockUser(user.id);
+      onUserUpdated({ ...user, status: "LOCKED" });
+    } catch (err) {
+      if (
+        err instanceof ForbiddenError &&
+        err.errorCode === "SELF_ACTION_FORBIDDEN"
+      ) {
+        toast.error("You cannot lock your own account");
+        return;
+      }
+      throw err;
+    }
+  };
+
+  const onDisable = async () => {
+    try {
+      await disableUser(user.id);
+      onUserUpdated({ ...user, status: "DISABLED" });
+    } catch (err) {
+      if (
+        err instanceof ForbiddenError &&
+        err.errorCode === "SELF_ACTION_FORBIDDEN"
+      ) {
+        toast.error("You cannot disable your own account");
+        return;
+      }
+    }
   };
 
   return (
@@ -51,11 +92,17 @@ export function AdminUserRow({ user, allRoles }: Props) {
               >
                 {role}
                 <button
-                  onClick={() => revokeRole(user.id, role).then(reload)}
+                  onClick={async () => {
+                    await revokeRole(user.id, role);
+                    onUserUpdated({
+                      ...user,
+                      roles: userRoles.filter((r) => r !== role),
+                    });
+                  }}
                   className="text-red-600 font-bold"
                   title={`Revoke ${role}`}
                 >
-                  ×
+                  x
                 </button>
               </span>
             ))
@@ -88,7 +135,7 @@ export function AdminUserRow({ user, allRoles }: Props) {
 
       <td className="flex gap-2">
         <button
-          onClick={() => activateUser(user.id).then(reload)}
+          onClick={onActivate}
           disabled={user.status === "ACTIVE"}
           className="px-2 py-1 bg-green-600 text-white disabled:opacity-40"
         >
@@ -96,7 +143,7 @@ export function AdminUserRow({ user, allRoles }: Props) {
         </button>
 
         <button
-          onClick={() => lockUser(user.id).then(reload)}
+          onClick={onLock}
           disabled={user.status === "LOCKED"}
           className="px-2 py-1 bg-yellow-500 text-white disabled:opacity-40"
         >
@@ -104,7 +151,7 @@ export function AdminUserRow({ user, allRoles }: Props) {
         </button>
 
         <button
-          onClick={() => disableUser(user.id).then(reload)}
+          onClick={onDisable}
           disabled={user.status === "DISABLED"}
           className="px-2 py-1 bg-red-600 text-white disabled:opacity-40"
         >

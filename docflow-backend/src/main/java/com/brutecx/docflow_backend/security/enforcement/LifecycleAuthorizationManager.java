@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.enforcement;
 
+import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.tenant.Tenant;
 import com.brutecx.docflow_backend.tenant.TenantService;
 import com.brutecx.docflow_backend.tenant.TenantStatus;
@@ -46,7 +47,7 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         if (authentication != null) {
             log.error(
                     "SECURITY DEBUG → uri={}, authorities={}",
-                    context.getRequest().getRequestURI(),
+                    uri,
                     authentication.getAuthorities()
             );
         }
@@ -74,9 +75,12 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
                     "LIFECYCLE DENIED → tenant resolution failed for principal subject={} email={} uri={}",
                     subject,
                     email,
-                    context.getRequest().getRequestURI()
+                    uri
             );
-            return new AuthorizationDecision(false);
+            throw new LifecycleAccessDeniedException(
+                    "TENANT_RESOLUTION_FAILED",
+                    "Tenant resolution failed"
+            );
         }
 
         if (tenant.getStatus() == TenantStatus.SUSPENDED) {
@@ -86,7 +90,10 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
                     email,
                     tenant.getId()
             );
-            return new AuthorizationDecision(false);
+            throw new LifecycleAccessDeniedException(
+                    "TENANT_SUSPENDED",
+                    "Tenant is suspended"
+            );
         }
 
         // 2. User lifecycle
@@ -101,9 +108,12 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
                     "LIFECYCLE DENIED → local user missing for principal subject={} email={} uri={}",
                     subject,
                     email,
-                    context.getRequest().getRequestURI()
+                    uri
             );
-            return new AuthorizationDecision(false);
+            throw new LifecycleAccessDeniedException(
+                    "LOCAL_USER_MISSING",
+                    "Authenticated subject not mapped to a local user"
+            );
         }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
@@ -113,7 +123,10 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
                     email,
                     user.getStatus()
             );
-            return new AuthorizationDecision(false);
+            throw new LifecycleAccessDeniedException(
+                    "USER_NOT_ACTIVE",
+                    "User is not active"
+            );
         }
 
         return new AuthorizationDecision(true);
