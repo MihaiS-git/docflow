@@ -15,7 +15,6 @@ import org.springframework.web.client.RestClientException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Client for interacting with Keycloak Admin API to fetch events and user details.
@@ -279,6 +278,4 @@ public class KeycloakAdminClient {
             );
         }
     }
-
-
 }
