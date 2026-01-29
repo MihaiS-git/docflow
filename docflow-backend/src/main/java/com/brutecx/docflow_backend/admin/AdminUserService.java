@@ -2,6 +2,8 @@ package com.brutecx.docflow_backend.admin;
 
 import com.brutecx.docflow_backend.api.error.SelfActionForbiddenException;
 import com.brutecx.docflow_backend.security.AuthRoleExtractor;
+import com.brutecx.docflow_backend.security.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.security.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.security.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.security.audit.admin.IAdminAuditEventService;
 import com.brutecx.docflow_backend.security.audit.admin.UserStateChangeMetadata;
@@ -32,6 +34,7 @@ public class AdminUserService {
     private final UserService userService;
     private final KeycloakAdminClient keycloakAdminClient;
     private final AuthRoleExtractor authRoleExtractor;
+    private final AuditRequestContextExtractor auditRequestContextExtractor;
 
     private static final Set<String> ASSIGNABLE_ROLES = Set.of("ADMIN", "AUDITOR", "REVIEWER", "USER");
 
@@ -60,6 +63,8 @@ public class AdminUserService {
     public void lockUser(UUID userId) {
         User target = userRepository.getRequired(userId);
         User actor = userService.getRequiredCurrentUser();
+        AuditRequestContext ctx =
+                auditRequestContextExtractor.fromCurrentRequest();
 
         if (actor.getId().equals(target.getId())) {
             throw new SelfActionForbiddenException("You cannot lock your own account");
@@ -71,6 +76,7 @@ public class AdminUserService {
         target.lock();
 
         int revokedSessions = sessionRevocationService.revokeSessionsBySubject(
+                ctx,
                 target.getExternalSubjectId(),
                 actor.getExternalSubjectId()
         );
@@ -78,6 +84,10 @@ public class AdminUserService {
         try {
             adminAuditEventService.record(
                     actor.getId(),
+                    ctx.ip(),
+                    ctx.userAgent(),
+                    ctx.requestId(),
+                    actor.getExternalSubjectId(),
                     actor.getTenant().getId(),
                     AdminAuditActionType.USER_LOCKED,
                     target.getId(),
@@ -86,7 +96,6 @@ public class AdminUserService {
                             "revokedSessions=" + revokedSessions
                     )
             );
-
         } catch (Exception e) {
             log.error(
                     "AUDIT FAILURE for USER_LOCKED actorId={} targetUserId={} tenantId={}",
@@ -103,6 +112,8 @@ public class AdminUserService {
     public void disableUser(UUID userId) {
         User target = userRepository.getRequired(userId);
         User actor = userService.getRequiredCurrentUser();
+        AuditRequestContext ctx =
+                auditRequestContextExtractor.fromCurrentRequest();
 
         if (actor.getId().equals(target.getId())) {
             throw new SelfActionForbiddenException("You cannot disable your own account");
@@ -114,12 +125,17 @@ public class AdminUserService {
         target.disable();
 
         int revokedSessions = sessionRevocationService.revokeSessionsBySubject(
+                ctx,
                 target.getExternalSubjectId(),
                 actor.getExternalSubjectId()
         );
 
         adminAuditEventService.record(
                 actor.getId(),
+                ctx.ip(),
+                ctx.userAgent(),
+                ctx.requestId(),
+                actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 AdminAuditActionType.USER_DISABLED,
                 target.getId(),
@@ -134,6 +150,9 @@ public class AdminUserService {
     public void activateUser(UUID userId) {
         User target = userRepository.getRequired(userId);
         User actor = userService.getRequiredCurrentUser();
+        AuditRequestContext ctx =
+                auditRequestContextExtractor.fromCurrentRequest();
+
 
         if (target.getStatus() == UserStatus.ACTIVE) {
             return; // idempotent
@@ -142,6 +161,10 @@ public class AdminUserService {
 
         adminAuditEventService.record(
                 actor.getId(),
+                ctx.ip(),
+                ctx.userAgent(),
+                ctx.requestId(),
+                actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 AdminAuditActionType.USER_ACTIVATED,
                 target.getId(),

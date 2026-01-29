@@ -13,7 +13,9 @@ spring:
             client-id: ${KEYCLOAK_CLIENT_ID}
             authorization-grant-type: authorization_code
             scope: openid,profile,email,roles
-            redirect-uri: "http://localhost:8085/login/oauth2/code/{registrationId}"
+#            redirect-uri: "http://localhost:8085/login/oauth2/code/{registrationId}"
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+#            redirect-uri: "http://brutecx.local:8085/login/oauth2/code/{registrationId}"
         provider:
           keycloak:
             authorization-uri: ${KEYCLOAK_AUTH_URI}

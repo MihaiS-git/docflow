@@ -1,5 +1,7 @@
 package com.brutecx.docflow_backend.admin;
 
+import com.brutecx.docflow_backend.security.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.security.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.security.audit.admin.*;
 import com.brutecx.docflow_backend.security.audit.keycloak.KeycloakAdminClient;
 import com.brutecx.docflow_backend.user.User;
@@ -20,6 +22,7 @@ public class UserRoleAdminService {
     private final KeycloakAdminClient keycloakRoleAdminClient;
     private final IAdminAuditEventService auditEventService;
     private final UserService userService;
+    private final AuditRequestContextExtractor auditRequestContextExtractor;
 
     private static final Set<String> NON_ASSIGNABLE_ROLES = Set.of("USER");
 
@@ -35,6 +38,8 @@ public class UserRoleAdminService {
 
         User actor = userService.getRequiredCurrentUser();
         User target = userService.getRequired(targetUserId);
+        AuditRequestContext ctx =
+                auditRequestContextExtractor.fromCurrentRequest();
 
         log.info("Assigning role {} to target {}, by actor {}", roleName, target, actor);
 
@@ -52,6 +57,10 @@ public class UserRoleAdminService {
 
         auditEventService.record(
                 actor.getId(),
+                ctx.ip(),
+                ctx.userAgent(),
+                ctx.requestId(),
+                actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 AdminAuditActionType.ROLE_ASSIGNED,
                 target.getId(),
@@ -72,6 +81,8 @@ public class UserRoleAdminService {
 
         User actor = userService.getRequiredCurrentUser();
         User target = userService.getRequired(targetUserId);
+        AuditRequestContext ctx =
+                auditRequestContextExtractor.fromCurrentRequest();
 
         keycloakRoleAdminClient.revokeRealmRole(
                 target.getExternalSubjectId(),
@@ -80,6 +91,10 @@ public class UserRoleAdminService {
 
         auditEventService.record(
                 actor.getId(),
+                ctx.ip(),
+                ctx.userAgent(),
+                ctx.requestId(),
+                actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 AdminAuditActionType.ROLE_REVOKED,
                 target.getId(),

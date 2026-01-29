@@ -1,4 +1,4 @@
-package com.brutecx.docflow_backend.security.audit;
+package com.brutecx.docflow_backend.security.audit.auth;
 
 import lombok.Getter;
 

@@ -20,8 +20,17 @@ class AdminAuditEventRepositoryTest {
         UUID tenant = UUID.randomUUID();
         UUID target = UUID.randomUUID();
 
+        String ip = "203.0.113.10";
+        String userAgent = "JUnit/Test";
+        String requestId = UUID.randomUUID().toString();
+        String subjectId = UUID.randomUUID().toString();
+
         AdminAuditEvent event = new AdminAuditEvent(
                 actor,
+                ip,
+                userAgent,
+                requestId,
+                subjectId,
                 tenant,
                 AdminAuditActionType.USER_DISABLED,
                 target,
@@ -35,10 +44,16 @@ class AdminAuditEventRepositoryTest {
 
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getTimestamp()).isNotNull();
+
         assertThat(saved.getActorUserId()).isEqualTo(actor);
         assertThat(saved.getTenantId()).isEqualTo(tenant);
         assertThat(saved.getTargetUserId()).isEqualTo(target);
+
+        assertThat(saved.getIp()).isEqualTo(ip);
+        assertThat(saved.getUserAgent()).isEqualTo(userAgent);
+        assertThat(saved.getRequestId()).isEqualTo(requestId);
+        assertThat(saved.getSubjectId()).isEqualTo(subjectId);
+
         assertThat(saved.getMetadata()).isInstanceOf(UserStateChangeMetadata.class);
     }
 }
-

@@ -1,3 +1,5 @@
+# src/main/resources/application-dev.yaml
+
 spring:
   security:
     oauth2:
@@ -10,19 +12,37 @@ spring:
             authorization-uri: ${KEYCLOAK_AUTH_URI:http://localhost:8085/realms/docflow/protocol/openid-connect/auth}
             token-uri: ${KEYCLOAK_TOKEN_URI:http://keycloak:8080/realms/docflow/protocol/openid-connect/token}
             jwk-set-uri: ${KEYCLOAK_JWKS_URI:http://keycloak:8080/realms/docflow/protocol/openid-connect/certs}
+
   datasource:
     url: jdbc:postgresql://localhost:5432/docflowdb
     username: ${DB_USER:postgres}
     password: ${DB_PASSWORD:postgres}
+
   jpa:
     hibernate:
       ddl-auto: update
+
   devtools:
     restart:
       enabled: true
+
+# CHANGED: dev profile must work over plain HTTP (LAN/dev). OAuth2 state is stored in session cookie.
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false     # CHANGED: required for HTTP; otherwise browser drops JSESSIONID
+        same-site: LAX    # CHANGED: stable dev behavior
+      timeout: 30m
+  use-forward-headers: true                 # ADDED: align with application-prod.yaml
+  forward-headers-strategy: framework       # CHANGED: align with application-prod.yaml
+  tomcat:
+    use-relative-redirects: true
+
 logging:
   level:
     org.springframework.security: DEBUG
+
 docflow:
   security:
     allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
@@ -37,3 +57,8 @@ docflow:
         client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:${KEYCLOAK_ADMIN_CLIENT_SECRET}}
         poll-fixed-delay-ms: ${KEYCLOAK_ADMIN_POLL_DELAY_MS:5000}
         page-size: ${KEYCLOAK_ADMIN_PAGE_SIZE:100}
+
+    # ADDED: align with application-prod.yaml (required by SecurityConfig)
+    session:
+      absolute-timeout: 8h            # ADDED
+      max-concurrent-sessions: 1      # ADDED

@@ -13,7 +13,16 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "admin_audit_events")
+@Table(
+        name = "admin_audit_events",
+        indexes = {
+                @Index(name = "idx_admin_audit_timestamp", columnList = "timestamp"),
+                @Index(name = "idx_admin_audit_actor_user_id", columnList = "actor_user_id"),
+                @Index(name = "idx_admin_audit_tenant_id", columnList = "tenant_id"),
+                @Index(name = "idx_admin_audit_request_id", columnList = "request_id"),
+                @Index(name = "idx_admin_audit_subject_id", columnList = "subject_id")
+        }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AdminAuditEvent {
@@ -33,11 +42,27 @@ public class AdminAuditEvent {
     private UUID actorUserId;
 
     @NotNull
+    @Column(nullable = false, updatable = false, length = 128)
+    private String ip;
+
+    @NotNull
+    @Column(nullable = false, updatable = false, name = "user_agent", length = 512)
+    private String userAgent;
+
+    @NotNull
+    @Column(nullable = false, updatable = false, name = "request_id", length = 128)
+    private String requestId;
+
+    @NotNull
+    @Column(nullable = false, updatable = false, name = "subject_id", length = 128)
+    private String subjectId;
+
+    @NotNull
     @Column(nullable = false, updatable = false, name = "tenant_id")
     private UUID tenantId;
 
     @NotNull
-    @Column(nullable = false, updatable = false, name = "action_type")
+    @Column(nullable = false, updatable = false, name = "action_type", length = 64)
     @Enumerated(EnumType.STRING)
     private AdminAuditActionType actionType;
 
@@ -51,12 +76,20 @@ public class AdminAuditEvent {
 
     public AdminAuditEvent(
             UUID actorUserId,
+            String ip,
+            String userAgent,
+            String requestId,
+            String subjectId,
             UUID tenantId,
             AdminAuditActionType actionType,
             UUID targetUserId,
             AdminAuditMetadata metadata
     ) {
         this.actorUserId = actorUserId;
+        this.ip = ip;
+        this.userAgent = userAgent;
+        this.requestId = requestId;
+        this.subjectId = subjectId;
         this.tenantId = tenantId;
         this.actionType = actionType;
         this.targetUserId = targetUserId;

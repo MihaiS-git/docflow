@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.session;
 
+import com.brutecx.docflow_backend.security.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.security.audit.lifecycle.ILifecycleDeniedAuditService;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -30,11 +31,11 @@ public class SessionRevocationService {
      * Invalidates all active sessions for a given OIDC subject.
      */
     public int revokeSessionsBySubject(
+            AuditRequestContext ctx,
             String targetExternalSubjectId,
             String actorExternalSubjectId
     ) {
         if (sessionRegistry == null) {
-            // Test / non-session context → nothing to revoke
             return 0;
         }
 
@@ -55,6 +56,7 @@ public class SessionRevocationService {
 
             List<SessionInformation> sessions =
                     sessionRegistry.getAllSessions(principal, false);
+
             for (SessionInformation session : sessions) {
                 session.expireNow();
                 revoked++;
@@ -63,13 +65,13 @@ public class SessionRevocationService {
 
         if (revoked > 0) {
             lifecycleDeniedAuditService.record(
-                    MDC.get("requestId"),                 // same correlation model already used
+                    ctx.requestId(),                 // same correlation model already used
                     targetExternalSubjectId,
                     "USER_SESSION_REVOKED",
                     "ADMIN_ACTION",
                     "SESSION_INVALIDATION",
-                    "N/A",
-                    "N/A"
+                    ctx.ip(), // no HttpServletRequest available here (service layer)
+                    ctx.userAgent()  // no UA available here (service layer)
             );
         }
 

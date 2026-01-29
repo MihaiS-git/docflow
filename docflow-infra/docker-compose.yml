@@ -26,7 +26,7 @@ services:
         condition: service_healthy
     environment:
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: dev
       SPRING_DATASOURCE_URL: jdbc:postgresql://docflow-db:5432/${DOCFLOW_DB_NAME}
       SPRING_DATASOURCE_USERNAME: ${DOCFLOW_DB_USER}
       SPRING_DATASOURCE_PASSWORD: ${DOCFLOW_DB_PASSWORD}
@@ -94,8 +94,8 @@ services:
       retries: 10
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.5.0
     container_name: docflow-keycloak
+    image: quay.io/keycloak/keycloak:26.5.0
     depends_on:
       keycloak-db:
         condition: service_healthy
@@ -115,12 +115,32 @@ services:
       KC_HOSTNAME_STRICT: true
       KC_HTTP_ENABLED: true
 
-      # Use hostname v2 option (can be full URL incl. port)
-      KC_HOSTNAME: http://localhost:8085
-      KC_HOSTNAME_ADMIN: http://localhost:8085
-    ports: [] # keep Keycloak internal; access only via nginx
+      KC_HOSTNAME: http://brutecx.local:8085
+      KC_HOSTNAME_ADMIN: http://brutecx.local:8085
+
+    ports: [] # internal only
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "exec 3<>/dev/tcp/localhost/8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  keycloak-init:
+    image: curlimages/curl:8.10.1
+    container_name: docflow-keycloak-init
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+    volumes:
+      - ./keycloak/kc-init.sh:/kc-init.sh:ro
+    entrypoint: ["/bin/sh", "/kc-init.sh"]
+    restart: "no"
 
   prometheus:
     image: prom/prometheus:v2.52.0

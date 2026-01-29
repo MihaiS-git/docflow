@@ -17,6 +17,10 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService{
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(
             UUID actorUserId,
+            String ip,
+            String userAgent,
+            String requestId,
+            String subjectId,
             UUID tenantId,
             AdminAuditActionType actionType,
             UUID targetUserId,
@@ -25,6 +29,10 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService{
 
         AdminAuditEvent event = new AdminAuditEvent(
                 actorUserId,
+                ip,
+                userAgent,
+                requestId,
+                subjectId,
                 tenantId,
                 actionType,
                 targetUserId,

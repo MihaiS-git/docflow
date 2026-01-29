@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.security.handler;
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.security.audit.lifecycle.ILifecycleDeniedAuditService;
+import com.brutecx.docflow_backend.security.web.ClientIpResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,6 +30,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
     private final ObjectMapper objectMapper;
     private final ILifecycleDeniedAuditService lifecycleDeniedAuditService;
+    private final ClientIpResolver clientIpResolver;
 
     @Override
     public void handle(
@@ -63,13 +65,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                     subjectId = oidcUser.getSubject();
                 }
 
-                String ip = request.getHeader("X-Forwarded-For");
-                if (ip != null && ip.contains(",")) {
-                    ip = ip.split(",", 2)[0].trim();
-                }
-                if (ip == null || ip.isBlank()) {
-                    ip = request.getRemoteAddr();
-                }
+                String ip = clientIpResolver.resolve(request);
 
                 String userAgent = request.getHeader("User-Agent");
 

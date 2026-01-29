@@ -1,9 +1,12 @@
 package com.brutecx.docflow_backend.security.audit.lifecycle;
 
+import com.brutecx.docflow_backend.security.audit.EventFingerprint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -22,7 +25,7 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
             String ip,
             String userAgent
     ) {
-        LifecycleDeniedAuditEvent event = new LifecycleDeniedAuditEvent(
+        String fingerprint = EventFingerprint.of(List.of(
                 requestId,
                 subjectId,
                 reasonCode,
@@ -30,6 +33,17 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                 path,
                 ip,
                 userAgent
+        ));
+
+        LifecycleDeniedAuditEvent event = new LifecycleDeniedAuditEvent(
+                requestId,
+                subjectId,
+                reasonCode,
+                httpMethod,
+                path,
+                ip,
+                userAgent,
+                fingerprint
         );
 
         repository.save(event);

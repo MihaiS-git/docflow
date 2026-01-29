@@ -1,6 +1,8 @@
-package com.brutecx.docflow_backend.security.audit;
+package com.brutecx.docflow_backend.security.audit.auth;
 
+import com.brutecx.docflow_backend.security.audit.EventFingerprint;
 import com.brutecx.docflow_backend.security.audit.identity.IUserIdentityProjectionService;
+import com.brutecx.docflow_backend.security.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,8 +11,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.security.authentication.event.AbstractAuthenticationFailureEvent;
 import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.security.authentication.event.LogoutSuccessEvent;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.core.Authentication; // ADDED: pass auth into resolver
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Component;
 
@@ -31,20 +32,24 @@ public class AuthenticationEventListener {
     private final AuthenticationEventRepository repository;
     private final HttpServletRequest request;
     private final IUserIdentityProjectionService identityProjectionService;
+    private final ClientIpResolver clientIpResolver;
 
     public AuthenticationEventListener(
             AuthenticationEventRepository repository,
             HttpServletRequest request,
-            IUserIdentityProjectionService identityProjectionService
+            IUserIdentityProjectionService identityProjectionService,
+            ClientIpResolver clientIpResolver
     ) {
         this.repository = repository;
         this.request = request;
         this.identityProjectionService = identityProjectionService;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
-        persist(AuthenticationResult.SUCCESS, event.getAuthentication().getName());
+        // CHANGED: pass authentication so resolver can use authentication.details remoteAddress first
+        persist(AuthenticationResult.SUCCESS, event.getAuthentication().getName(), event.getAuthentication());
 
         String subjectId = resolveSubjectId(event.getAuthentication());
         log.info("Triggering identity projection subjectId={}", subjectId);
@@ -64,23 +69,25 @@ public class AuthenticationEventListener {
 
     @EventListener
     public void onFailure(AbstractAuthenticationFailureEvent event) {
-        persist(AuthenticationResult.FAILURE, event.getAuthentication().getName());
+        // CHANGED: pass authentication so resolver can use authentication.details remoteAddress first
+        persist(AuthenticationResult.FAILURE, event.getAuthentication().getName(), event.getAuthentication());
     }
 
     @EventListener
     public void onLogout(LogoutSuccessEvent event) {
-        persist(AuthenticationResult.LOGOUT, event.getAuthentication().getName());
+        // CHANGED: pass authentication so resolver can use authentication.details remoteAddress first
+        persist(AuthenticationResult.LOGOUT, event.getAuthentication().getName(), event.getAuthentication());
     }
 
-    private void persist(AuthenticationResult result, String username) {
+    // CHANGED: include Authentication for IP resolution
+    private void persist(AuthenticationResult result, String username, Authentication authentication) {
         String correlationId = MDC.get("requestId");
 
         String resolvedUsername =
                 (username != null && !username.isBlank()) ? username : "UNKNOWN";
 
-        String ip = request.getRemoteAddr() != null
-                ? request.getRemoteAddr()
-                : "UNKNOWN";
+        // CHANGED: resolve client IP using Authentication details first, then request headers
+        String ip = clientIpResolver.resolve(authentication, request);
 
         String userAgent = request.getHeader("User-Agent") != null
                 ? request.getHeader("User-Agent")
@@ -90,7 +97,7 @@ public class AuthenticationEventListener {
 
         String eventFingerprint = EventFingerprint.of(List.of(
                 result.name(),
-                AuthenticationEventSource.SPRING_SECURITY.name(),   // source
+                AuthenticationEventSource.SPRING_SECURITY.name(),
                 resolvedUsername,
                 ip,
                 String.valueOf(eventTime.toEpochMilli())
@@ -124,5 +131,10 @@ public class AuthenticationEventListener {
                 userAgent,
                 correlationId
         );
+    }
+
+    // ADDED: keep compatibility if any other internal call sites exist later
+    private void persist(AuthenticationResult result, String username) {
+        persist(result, username, null);
     }
 }

@@ -1,6 +1,11 @@
 package com.brutecx.docflow_backend.security.audit;
 
+import com.brutecx.docflow_backend.security.audit.auth.AuthenticationEvent;
+import com.brutecx.docflow_backend.security.audit.auth.AuthenticationEventListener;
+import com.brutecx.docflow_backend.security.audit.auth.AuthenticationEventRepository;
+import com.brutecx.docflow_backend.security.audit.auth.AuthenticationResult;
 import com.brutecx.docflow_backend.security.audit.identity.IUserIdentityProjectionService;
+import com.brutecx.docflow_backend.security.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,10 +27,11 @@ class AuthenticationEventListenerTest {
     HttpServletRequest request = mock(HttpServletRequest.class);
     IUserIdentityProjectionService identityProjectionService =
             mock(IUserIdentityProjectionService.class);
+    ClientIpResolver clientIpResolver = new ClientIpResolver();
 
 
     AuthenticationEventListener listener =
-            new AuthenticationEventListener(repo, request, identityProjectionService);
+            new AuthenticationEventListener(repo, request, identityProjectionService, clientIpResolver);
 
     @BeforeEach
     void setUp() {
@@ -50,7 +56,6 @@ class AuthenticationEventListenerTest {
 
         verifySaved(AuthenticationResult.SUCCESS);
 
-        // optional but recommended
         verify(identityProjectionService)
                 .ensureProjected("UNKNOWN");
     }
