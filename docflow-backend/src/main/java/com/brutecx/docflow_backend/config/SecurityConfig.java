@@ -5,7 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
-import com.brutecx.docflow_backend.security.KeycloakOidcUserService;
+import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
+import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakOidcUserService;
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
 import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
@@ -82,7 +83,8 @@ public class SecurityConfig {
             AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter,
             RequestCorrelationIdFilter requestCorrelationIdFilter,
             KeycloakOidcUserService keycloakOidcUserService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            InviteApplicationService inviteApplicationService
     ) throws Exception {
 
         http
@@ -133,7 +135,9 @@ public class SecurityConfig {
                                 "/login/**",
                                 "/oauth2/**"
                         ).permitAll()
-
+                        // -------- AUTH APIs --------
+                        .requestMatchers(HttpMethod.GET, "/api/invites/accept").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/invites/validate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
@@ -202,7 +206,16 @@ public class SecurityConfig {
                         .userInfoEndpoint(userInfo ->
                                 userInfo.oidcUserService(keycloakOidcUserService)
                         )
-                        .successHandler((req, res, auth) -> res.sendRedirect(frontendBaseUrl))
+                        .successHandler((req, res, auth) -> {
+                            if (auth.getPrincipal() instanceof OidcUser oidcUser) {
+                                inviteApplicationService.consumeInviteIfPresent(
+                                        req.getSession(false),
+                                        oidcUser
+                                );
+                            }
+                            res.sendRedirect(frontendBaseUrl);
+                        })
+
                         .failureHandler((req, res, ex) -> {
                             log.error("OAuth2 failure handler invoked", ex);
                             res.sendRedirect(frontendBaseUrl);

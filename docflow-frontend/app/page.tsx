@@ -3,14 +3,8 @@
 import { useAuth } from "@/lib/auth/useAuth";
 
 export default function Home() {
-  const {
-    status,
-    isAuthenticated,
-    identity,
-    login,
-    logout,
-    refresh,
-  } = useAuth();
+  const { status, isAuthenticated, identity, login, logout, refresh } =
+    useAuth();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -19,7 +13,12 @@ export default function Home() {
 
         {status === "LOADING" && <div>Loading…</div>}
 
-        {identity?.roles.includes("ADMIN") && <a href="/admin/users">Admin</a>}
+        {identity?.roles.includes("ADMIN") && (
+          <>
+            <a href="/admin/users">Admin</a>
+            <a href="/admin/invites">Invites</a>
+          </>
+        )}
 
         {isAuthenticated && (
           <div className="flex items-center gap-4">

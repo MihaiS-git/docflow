@@ -2,8 +2,8 @@ package com.brutecx.docflow_backend.security.handler;
 
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
-import com.brutecx.docflow_backend.security.audit.lifecycle.ILifecycleDeniedAuditService;
-import com.brutecx.docflow_backend.security.web.ClientIpResolver;
+import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
+import com.brutecx.docflow_backend.web.ClientIpResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

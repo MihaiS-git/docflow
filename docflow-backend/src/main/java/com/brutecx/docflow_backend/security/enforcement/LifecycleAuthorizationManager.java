@@ -1,12 +1,12 @@
 package com.brutecx.docflow_backend.security.enforcement;
 
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
-import com.brutecx.docflow_backend.tenant.Tenant;
-import com.brutecx.docflow_backend.tenant.TenantService;
-import com.brutecx.docflow_backend.tenant.TenantStatus;
-import com.brutecx.docflow_backend.user.User;
-import com.brutecx.docflow_backend.user.UserRepository;
-import com.brutecx.docflow_backend.user.UserStatus;
+import com.brutecx.docflow_backend.domain.tenant.Tenant;
+import com.brutecx.docflow_backend.domain.tenant.TenantService;
+import com.brutecx.docflow_backend.domain.tenant.TenantStatus;
+import com.brutecx.docflow_backend.domain.user.User;
+import com.brutecx.docflow_backend.domain.user.UserRepository;
+import com.brutecx.docflow_backend.domain.user.UserStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authorization.AuthorizationDecision;
@@ -28,6 +28,7 @@ import java.util.function.Supplier;
  * If not authenticated or not a human user, allows access to let other mechanisms decide.
  */
 
+@SuppressWarnings("deprecation")
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -44,8 +45,14 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         Authentication authentication = authenticationSupplier.get();
         String uri = context.getRequest().getRequestURI();
 
+        // ADDED: allow invite bootstrap endpoints unconditionally
+        if (uri.startsWith("/api/invites/")) {
+            return new AuthorizationDecision(true);
+        }
+
+
         if (authentication != null) {
-            log.error(
+            log.debug(
                     "SECURITY DEBUG → uri={}, authorities={}",
                     uri,
                     authentication.getAuthorities()

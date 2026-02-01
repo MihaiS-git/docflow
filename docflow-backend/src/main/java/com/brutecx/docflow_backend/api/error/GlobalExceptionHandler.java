@@ -16,6 +16,24 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(InviteDeliveryException.class)
+    public ResponseEntity<ErrorResponse> handleInviteDelivery(
+            InviteDeliveryException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(ex.getStatus())
+                .body(
+                        ErrorResponse.of(
+                                ex.getStatus().value(),
+                                "Bad Request",
+                                "INVITE_DELIVERY_FAILED",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
+
     @ExceptionHandler(SelfActionForbiddenException.class)
     public ResponseEntity<ErrorResponse> handleSelfActionForbidden(
             SelfActionForbiddenException ex,

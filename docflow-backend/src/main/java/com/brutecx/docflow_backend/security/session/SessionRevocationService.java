@@ -1,9 +1,8 @@
 package com.brutecx.docflow_backend.security.session;
 
-import com.brutecx.docflow_backend.security.audit.AuditRequestContext;
-import com.brutecx.docflow_backend.security.audit.lifecycle.ILifecycleDeniedAuditService;
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.session.SessionInformation;
 import org.springframework.security.core.session.SessionRegistry;
