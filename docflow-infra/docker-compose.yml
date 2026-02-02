@@ -131,7 +131,7 @@ services:
 
       KC_HOSTNAME: ${KC_HOSTNAME}
       KC_HOSTNAME_ADMIN: ${KC_HOSTNAME}
-      # KC_LOG_LEVEL: DEBUG
+      KC_LOG_LEVEL: DEBUG
 
     ports: [] # internal only
     volumes:

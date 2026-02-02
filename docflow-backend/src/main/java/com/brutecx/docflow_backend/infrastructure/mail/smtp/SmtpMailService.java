@@ -55,6 +55,7 @@ public class SmtpMailService implements IMailService {
                 %s
 
                 You will be required to change this password immediately after login.
+                The invitation is valid 7 days.
                 """.formatted(firstName, lastName, tenant.getName(), department, to, temporaryPassword, inviteLink);
 
         sendMail(to, "You're invited", body);

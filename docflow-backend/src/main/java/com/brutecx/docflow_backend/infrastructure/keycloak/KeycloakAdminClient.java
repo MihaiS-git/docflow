@@ -280,10 +280,6 @@ public class KeycloakAdminClient {
         }
     }
 
-       /* =========================
-       INVITE USER PROVISIONING
-       ========================= */
-
     /**
      * Invite-only onboarding:
      * - ensure user exists
@@ -416,10 +412,6 @@ public class KeycloakAdminClient {
             throw new RestClientException("Failed to update requiredActions", ex);
         }
     }
-
-    /* =========================
-       HELPERS
-       ========================= */
 
     private String adminBaseUrl() {
         return props.baseUrl() + "/admin/realms/" + props.realm();

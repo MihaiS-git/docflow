@@ -7,13 +7,11 @@ import com.brutecx.docflow_backend.domain.invite.InviteStatus;
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.IUserProvisioningService;
-import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,7 +48,7 @@ public class InviteApplicationService {
 
         Tenant tenant = tenantService.getCurrentTenant();
         String normalizedEmail = email.toLowerCase(java.util.Locale.ROOT);
-        User user = userProvisioningService.provisionInvitedUser(
+        userProvisioningService.provisionInvitedUser(
                 tenant,
                 normalizedEmail,
                 firstName,
@@ -92,7 +90,7 @@ public class InviteApplicationService {
      * Phase 4 — Post-login consumption
      */
     @Transactional
-    public void consumeInviteIfPresent(HttpSession session, OidcUser oidcUser) {
+    public void consumeInviteIfPresent(HttpSession session) {
         if (session == null) return;
 
         Object raw = session.getAttribute(InviteSessionKeys.INVITE_TOKEN);

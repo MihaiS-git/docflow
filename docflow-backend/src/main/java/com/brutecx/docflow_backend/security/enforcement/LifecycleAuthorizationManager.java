@@ -28,7 +28,6 @@ import java.util.function.Supplier;
  * If not authenticated or not a human user, allows access to let other mechanisms decide.
  */
 
-@SuppressWarnings("deprecation")
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -103,18 +102,12 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         }
 
         // 2. User lifecycle
-//        User user = userRepository
-//                .findByExternalSubjectId(subject)
-//                .orElse(null);
-// 2. User lifecycle
         // Invite-only rule: never create users here.
         // Resolve by subject first; if not bound yet, fall back to tenant+email (bootstrap / invited users).
         User user = userRepository.findByExternalSubjectId(subject)
                 .orElseGet(() -> userRepository
                         .findByTenantIdAndEmailIgnoreCase(tenant.getId(), email)
                         .orElse(null));
-
-        log.info("Resolved user for lifecycle check: {}", user);
 
         if (user == null) {
             log.warn(

@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -36,8 +35,6 @@ public class AdminUserService {
     private final KeycloakAdminClient keycloakAdminClient;
     private final AuthRoleExtractor authRoleExtractor;
     private final AuditRequestContextExtractor auditRequestContextExtractor;
-
-    private static final Set<String> ASSIGNABLE_ROLES = Set.of("ADMIN", "AUDITOR", "REVIEWER", "USER");
 
     public List<AdminUserResponseDTO> listUsers() {
         return userRepository.findAll().stream()

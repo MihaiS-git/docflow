@@ -136,8 +136,8 @@ public class SecurityConfig {
                                 "/oauth2/**"
                         ).permitAll()
                         // -------- AUTH APIs --------
-                        .requestMatchers("/invite/complete").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/invites/accept").permitAll()
+//                        .requestMatchers("/invite/complete").permitAll()
+//                        .requestMatchers(HttpMethod.GET, "/api/invites/accept").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/invites/validate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
@@ -210,8 +210,7 @@ public class SecurityConfig {
                         .successHandler((req, res, auth) -> {
                             if (auth.getPrincipal() instanceof OidcUser oidcUser) {
                                 inviteApplicationService.consumeInviteIfPresent(
-                                        req.getSession(false),
-                                        oidcUser
+                                        req.getSession(false)
                                 );
                             }
                             res.sendRedirect(frontendBaseUrl);

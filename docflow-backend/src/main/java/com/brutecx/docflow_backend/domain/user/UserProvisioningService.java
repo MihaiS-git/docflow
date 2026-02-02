@@ -42,11 +42,7 @@ public class UserProvisioningService implements IUserProvisioningService {
                 department
         );
 
-        log.info("Provisioning user {} into tenant {}", user, tenant);
-
         tenant.addUser(user); // invariant enforced here
-
-        log.info("Provisioned user {} into tenant {}", user, tenant);
 
         return userRepository.save(user);
     }

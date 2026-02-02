@@ -1,18 +1,15 @@
 package com.brutecx.docflow_backend.security.auth;
 
-import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,26 +33,11 @@ public class AuthenticationSuccessListener {
 
     private final UserRepository userRepository;
     private final TenantService tenantService;
-    private final InviteApplicationService inviteApplicationService;
 
     @EventListener
     @Transactional
     public void onAuthenticationSuccess(AuthenticationSuccessEvent event) {
-        handleAuthentication(event.getAuthentication());
-
-        // consume invite token if present (stored in HttpSession by invite landing page)
-        if (event.getAuthentication() instanceof OAuth2AuthenticationToken oauth) {
-            Object principal = oauth.getPrincipal();
-            if (principal instanceof OidcUser oidcUser) {
-                ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-                HttpSession session = (attrs != null ? attrs.getRequest().getSession(false) : null);
-                inviteApplicationService.consumeInviteIfPresent(session, oidcUser);
-            }
-        }
-    }
-
-    @Transactional
-    public void handleAuthentication(Authentication authentication) {
+        Authentication authentication = event.getAuthentication();
 
         if (!(authentication.getPrincipal() instanceof OidcUser oidcUser)) {
             return; // not a Keycloak/OIDC principal → ignore
@@ -63,9 +45,6 @@ public class AuthenticationSuccessListener {
 
         String subject = oidcUser.getSubject();
         String email = oidcUser.getEmail();
-        String firstName = oidcUser.getGivenName();
-        String lastName = oidcUser.getFamilyName();
-
         Tenant tenant = tenantService.getCurrentTenant();
 
         Optional<User> existing =
