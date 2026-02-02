@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.infrastructure.mail.smtp;
 
 import com.brutecx.docflow_backend.application.mail.IMailService;
+import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -30,13 +31,31 @@ public class SmtpMailService implements IMailService {
     }
 
     @Override
-    public void sendInvite(String to, String inviteLink) {
+    public void sendInvite(
+            Tenant tenant,
+            String to,
+            String firstName,
+            String lastName,
+            String jobTitle,
+            String department,
+            String inviteLink,
+            String temporaryPassword
+    ) {
         String body = """
-                You have been invited.
+                
+                Hello %s %s,
+                
+                You have been invited to join %s's %s department.
+
+                Login details (temporary):
+                Email: %s
+                Temporary password: %s
 
                 Accept the invitation using the link below:
                 %s
-                """.formatted(inviteLink);
+
+                You will be required to change this password immediately after login.
+                """.formatted(firstName, lastName, tenant.getName(), department, to, temporaryPassword, inviteLink);
 
         sendMail(to, "You're invited", body);
     }

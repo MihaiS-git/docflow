@@ -45,11 +45,10 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         Authentication authentication = authenticationSupplier.get();
         String uri = context.getRequest().getRequestURI();
 
-        // ADDED: allow invite bootstrap endpoints unconditionally
+        // allow invite bootstrap endpoints unconditionally
         if (uri.startsWith("/api/invites/")) {
             return new AuthorizationDecision(true);
         }
-
 
         if (authentication != null) {
             log.debug(
@@ -104,9 +103,16 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         }
 
         // 2. User lifecycle
-        User user = userRepository
-                .findByExternalSubjectId(subject)
-                .orElse(null);
+//        User user = userRepository
+//                .findByExternalSubjectId(subject)
+//                .orElse(null);
+// 2. User lifecycle
+        // Invite-only rule: never create users here.
+        // Resolve by subject first; if not bound yet, fall back to tenant+email (bootstrap / invited users).
+        User user = userRepository.findByExternalSubjectId(subject)
+                .orElseGet(() -> userRepository
+                        .findByTenantIdAndEmailIgnoreCase(tenant.getId(), email)
+                        .orElse(null));
 
         log.info("Resolved user for lifecycle check: {}", user);
 
@@ -120,6 +126,21 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
             throw new LifecycleAccessDeniedException(
                     "LOCAL_USER_MISSING",
                     "Authenticated subject not mapped to a local user"
+            );
+        }
+
+        // If the user is already bound to a different subject, deny (prevents account swapping by email).
+        if (user.getExternalSubjectId() != null && !user.getExternalSubjectId().equals(subject)) {
+            log.warn(
+                    "LIFECYCLE DENIED → subject mismatch for email={} tenantId={} expectedSubject={} actualSubject={}",
+                    email,
+                    tenant.getId(),
+                    user.getExternalSubjectId(),
+                    subject
+            );
+            throw new LifecycleAccessDeniedException(
+                    "SUBJECT_MISMATCH",
+                    "Authenticated subject does not match the bound local user"
             );
         }
 

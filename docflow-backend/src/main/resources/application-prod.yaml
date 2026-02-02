@@ -29,6 +29,11 @@ logging:
     org.springframework.security: INFO
 
 docflow:
+  bootstrap:
+    admin:
+      email: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
+      first-name: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
+      last-name: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
   security:
     keycloak:
       admin:

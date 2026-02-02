@@ -63,6 +63,11 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       MAIL_FROM: ${MAIL_FROM}
 
+      # --- Admin ---
+      DOCFLOW_BOOTSTRAP_ADMIN_EMAIL: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
+      DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
+      DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 10s
@@ -126,7 +131,7 @@ services:
 
       KC_HOSTNAME: ${KC_HOSTNAME}
       KC_HOSTNAME_ADMIN: ${KC_HOSTNAME}
-      KC_LOG_LEVEL: DEBUG
+      # KC_LOG_LEVEL: DEBUG
 
     ports: [] # internal only
     volumes:

@@ -50,8 +50,15 @@ server:
 logging:
   level:
     org.springframework.security: DEBUG
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR
+    org.springframework.transaction.interceptor: TRACE
 
 docflow:
+  bootstrap:
+  admin:
+    email: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL:admin@brutecx.test}
+    first-name: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME:Admin}
+    last-name: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME:User}
   security:
     allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
     keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI:http://localhost:8085/realms/docflow/protocol/openid-connect/logout}
@@ -70,3 +77,5 @@ docflow:
     session:
       absolute-timeout: 8h            # ADDED
       max-concurrent-sessions: 1      # ADDED
+
+

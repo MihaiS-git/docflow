@@ -1,5 +1,7 @@
 package com.brutecx.docflow_backend.application.mail;
 
+import com.brutecx.docflow_backend.domain.tenant.Tenant;
+
 public interface IMailService {
     void sendMail(
             String to,
@@ -8,7 +10,13 @@ public interface IMailService {
     );
 
     void sendInvite(
+            Tenant tenant,
             String to,
-            String inviteLink
+            String firstName,
+            String lastName,
+            String jobTitle,
+            String department,
+            String inviteLink,
+            String temporaryPassword
     );
 }

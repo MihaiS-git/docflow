@@ -28,8 +28,7 @@ public class User {
     @UuidGenerator
     private UUID id;
 
-    @NotNull
-    @Column(name = "external_subject_id", nullable = false, length = 128)
+    @Column(name = "external_subject_id", length = 128)
     private String externalSubjectId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -52,9 +51,11 @@ public class User {
     @Column(name = "display_name", nullable = false)
     private String displayName;
 
+    @Setter
     @Column(name = "job_title")
     private String jobTitle;
 
+    @Setter
     private String department;
 
     @Column(name = "business_phone")
@@ -86,16 +87,19 @@ public class User {
     private String lastLoginUserAgent;
 
     public User(
-            String externalSubjectId,
             String email,
             String firstName,
-            String lastName
+            String lastName,
+            String jobTitle,
+            String department
     ) {
-        this.externalSubjectId = Objects.requireNonNull(externalSubjectId);
+        this.externalSubjectId = null;
         this.email = Objects.requireNonNull(email).toLowerCase(Locale.ROOT);
-        this.firstName = Objects.requireNonNull(firstName);
-        this.lastName = Objects.requireNonNull(lastName);
-        this.status = UserStatus.ACTIVE;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.jobTitle = jobTitle;
+        this.department = department;
+        this.status = UserStatus.LOCKED;
     }
 
     @PrePersist
@@ -123,6 +127,14 @@ public class User {
             throw new IllegalStateException("User already assigned to a tenant");
         }
         this.tenant = tenant;
+    }
+
+    // bind Keycloak subject exactly once
+    public void bindExternalSubjectId(String subject) {
+        if (this.externalSubjectId != null) {
+            return; // idempotent
+        }
+        this.externalSubjectId = Objects.requireNonNull(subject);
     }
 
     // ----------------------------

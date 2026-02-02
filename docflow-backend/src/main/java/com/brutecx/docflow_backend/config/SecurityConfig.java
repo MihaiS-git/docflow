@@ -136,6 +136,7 @@ public class SecurityConfig {
                                 "/oauth2/**"
                         ).permitAll()
                         // -------- AUTH APIs --------
+                        .requestMatchers("/invite/complete").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/invites/accept").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/invites/validate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()

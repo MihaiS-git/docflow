@@ -4,6 +4,10 @@ import com.brutecx.docflow_backend.application.mail.IMailService;
 import com.brutecx.docflow_backend.domain.invite.Invite;
 import com.brutecx.docflow_backend.domain.invite.InviteRepository;
 import com.brutecx.docflow_backend.domain.invite.InviteStatus;
+import com.brutecx.docflow_backend.domain.tenant.Tenant;
+import com.brutecx.docflow_backend.domain.tenant.TenantService;
+import com.brutecx.docflow_backend.domain.user.IUserProvisioningService;
+import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
@@ -13,32 +17,80 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
+import java.util.Base64;
+
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class InviteApplicationService {
 
-    @Value("${KC_HOSTNAME}")
-    private String kcHostname;
+    @Value("${docflow.security.frontend-base-url}")
+    private String frontendBaseUrl;
 
     private final InviteRepository inviteRepository;
     private final IMailService mailService;
     private final KeycloakAdminClient keycloakAdminClient;
+    private final TenantService tenantService;
+    private final IUserProvisioningService userProvisioningService;
 
-    public void createAndSendInvite(String email) {
-        log.info("INVITE: start provisioning email={}", email);
-        Invite invite = Invite.create(email);
+    /**
+     * Phase 1 — Admin creates invite
+     */
+    @Transactional
+    public void createAndSendInvite(
+            String email,
+            String firstName,
+            String lastName,
+            String jobTitle,
+            String department
+    ) {
+        log.info("INVITE: provisioning user + invite for {}", email);
+
+        Tenant tenant = tenantService.getCurrentTenant();
+        String normalizedEmail = email.toLowerCase(java.util.Locale.ROOT);
+        User user = userProvisioningService.provisionInvitedUser(
+                tenant,
+                normalizedEmail,
+                firstName,
+                lastName,
+                jobTitle,
+                department
+        );
+
+        // 1. Create invite (domain)
+        Invite invite = Invite.create(normalizedEmail);
         inviteRepository.save(invite);
 
-        keycloakAdminClient.ensureInviteUserExistsWithRequiredActions(email);
+        // ADDED: generate strong temporary password (single-use)
+        String temporaryPassword = generateTemporaryPassword();
 
-        String inviteLink =
-                kcHostname + "/api/invites/accept?token=" + invite.getToken();
+        // CHANGED: ensure user + required actions + set temporary password
+        keycloakAdminClient.ensureInviteUserExistsWithRequiredActionsAndTempPassword(
+                normalizedEmail,
+                temporaryPassword
+        );
 
-        mailService.sendInvite(email, inviteLink);
+        // 3. Build FRONTEND invite link (token is frontend-owned)
+        String inviteLink = frontendBaseUrl + "/invite?token=" + invite.getToken();
+
+        // send invite email INCLUDING temporary password
+        mailService.sendInvite(
+                tenant,
+                normalizedEmail,
+                firstName,
+                lastName,
+                jobTitle,
+                department,
+                inviteLink,
+                temporaryPassword
+        );
     }
 
+    /**
+     * Phase 4 — Post-login consumption
+     */
     @Transactional
     public void consumeInviteIfPresent(HttpSession session, OidcUser oidcUser) {
         if (session == null) return;
@@ -52,6 +104,9 @@ public class InviteApplicationService {
         session.removeAttribute(InviteSessionKeys.INVITE_TOKEN);
     }
 
+    /**
+     * Phase 2 — Invite validation
+     */
     @Transactional(readOnly = true)
     public void validateAndStoreInviteToken(String token, HttpSession session) {
         if (token == null || token.isBlank()) {
@@ -96,5 +151,11 @@ public class InviteApplicationService {
         inviteRepository.save(invite);
     }
 
+    // strong temporary password generator
+    private static String generateTemporaryPassword() {
+        byte[] bytes = new byte[32]; // 256-bit entropy
+        new SecureRandom().nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
 }
 

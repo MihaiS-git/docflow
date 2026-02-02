@@ -9,9 +9,15 @@ public class InviteTestConfiguration {
 
     @Bean
     public InviteApplicationService inviteApplicationService() {
-        return new InviteApplicationService(null, null, null) {
+        return new InviteApplicationService(null, null, null, null, null) {
             @Override
-            public void createAndSendInvite(String email) {
+            public void createAndSendInvite(
+                    String email,
+                    String firstName,
+                    String lastName,
+                    String jobTitle,
+                    String department
+            ) {
                 // no-op
             }
         };

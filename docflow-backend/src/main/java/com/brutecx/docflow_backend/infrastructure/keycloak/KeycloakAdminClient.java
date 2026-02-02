@@ -1,26 +1,21 @@
 package com.brutecx.docflow_backend.infrastructure.keycloak;
 
-import com.brutecx.docflow_backend.api.error.InviteDeliveryException;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-//import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * Client for interacting with Keycloak Admin API to fetch events and user details.
@@ -35,9 +30,6 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class KeycloakAdminClient {
 
-//    @Value("${KC_HOSTNAME}")
-//    private String kcBaseUrl;
-
     private final ObjectMapper objectMapper;
     private final KeycloakAdminPullProperties props;
     private final RestClient keycloakAdminRestClient;
@@ -45,8 +37,7 @@ public class KeycloakAdminClient {
     private static final TypeReference<List<Map<String, Object>>> LIST_OF_MAP = new TypeReference<>() {
     };
     private static final String ACTION_UPDATE_PASSWORD = "UPDATE_PASSWORD";
-    private static final String ACTION_CONFIGURE_TOTP = "CONFIGURE_TOTP";
-
+    private static final String ACTION_VERIFY_EMAIL = "VERIFY_EMAIL";
 
     public List<KeycloakAdminEvent> fetchEvents(long sinceTimeMs) {
         String token = fetchAccessToken();
@@ -107,6 +98,9 @@ public class KeycloakAdminClient {
         }
     }
 
+    /* =========================
+       TOKEN
+       ========================= */
     private String fetchAccessToken() {
         String tokenUrl = props.baseUrl()
                 + "/realms/" + props.realm()
@@ -286,100 +280,91 @@ public class KeycloakAdminClient {
         }
     }
 
+       /* =========================
+       INVITE USER PROVISIONING
+       ========================= */
+
     /**
-     * Invite-only onboarding: ensure a user exists (username=email), without setting any password.
-     * Then send a Keycloak "execute actions" email link so the user can set the password BEFORE any login attempt.
+     * Invite-only onboarding:
+     * - ensure user exists
+     * - merge required actions
+     * - set TEMPORARY password (bootstrap credential)
      */
-    public String ensureInviteUserExists(String email) {
-        String userId = findUserIdByEmailOrUsername(email);
+    public void ensureInviteUserExistsWithRequiredActionsAndTempPassword(
+            String email,
+            String temporaryPassword
+    ) {
+        String userId = ensureInviteUserExists(email);
 
-        if (userId == null) {
-            userId = createUserInviteOnly(email);
-        }
+        // set temporary password (single-use)
+        setTemporaryPassword(userId, temporaryPassword);
 
-        return userId;
+        updateRequiredActions(userId, List.of(
+                ACTION_UPDATE_PASSWORD,
+                ACTION_VERIFY_EMAIL
+        ));
     }
 
-    public void sendInvitePasswordSetupEmail(
-            String userId,
-            String clientId,
-            String redirectUri,
-            int lifespanSeconds
-    ) {
+    // Admin API reset-password call
+    private void setTemporaryPassword(String userId, String password) {
         String token = fetchAccessToken();
+        String url = adminBaseUrl() + "/users/" + userId + "/reset-password";
 
-        log.info("=== KEYCLOAK INVITE EMAIL DEBUG ===");
-        log.info("Client ID: {}", clientId);
-        log.info("Redirect URI (raw): {}", redirectUri);
-        log.info("Redirect URI (encoded): {}", urlEncode(redirectUri));
-        log.info("===================================");
-
-        String url = adminBaseUrl()
-                + "/users/" + userId
-                + "/execute-actions-email"
-                + "?lifespan=" + lifespanSeconds
-                + "&client_id=" + urlEncode(clientId)
-                + "&redirect_uri=" + urlEncode(redirectUri);
-
-        log.info("Full Keycloak URL: {}", url);
+        Map<String, Object> payload = Map.of(
+                "type", "password",
+                "value", password,
+                "temporary", true
+        );
 
         try {
-            ResponseEntity<String> resp = keycloakAdminRestClient.put()
+            keycloakAdminRestClient.put()
                     .uri(url)
                     .headers(h -> h.setBearerAuth(token))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(List.of())
+                    .body(payload)
                     .retrieve()
-                    .toEntity(String.class);
-
-            log.info("Keycloak execute-actions-email status={} body={}",
-                    resp.getStatusCode(), resp.getBody());
-
-        } catch (HttpClientErrorException e) {
-            log.error("Keycloak error body: {}", e.getResponseBodyAsString());
-            throw new InviteDeliveryException(
-                    e.getStatusCode(),
-                    "Keycloak execute-actions-email failed: " + e.getResponseBodyAsString()
+                    .toBodilessEntity();
+        } catch (Exception ex) {
+            throw new RestClientException(
+                    "Failed to set temporary password for user " + userId,
+                    ex
             );
         }
     }
 
+    private String ensureInviteUserExists(String email) {
+        String userId = findUserIdByEmailOrUsername(email);
+        if (userId != null) {
+            return userId;
+        }
+        return createUserInviteOnly(email);
+    }
 
     private String findUserIdByEmailOrUsername(String email) {
         String token = fetchAccessToken();
-        String url = adminBaseUrl() + "/users?max=20&search=" + urlEncode(email);
+        String url = adminBaseUrl() + "/users?search=" + urlEncode(email);
 
-        String body;
-        try {
-            body = keycloakAdminRestClient.get()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .retrieve()
-                    .body(String.class);
-        } catch (Exception ex) {
-            throw new RestClientException("Keycloak user search failed", ex);
-        }
+        String body = keycloakAdminRestClient.get()
+                .uri(url)
+                .headers(h -> h.setBearerAuth(token))
+                .retrieve()
+                .body(String.class);
 
         if (body == null || body.isBlank()) return null;
 
-        final List<Map<String, Object>> users;
+        List<Map<String, Object>> users;
         try {
             users = objectMapper.readValue(body, LIST_OF_MAP);
         } catch (Exception ex) {
             throw new RestClientException("Keycloak user search parse failed", ex);
         }
 
-        if (users.isEmpty()) return null;
-
         for (Map<String, Object> u : users) {
-            Object username = u.get("username");
-            Object mail = u.get("email");
-            if (email.equalsIgnoreCase(String.valueOf(username)) || email.equalsIgnoreCase(String.valueOf(mail))) {
-                Object id = u.get("id");
-                return id == null ? null : String.valueOf(id);
+            if (email.equalsIgnoreCase(String.valueOf(u.get("email")))
+                    || email.equalsIgnoreCase(String.valueOf(u.get("username")))) {
+                return String.valueOf(u.get("id"));
             }
         }
-
         return null;
     }
 
@@ -388,39 +373,54 @@ public class KeycloakAdminClient {
         String url = adminBaseUrl() + "/users";
 
         Map<String, Object> payload = Map.of(
-                "username", email,
+                "username", email.split("@")[0],
                 "email", email,
                 "enabled", true,
                 "emailVerified", false
         );
 
-        ResponseEntity<Void> resp;
-        try {
-            resp = keycloakAdminRestClient.post()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(payload)
-                    .retrieve()
-                    .toBodilessEntity();
-        } catch (Exception ex) {
-            throw new RestClientException("Keycloak create user failed", ex);
-        }
+        ResponseEntity<Void> resp = keycloakAdminRestClient.post()
+                .uri(url)
+                .headers(h -> h.setBearerAuth(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(payload)
+                .retrieve()
+                .toBodilessEntity();
 
-        // Prefer Location header (fast, reliable); fallback to re-query.
         String location = resp.getHeaders().getFirst(HttpHeaders.LOCATION);
         String idFromLocation = extractUserIdFromLocation(location);
-        if (idFromLocation != null && !idFromLocation.isBlank()) {
+        if (idFromLocation != null) {
             return idFromLocation;
         }
 
-        String id = findUserIdByEmailOrUsername(email);
-        if (id == null)
-            throw new IllegalStateException("Keycloak user created but id cannot be resolved for: " + email);
-        return id;
+        String fallback = findUserIdByEmailOrUsername(email);
+        if (fallback == null) {
+            throw new IllegalStateException("Keycloak user created but id not resolvable");
+        }
+        return fallback;
     }
 
-    // local helpers (no new concepts/files)
+    private void updateRequiredActions(String userId, List<String> actions) {
+        String token = fetchAccessToken();
+        String url = adminBaseUrl() + "/users/" + userId;
+
+        try {
+            keycloakAdminRestClient.put()
+                    .uri(url)
+                    .headers(h -> h.setBearerAuth(token))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("requiredActions", actions))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (Exception ex) {
+            throw new RestClientException("Failed to update requiredActions", ex);
+        }
+    }
+
+    /* =========================
+       HELPERS
+       ========================= */
+
     private String adminBaseUrl() {
         return props.baseUrl() + "/admin/realms/" + props.realm();
     }
@@ -434,92 +434,6 @@ public class KeycloakAdminClient {
         int idx = location.lastIndexOf('/');
         if (idx < 0 || idx == location.length() - 1) return null;
         return location.substring(idx + 1);
-    }
-
-    // CHANGED: merge requiredActions instead of overwrite
-    public void setRequiredActions(String userId, List<String> actions) {
-        Objects.requireNonNull(userId, "userId");
-        Objects.requireNonNull(actions, "actions");
-
-        // fetch existing required actions
-        List<String> existing = fetchRequiredActions(userId);
-
-        // merge (preserve + add)
-        List<String> merged = existing.stream().toList();
-        for (String a : actions) {
-            if (!merged.contains(a)) {
-                merged = new java.util.ArrayList<>(merged);
-                merged.add(a);
-            }
-        }
-
-        String token = fetchAccessToken();
-        String url = adminBaseUrl() + "/users/" + userId;
-
-        try {
-            keycloakAdminRestClient.put()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("requiredActions", merged))
-                    .retrieve()
-                    .toBodilessEntity();
-        } catch (Exception ex) {
-            throw new RestClientException(
-                    "Keycloak merge requiredActions failed for user " + userId,
-                    ex
-            );
-        }
-    }
-
-    public String ensureInviteUserExistsWithRequiredActions(String email) {
-        String userId = ensureInviteUserExists(email);
-
-        List<String> existing = fetchRequiredActions(userId);
-
-        List<String> merged = new java.util.ArrayList<>(existing);
-
-        if (!merged.contains("VERIFY_EMAIL")) {
-            merged.add("VERIFY_EMAIL");
-        }
-        if (!merged.contains("UPDATE_PASSWORD")) {
-            merged.add("UPDATE_PASSWORD");
-        }
-
-        setRequiredActions(userId, merged);
-        return userId;
-    }
-
-
-
-
-    public List<String> fetchRequiredActions(String userId) {
-        String token = fetchAccessToken();
-        String url = adminBaseUrl() + "/users/" + userId;
-
-        try {
-            String body = keycloakAdminRestClient.get()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .retrieve()
-                    .body(String.class);
-
-            if (body == null || body.isBlank()) {
-                return List.of();
-            }
-
-            Map<String, Object> user =
-                    objectMapper.readValue(body, new TypeReference<>() {});
-
-            Object raw = user.get("requiredActions");
-            if (raw instanceof List<?> list) {
-                return list.stream().map(String::valueOf).toList();
-            }
-
-            return List.of();
-        } catch (Exception ex) {
-            throw new RestClientException("Failed to fetch requiredActions", ex);
-        }
     }
 
 

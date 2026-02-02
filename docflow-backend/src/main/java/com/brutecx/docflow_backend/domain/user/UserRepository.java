@@ -9,10 +9,17 @@ import java.util.UUID;
 public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByExternalSubjectId(String externalSubjectId);
 
+    // required for invitation-only login reconciliation
+    Optional<User> findByTenantIdAndEmailIgnoreCase(UUID tenantId, String email);
+
     default User getRequired(UUID userId) {
         return findById(userId)
                 .orElseThrow(() ->
                         new UserNotFoundException(userId));
     }
+
+    boolean existsByTenantIdAndEmailIgnoreCase(UUID id, String normalizedEmail);
+
+    boolean existsByTenantId(UUID id);
 }
 
