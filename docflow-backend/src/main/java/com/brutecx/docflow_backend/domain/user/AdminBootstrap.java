@@ -56,6 +56,7 @@ public class AdminBootstrap implements ApplicationRunner {
         // Ensure the admin exists for this tenant (do NOT depend on Keycloak login).
         boolean exists = userRepository.existsByTenantIdAndEmailIgnoreCase(tenant.getId(), adminEmail);
         if (exists) {
+            log.info("User with email {} already exists", adminEmail);
             return;
         }
 

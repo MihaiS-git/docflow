@@ -22,8 +22,12 @@ export default function InvitePage() {
       try {
         await apiFetch<void>(
           `/api/invites/validate?token=${encodeURIComponent(token!)}`,
-          { method: "POST" },
+          {
+            method: "POST",
+            csrfMode: "anonymous",
+          },
         );
+        console.log("Called POST /api/invites/validate");
 
         if (cancelled) return;
 
@@ -42,8 +46,9 @@ export default function InvitePage() {
     };
   }, [token, tokenMissing]);
 
-  const effectiveError =
-    tokenMissing ? "Invite link invalid or expired." : error;
+  const effectiveError = tokenMissing
+    ? "Invite link invalid or expired."
+    : error;
 
   return (
     <main className="min-h-screen flex items-center justify-center px-4">

@@ -96,7 +96,7 @@ public class SecurityConfig {
                         // IMPORTANT for SPA: accept raw XSRF-TOKEN cookie value in X-XSRF-TOKEN header
                         // (disable Spring Security's default XOR-masked token expectation)
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                        .ignoringRequestMatchers("/api/auth/logout", "/api/csrf")
+                        .ignoringRequestMatchers("/api/auth/logout", "/api/csrf", "/api/invites/validate")
                 )
 
                 .cors(Customizer.withDefaults())
@@ -136,8 +136,6 @@ public class SecurityConfig {
                                 "/oauth2/**"
                         ).permitAll()
                         // -------- AUTH APIs --------
-//                        .requestMatchers("/invite/complete").permitAll()
-//                        .requestMatchers(HttpMethod.GET, "/api/invites/accept").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/invites/validate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()

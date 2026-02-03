@@ -31,10 +31,10 @@ public class OnboardingAuditEvent {
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
-    @Column(nullable = false, updatable = false, name = "actor_user_id")
+    @Column(updatable = false, name = "actor_user_id")
     private UUID actorUserId;
 
-    @Column(nullable = false, updatable = false, name = "subject_id", length = 128)
+    @Column(updatable = false, name = "subject_id", length = 128)
     private String subjectId;
 
     @Column(nullable = false, updatable = false, name = "tenant_id")
@@ -52,6 +52,13 @@ public class OnboardingAuditEvent {
     @Column(nullable = false, updatable = false, name = "user_agent", length = 512)
     private String userAgent;
 
+    @Column(nullable = false, updatable = false, length = 32)
+    @Enumerated(EnumType.STRING)
+    private OnboardingOutcome outcome;
+
+    @Column(updatable = false, length = 64)
+    private String failureReason;
+
     @PrePersist
     void prePersist() {
         this.timestamp = Instant.now();
@@ -64,7 +71,9 @@ public class OnboardingAuditEvent {
             UUID inviteId,
             String requestId,
             String ip,
-            String userAgent
+            String userAgent,
+            OnboardingOutcome outcome,
+            String failureReason
     ) {
         this.actorUserId = actorUserId;
         this.subjectId = subjectId;
@@ -73,5 +82,7 @@ public class OnboardingAuditEvent {
         this.requestId = requestId;
         this.ip = ip;
         this.userAgent = userAgent;
+        this.outcome = outcome;
+        this.failureReason = failureReason;
     }
 }

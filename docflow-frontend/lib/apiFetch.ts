@@ -4,11 +4,11 @@ import { emitAuthError } from "./auth/authEvents";
 
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit = {},
+  init: RequestInit & { csrfMode?: "default" | "anonymous"; } = {},
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
 
-  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+  if (init.csrfMode !== "anonymous" && !["GET", "HEAD", "OPTIONS"].includes(method)) {
     await ensureCsrf();
   }
 

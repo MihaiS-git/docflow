@@ -89,7 +89,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(UserNotFoundLocallyException.class)
-    public ResponseEntity<ErrorResponse> handleUserNotFound(
+    public ResponseEntity<ErrorResponse> handleUserNotFoundLocally(
             UserNotFoundLocallyException ex,
             HttpServletRequest request
     ) {
@@ -100,6 +100,24 @@ public class GlobalExceptionHandler {
                                 HttpStatus.NOT_FOUND.value(),
                                 HttpStatus.NOT_FOUND.getReasonPhrase(),
                                 "USER_NOT_FOUND_LOCALLY",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
+
+    @ExceptionHandler(InviteNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleInviteNotFound(
+            InviteNotFoundException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.NOT_FOUND.value(),
+                                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                                "INVITE_NOT_FOUND",
                                 ex.getMessage(),
                                 request.getRequestURI()
                         )

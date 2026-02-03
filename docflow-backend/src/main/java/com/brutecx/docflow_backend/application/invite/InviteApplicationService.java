@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.application.invite;
 
+import com.brutecx.docflow_backend.api.error.InviteNotFoundException;
 import com.brutecx.docflow_backend.application.mail.IMailService;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.admin.*;
@@ -16,7 +17,6 @@ import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -108,7 +108,7 @@ public class InviteApplicationService {
                             normalizedEmail,
                             invite != null ? invite.getId().toString() : null,
                             success ? InviteOutcome.SUCCESS : InviteOutcome.FAILURE,
-                            success ? null : failure.getClass().getSimpleName()
+                            success ? null : (failure != null ? failure.getClass().getSimpleName() : "UNKNOWN")
                     );
 
             adminAuditEventService.record(
@@ -144,36 +144,56 @@ public class InviteApplicationService {
     /**
      * Phase 2 — Invite validation
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public void validateAndStoreInviteToken(String token, HttpSession session) {
         if (token == null || token.isBlank()) {
-            throw new IllegalArgumentException("Invite link invalid or expired");
+            throw new InviteNotFoundException("Invite token not provided");
         }
 
-        Invite invite = inviteRepository.findByToken(token)
-                .orElseThrow(() -> new IllegalArgumentException("Invite link invalid or expired"));
-
-        if (isInvalid(invite)) {
-            throw new IllegalArgumentException("Invite link invalid or expired");
-        }
+        // Single source of truth for validation + audit
+        validateInviteOrThrow(token);
 
         session.setAttribute(InviteSessionKeys.INVITE_TOKEN, token);
     }
 
-    private static boolean isInvalid(Invite invite) {
-        return invite.isExpired()
-                || invite.getStatus() == InviteStatus.ACCEPTED
-                || invite.getStatus() == InviteStatus.REVOKED
-                || invite.getStatus() == InviteStatus.EXPIRED;
-    }
-
-    @Transactional(readOnly = true)
+    @Transactional
     Invite validateInviteOrThrow(String token) {
         Invite invite = inviteRepository.findByToken(token)
-                .orElseThrow(() -> new IllegalArgumentException("Invite link invalid or expired"));
+                .orElseThrow(() ->
+                        new InviteNotFoundException("Invite not found for the provided token")
+                );
 
-        if (isInvalid(invite)) {
-            throw new IllegalArgumentException("Invite link invalid or expired");
+        if (invite.isExpired()) {
+            onboardingAuditService.recordFailure(
+                    null,
+                    null,
+                    tenantService.getCurrentTenant().getId(),
+                    invite.getId(),
+                    "INVITE_EXPIRED"
+            );
+            throw new InviteNotFoundException("Invite link invalid or expired");
+        }
+
+        if (invite.getStatus() == InviteStatus.REVOKED) {
+            onboardingAuditService.recordFailure(
+                    null,
+                    null,
+                    tenantService.getCurrentTenant().getId(),
+                    invite.getId(),
+                    "INVITE_REVOKED"
+            );
+            throw new InviteNotFoundException("Invite link invalid or expired");
+        }
+
+        if (invite.getStatus() == InviteStatus.ACCEPTED) {
+            onboardingAuditService.recordFailure(
+                    null,
+                    null,
+                    tenantService.getCurrentTenant().getId(),
+                    invite.getId(),
+                    "INVITE_REPLAY"
+            );
+            throw new InviteNotFoundException("Invite link invalid or expired");
         }
 
         return invite;
@@ -182,6 +202,13 @@ public class InviteApplicationService {
     @Transactional
     void acceptInviteOrThrow(Invite invite) {
         if (invite.getStatus() == InviteStatus.ACCEPTED) {
+            onboardingAuditService.recordFailure(
+                    userService.getRequiredCurrentUser().getId(),
+                    userService.getRequiredCurrentUser().getExternalSubjectId(),
+                    tenantService.getCurrentTenant().getId(),
+                    invite.getId(),
+                    "INVITE_REPLAY"
+            );
             throw new IllegalArgumentException("Invite link invalid or expired");
         }
         UUID actorUserId = userService.getRequiredCurrentUser().getId();
