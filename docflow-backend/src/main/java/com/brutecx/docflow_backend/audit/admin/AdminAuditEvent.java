@@ -66,8 +66,7 @@ public class AdminAuditEvent {
     @Enumerated(EnumType.STRING)
     private AdminAuditActionType actionType;
 
-    @NotNull
-    @Column(nullable = false, updatable = false, name = "target_user_id")
+    @Column(updatable = false, name = "target_user_id")
     private UUID targetUserId;
 
     @JdbcTypeCode(SqlTypes.JSON)

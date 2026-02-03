@@ -6,5 +6,7 @@ public enum AdminAuditActionType {
 
     USER_ACTIVATED,
     USER_LOCKED,
-    USER_DISABLED
+    USER_DISABLED,
+
+    USER_INVITED
 }

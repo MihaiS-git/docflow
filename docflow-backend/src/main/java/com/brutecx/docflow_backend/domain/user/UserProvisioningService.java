@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.domain.user;
 
+import com.brutecx.docflow_backend.api.error.UserAlreadyExistsException;
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,7 +31,7 @@ public class UserProvisioningService implements IUserProvisioningService {
 
         if (userRepository.existsByTenantIdAndEmailIgnoreCase(
                 tenant.getId(), normalizedEmail)) {
-            throw new IllegalStateException(
+            throw new UserAlreadyExistsException(
                     "User already exists in tenant for email " + normalizedEmail);
         }
 
@@ -42,7 +43,7 @@ public class UserProvisioningService implements IUserProvisioningService {
                 department
         );
 
-        tenant.addUser(user); // invariant enforced here
+        tenant.addUser(user);
 
         return userRepository.save(user);
     }

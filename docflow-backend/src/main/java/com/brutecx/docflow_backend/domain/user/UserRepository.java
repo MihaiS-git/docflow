@@ -20,5 +20,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByTenantIdAndEmailIgnoreCase(UUID id, String normalizedEmail);
 
+    Optional<User> findByEmail(String email);
 }
 

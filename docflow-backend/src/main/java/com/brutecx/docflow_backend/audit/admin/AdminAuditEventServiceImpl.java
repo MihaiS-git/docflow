@@ -41,4 +41,5 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService{
 
         repository.save(event);
     }
+
 }

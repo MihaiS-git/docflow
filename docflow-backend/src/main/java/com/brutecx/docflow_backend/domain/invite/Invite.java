@@ -20,6 +20,7 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Invite {
 
+    @Getter
     @Id
     @GeneratedValue
     @UuidGenerator

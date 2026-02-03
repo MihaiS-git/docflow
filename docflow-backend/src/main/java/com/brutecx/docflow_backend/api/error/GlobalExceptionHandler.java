@@ -88,6 +88,24 @@ public class GlobalExceptionHandler {
                 );
     }
 
+    @ExceptionHandler(UserNotFoundLocallyException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(
+            UserNotFoundLocallyException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.NOT_FOUND.value(),
+                                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                                "USER_NOT_FOUND_LOCALLY",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(
             IllegalArgumentException ex,

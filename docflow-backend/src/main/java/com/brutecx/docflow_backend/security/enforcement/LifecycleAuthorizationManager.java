@@ -31,6 +31,7 @@ import java.util.function.Supplier;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@SuppressWarnings("deprecation")
 public class LifecycleAuthorizationManager implements AuthorizationManager<RequestAuthorizationContext> {
 
     private final TenantService tenantService;
