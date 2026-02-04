@@ -1,6 +1,7 @@
 "use client";
 
 import { AuthContext } from "@/lib/auth/AuthProvider";
+import { useRouter } from "next/navigation";
 import { useContext, useMemo } from "react";
 
 function mapBlocked(code: string): { title: string; message: string } {
@@ -35,11 +36,21 @@ export default function AuthLifecycleGuard({
   children: React.ReactNode;
 }) {
   const ctx = useContext(AuthContext);
+  const router = useRouter();
 
   const blocked = useMemo(() => {
     if (!ctx || ctx.status !== "BLOCKED" || !ctx.blockedCode) return null;
     return mapBlocked(ctx.blockedCode);
   }, [ctx]);
+
+  if (
+    ctx?.status === "AUTH" &&
+    ctx.localUser === null && // backend refused /users/me
+    ctx.identity
+  ) {
+    router.replace("/bootstrap/activate");
+    return null;
+  }
 
   if (blocked) {
     return (
@@ -50,7 +61,7 @@ export default function AuthLifecycleGuard({
 
           <button
             className="mt-6 px-4 py-2 bg-red-600 hover:bg-red-700 rounded"
-            onClick={() => window.location.href = "/"}
+            onClick={() => (window.location.href = "/")}
           >
             Go to login
           </button>

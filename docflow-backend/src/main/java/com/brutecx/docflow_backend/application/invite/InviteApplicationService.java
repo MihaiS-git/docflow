@@ -80,10 +80,12 @@ public class InviteApplicationService {
 
             String temporaryPassword = generateTemporaryPassword();
 
-            keycloakAdminClient.ensureInviteUserExistsWithRequiredActionsAndTempPassword(
+            String keycloakUserId = keycloakAdminClient.ensureInviteUserExistsWithRequiredActionsAndTempPassword(
                     normalizedEmail,
                     temporaryPassword
             );
+
+            userService.setSubjectId(tenant, normalizedEmail, keycloakUserId);
 
             String inviteLink = frontendBaseUrl + "/invite?token=" + invite.getToken();
 

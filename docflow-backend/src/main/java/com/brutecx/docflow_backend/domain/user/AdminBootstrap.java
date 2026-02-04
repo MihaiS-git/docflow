@@ -13,10 +13,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Bootstraps the single initial full-access admin user at application startup.
- * Hard constraints:
+ * Bootstraps the initial local admin user at application startup.
+ * Invariants:
  * - Invite-only forever (no auto-registration on login).
- * - externalSubjectId must be NULL at creation time and bound exactly once on first successful login.
+ * - externalSubjectId is NULL at bootstrap time.
+ * - User is created in LOCKED state.
+ * - Identity binding + activation happen ONLY via an explicit bootstrap-claim flow.
  * - Tenant already exists (bootstrapped separately).
  */
 @Slf4j
@@ -53,10 +55,10 @@ public class AdminBootstrap implements ApplicationRunner {
 
         Tenant tenant = tenantService.getCurrentTenant();
 
-        // Ensure the admin exists for this tenant (do NOT depend on Keycloak login).
+        // Idempotent: ensure the local bootstrap admin exists
         boolean exists = userRepository.existsByTenantIdAndEmailIgnoreCase(tenant.getId(), adminEmail);
         if (exists) {
-            log.info("User with email {} already exists", adminEmail);
+            log.info("Bootstrap admin already exists for tenantId={} email={}", tenant.getId(), adminEmail);
             return;
         }
 
@@ -64,16 +66,20 @@ public class AdminBootstrap implements ApplicationRunner {
                 adminEmail,
                 adminFirstName,
                 adminLastName,
-                null,
-                null
+                "Admin",
+                "Admin"
         );
 
-        // externalSubjectId MUST remain NULL until first successful login
-        admin.activate();
+        // Must remain inert until explicit bootstrap-claim
+        admin.lock();
 
         tenant.addUser(admin);
         userRepository.save(admin);
 
-        log.info("Bootstrapped initial admin local user for tenantId={} email={}", tenant.getId(), adminEmail);
+        log.info(
+                "Bootstrapped local admin user (LOCKED, unbound) for tenantId={} email={}",
+                tenant.getId(),
+                adminEmail
+        );
     }
 }

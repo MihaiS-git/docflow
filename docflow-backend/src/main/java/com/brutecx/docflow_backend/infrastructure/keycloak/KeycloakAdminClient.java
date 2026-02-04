@@ -286,19 +286,19 @@ public class KeycloakAdminClient {
      * - merge required actions
      * - set TEMPORARY password (bootstrap credential)
      */
-    public void ensureInviteUserExistsWithRequiredActionsAndTempPassword(
+    public String ensureInviteUserExistsWithRequiredActionsAndTempPassword(
             String email,
             String temporaryPassword
     ) {
         String userId = ensureInviteUserExists(email);
-
-        // set temporary password (single-use)
         setTemporaryPassword(userId, temporaryPassword);
 
         updateRequiredActions(userId, List.of(
                 ACTION_UPDATE_PASSWORD,
                 ACTION_VERIFY_EMAIL
         ));
+
+        return userId;
     }
 
     // Admin API reset-password call

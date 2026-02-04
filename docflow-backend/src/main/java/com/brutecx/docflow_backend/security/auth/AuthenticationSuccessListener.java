@@ -1,7 +1,5 @@
 package com.brutecx.docflow_backend.security.auth;
 
-import com.brutecx.docflow_backend.domain.tenant.Tenant;
-import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,7 +30,6 @@ import java.util.Optional;
 public class AuthenticationSuccessListener {
 
     private final UserRepository userRepository;
-    private final TenantService tenantService;
 
     @EventListener
     @Transactional
@@ -44,27 +41,28 @@ public class AuthenticationSuccessListener {
         }
 
         String subject = oidcUser.getSubject();
-        String email = oidcUser.getEmail();
-        Tenant tenant = tenantService.getCurrentTenant();
+        Optional<User> existing = userRepository.findByExternalSubjectId(subject);
 
-        Optional<User> existing =
-                userRepository.findByExternalSubjectId(subject)
-                        .or(() -> userRepository.findByTenantIdAndEmailIgnoreCase(tenant.getId(), email));
-
+        User user;
         if (existing.isEmpty()) {
-            // If this happens, the invite provisioning did not create the local user row,
-            // or tenant resolution is inconsistent. Do not write anything here.
-            log.warn("AUTH: No local user found for subject={} email={} tenantId={}", subject, email, tenant.getId());
-            return;
+            if (!userRepository.existsByExternalSubjectIdIsNotNull()) {
+
+                // 2. Find user by email
+                userRepository.findByEmail(oidcUser.getEmail().toLowerCase())
+                        .ifPresent(u -> {
+                            u.bindExternalSubjectId(subject);
+                            u.activate(); // status = ACTIVE
+                            u = userRepository.save(u);
+
+                            log.warn("BOOTSTRAP: Activated first admin user {}", u.getEmail());
+                        });
+            }
+        } else {
+            user = existing.get();
+            updateLastLogin(user);
+            userRepository.save(user);
         }
 
-        User user = existing.get();
-
-        // Bind Keycloak subject exactly once (invited users will have it null until first login)
-        user.bindExternalSubjectId(subject);
-
-        updateLastLogin(user);
-        userRepository.save(user);
     }
 
     private void updateLastLogin(User user) {

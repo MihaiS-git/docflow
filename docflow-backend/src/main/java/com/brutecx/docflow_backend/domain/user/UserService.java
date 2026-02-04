@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.domain.user;
 
+import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -47,4 +48,48 @@ public class UserService {
     public User getRequired(UUID userId) {
         return userRepository.getRequired(userId);
     }
+
+    public void setSubjectId(Tenant tenant, String normalizedEmail, String keycloakUserId) {
+        userRepository.findByTenantIdAndEmailIgnoreCase(tenant.getId(), normalizedEmail)
+                .ifPresentOrElse(user -> {
+                    user.bindExternalSubjectId(keycloakUserId);
+                    userRepository.save(user);
+                }, () -> {
+                    log.error(
+                            "INVITE: Local user row missing for tenantId={} email={} after Keycloak provisioning userId={}",
+                            tenant.getId(),
+                            normalizedEmail,
+                            keycloakUserId
+                    );
+                });
+    }
+
+    public CurrentUserResult resolveCurrentUser() {
+        Authentication authentication = SecurityContextHolder
+                .getContext()
+                .getAuthentication();
+
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new IllegalStateException("No authenticated user");
+        }
+
+        if (!(authentication.getPrincipal() instanceof OidcUser oidcUser)) {
+            throw new IllegalStateException("Authenticated principal is not OIDC");
+        }
+
+        String subject = oidcUser.getSubject();
+
+        return userRepository.findByExternalSubjectId(subject)
+                .map(user -> {
+                    return switch (user.getStatus()) {
+                        case ACTIVE -> new CurrentUserResult(CurrentUserState.ACTIVE, user);
+                        case LOCKED -> new CurrentUserResult(CurrentUserState.LOCKED, null);
+                        case DISABLED -> new CurrentUserResult(CurrentUserState.DISABLED, null);
+                    };
+                })
+                .orElseGet(() ->
+                        new CurrentUserResult(CurrentUserState.BOOTSTRAP, null)
+                );
+    }
+
 }

@@ -75,7 +75,7 @@ docflow:
 
     # ADDED: align with application-prod.yaml (required by SecurityConfig)
     session:
-      absolute-timeout: 8h            # ADDED
-      max-concurrent-sessions: 1      # ADDED
+      absolute-timeout: 8h
+      max-concurrent-sessions: 1
 
 

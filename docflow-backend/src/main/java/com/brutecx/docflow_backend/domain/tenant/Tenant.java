@@ -42,6 +42,9 @@ public class Tenant {
     @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY, cascade = CascadeType.PERSIST, orphanRemoval = true)
     private final List<User> users = new ArrayList<>();
 
+    @Column(name = "bootstrap_enabled", nullable = false)
+    private Boolean bootstrapEnabled = true;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
@@ -70,5 +73,13 @@ public class Tenant {
 
     public List<User> getUsers() {
         return Collections.unmodifiableList(users);
+    }
+
+    public boolean isBootstrapEnabled() {
+        return bootstrapEnabled;
+    }
+
+    public void disableBootstrap() {
+        this.bootstrapEnabled = false;
     }
 }
