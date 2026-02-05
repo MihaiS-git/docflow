@@ -129,9 +129,4 @@ public class UserService {
         return deleted;
     }
 
-    @Transactional
-    public void deleteUser(User user) {
-        userRepository.delete(user);
-    }
-
 }

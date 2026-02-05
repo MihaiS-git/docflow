@@ -16,15 +16,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class ClientIpResolver {
 
-    // ADDED: auth-aware resolver for Spring Security event listeners
+    // auth-aware resolver for Spring Security event listeners
     public String resolve(Authentication authentication, HttpServletRequest request) {
-        // ADDED: first try Spring Security details (most reliable inside auth events)
+        // first try Spring Security details (most reliable inside auth events)
         String ipFromDetails = resolveFromAuthenticationDetails(authentication);
         if (ipFromDetails != null) {
             return ipFromDetails;
         }
 
-        // ADDED: fall back to request headers / remoteAddr
+        // fall back to request headers / remoteAddr
         return resolve(request);
     }
 
@@ -48,7 +48,7 @@ public class ClientIpResolver {
         return remoteAddr != null ? remoteAddr : "UNKNOWN";
     }
 
-    // ADDED: resolves client IP from Spring Security authentication details
+    // resolves client IP from Spring Security authentication details
     private static String resolveFromAuthenticationDetails(Authentication authentication) {
         if (authentication == null) {
             return null;
@@ -59,7 +59,7 @@ public class ClientIpResolver {
             return trimToNull(webDetails.getRemoteAddress());
         }
 
-        // ADDED: safe fallback for any custom details types (string-form)
+        // safe fallback for any custom details types (string-form)
         if (details instanceof String s) {
             return trimToNull(s);
         }

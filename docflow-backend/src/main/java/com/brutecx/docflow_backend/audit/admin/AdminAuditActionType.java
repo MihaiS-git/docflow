@@ -9,5 +9,6 @@ public enum AdminAuditActionType {
     USER_DISABLED,
 
     USER_INVITED,
-    INVITE_CLEANUP, INVITE_REVOKED
+    INVITE_CLEANUP,
+    INVITE_REVOKED
 }

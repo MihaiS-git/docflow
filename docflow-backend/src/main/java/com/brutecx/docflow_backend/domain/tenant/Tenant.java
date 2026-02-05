@@ -45,6 +45,11 @@ public class Tenant {
     @Column(name = "bootstrap_enabled", nullable = false)
     private Boolean bootstrapEnabled = true;
 
+    public Tenant(String name) {
+        this.name = Objects.requireNonNull(name);
+        this.status = TenantStatus.ACTIVE;
+    }
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
@@ -54,15 +59,6 @@ public class Tenant {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = Instant.now();
-    }
-
-    public Tenant(String name) {
-        this.name = Objects.requireNonNull(name);
-        this.status = TenantStatus.ACTIVE;
-    }
-
-    public void suspend() {
-        this.status = TenantStatus.SUSPENDED;
     }
 
     public void addUser(User user) {
@@ -82,4 +78,9 @@ public class Tenant {
     public void disableBootstrap() {
         this.bootstrapEnabled = false;
     }
+
+    public void suspend() {
+        this.status = TenantStatus.SUSPENDED;
+    }
+
 }

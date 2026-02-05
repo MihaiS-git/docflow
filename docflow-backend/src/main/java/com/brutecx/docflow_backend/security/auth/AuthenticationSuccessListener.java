@@ -49,7 +49,7 @@ public class AuthenticationSuccessListener {
                 userRepository.findByEmail(oidcUser.getEmail().toLowerCase())
                         .ifPresent(u -> {
                             u.bindExternalSubjectId(subject);
-                            u.activate(); // status = ACTIVE
+                            u.activate();
                             updateLastLogin(u);
                             u = userRepository.save(u);
 

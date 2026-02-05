@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.context.event.EventListener;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.event.AbstractAuthenticationFailureEvent;
 import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.security.authentication.event.LogoutSuccessEvent;
@@ -48,7 +49,7 @@ public class AuthenticationEventListener {
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
-        // CHANGED: pass authentication so resolver can use authentication.details remoteAddress first
+        // pass authentication so resolver can use authentication.details remoteAddress first
         persist(AuthenticationResult.SUCCESS, event.getAuthentication().getName(), event.getAuthentication());
 
         String subjectId = resolveSubjectId(event.getAuthentication());
@@ -69,24 +70,20 @@ public class AuthenticationEventListener {
 
     @EventListener
     public void onFailure(AbstractAuthenticationFailureEvent event) {
-        // CHANGED: pass authentication so resolver can use authentication.details remoteAddress first
         persist(AuthenticationResult.FAILURE, event.getAuthentication().getName(), event.getAuthentication());
     }
 
     @EventListener
     public void onLogout(LogoutSuccessEvent event) {
-        // CHANGED: pass authentication so resolver can use authentication.details remoteAddress first
         persist(AuthenticationResult.LOGOUT, event.getAuthentication().getName(), event.getAuthentication());
     }
 
-    // CHANGED: include Authentication for IP resolution
     private void persist(AuthenticationResult result, String username, Authentication authentication) {
         String correlationId = MDC.get("requestId");
 
         String resolvedUsername =
                 (username != null && !username.isBlank()) ? username : "UNKNOWN";
 
-        // CHANGED: resolve client IP using Authentication details first, then request headers
         String ip = clientIpResolver.resolve(authentication, request);
 
         String userAgent = request.getHeader("User-Agent") != null
@@ -117,7 +114,7 @@ public class AuthenticationEventListener {
 
         try {
             repository.save(entity);
-        } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+        } catch (DataIntegrityViolationException ex) {
             // duplicate event → safe to ignore
             return;
         }
@@ -133,7 +130,6 @@ public class AuthenticationEventListener {
         );
     }
 
-    // ADDED: keep compatibility if any other internal call sites exist later
     private void persist(AuthenticationResult result, String username) {
         persist(result, username, null);
     }
