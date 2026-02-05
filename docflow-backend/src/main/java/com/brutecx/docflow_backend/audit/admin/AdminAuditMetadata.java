@@ -14,5 +14,5 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = InviteAuditMetadata.class, name = "INVITE")
 })
 public sealed interface AdminAuditMetadata
-        permits RoleChangeMetadata, UserStateChangeMetadata, InviteAuditMetadata {
+        permits InviteAuditMetadata, InviteCleanupAuditMetadata, RoleChangeMetadata, UserStateChangeMetadata {
 }

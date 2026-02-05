@@ -1,10 +1,12 @@
 package com.brutecx.docflow_backend.api.error;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClientException;
 
 /**
  * Global exception handler for REST controllers.
@@ -15,6 +17,42 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(
+            DataIntegrityViolationException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.CONFLICT.value(),
+                                HttpStatus.CONFLICT.getReasonPhrase(),
+                                "DATA_INTEGRITY_VIOLATION",
+                                "Request could not be completed due to a data integrity constraint.",
+                                request.getRequestURI()
+                        )
+                );
+    }
+
+    @ExceptionHandler(RestClientException.class)
+    public ResponseEntity<ErrorResponse> handleRestClientException(
+            RestClientException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_GATEWAY)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.BAD_GATEWAY.value(),
+                                HttpStatus.BAD_GATEWAY.getReasonPhrase(),
+                                "UPSTREAM_SERVICE_ERROR",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
 
     @ExceptionHandler(InviteDeliveryException.class)
     public ResponseEntity<ErrorResponse> handleInviteDelivery(

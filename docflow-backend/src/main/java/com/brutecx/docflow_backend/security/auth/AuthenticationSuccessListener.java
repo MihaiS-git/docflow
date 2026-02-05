@@ -46,12 +46,11 @@ public class AuthenticationSuccessListener {
         User user;
         if (existing.isEmpty()) {
             if (!userRepository.existsByExternalSubjectIdIsNotNull()) {
-
-                // 2. Find user by email
                 userRepository.findByEmail(oidcUser.getEmail().toLowerCase())
                         .ifPresent(u -> {
                             u.bindExternalSubjectId(subject);
                             u.activate(); // status = ACTIVE
+                            updateLastLogin(u);
                             u = userRepository.save(u);
 
                             log.warn("BOOTSTRAP: Activated first admin user {}", u.getEmail());
@@ -62,7 +61,6 @@ public class AuthenticationSuccessListener {
             updateLastLogin(user);
             userRepository.save(user);
         }
-
     }
 
     private void updateLastLogin(User user) {

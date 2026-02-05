@@ -84,13 +84,30 @@ services:
       POSTGRES_PASSWORD: ${DOCFLOW_DB_PASSWORD}
     volumes:
       - docflow-db-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DOCFLOW_DB_USER} -d ${DOCFLOW_DB_NAME}"]
       interval: 30s
       timeout: 10s
       retries: 5
+    ports: []
+
+  pgadmin:
+    image: dpage/pgadmin4:8.10
+    container_name: docflow-pgadmin
+    depends_on:
+      docflow-db:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: audit@docflow.local
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "True"
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5050:80"   # 🔒 localhost only
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks:
+      - default
 
   keycloak-db:
     image: postgres:16-alpine
@@ -103,9 +120,10 @@ services:
       - keycloak-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USERNAME} -d ${KEYCLOAK_DB_NAME}"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    ports: []
 
   keycloak:
     container_name: docflow-keycloak
@@ -133,7 +151,7 @@ services:
       KC_HOSTNAME_ADMIN: ${KC_HOSTNAME}
       KC_LOG_LEVEL: DEBUG
 
-    ports: [] # internal only
+    ports: []
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
     healthcheck:
@@ -157,27 +175,28 @@ services:
     entrypoint: ["/bin/sh", "/kc-init.sh"]
     restart: "no"
 
-  #prometheus:
-  #  image: prom/prometheus:v2.52.0
-  #  container_name: docflow-prometheus
-  #  volumes:
-  #    - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-  #  ports:
-  #    - "9090:9090"
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: docflow-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
 
-  #grafana:
-  #  image: grafana/grafana:11.1.0
-  #  container_name: docflow-grafana
-  #  ports:
-  #    - "3001:3000"
-  #  environment:
-  #    GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
-  #    GF_AUTH_ANONYMOUS_ENABLED: "false"
-  #  volumes:
-  #    - grafana-data:/var/lib/grafana
-  #    - ./grafana/provisioning:/etc/grafana/provisioning
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: docflow-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
 
 volumes:
   docflow-db-data:
-  #grafana-data:
+  grafana-data:
   keycloak-db-data:
+  pgadmin-data:

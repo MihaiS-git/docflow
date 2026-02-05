@@ -7,7 +7,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -90,6 +92,46 @@ public class UserService {
                 .orElseGet(() ->
                         new CurrentUserResult(CurrentUserState.BOOTSTRAP, null)
                 );
+    }
+
+    /**
+     * Deletes invited users that were never activated.
+     * <p>
+     * Safety guarantees:
+     * - only LOCKED users
+     * - only users without externalSubjectId
+     * - caller controls which user IDs are eligible
+     */
+    @Transactional
+    public int deleteUnactivatedInvitedUsers(List<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return 0;
+        }
+
+        List<User> users =
+                userRepository.findByStatusAndIdIn(
+                        UserStatus.LOCKED,
+                        userIds
+                );
+
+        int deleted = 0;
+
+        for (User user : users) {
+            // HARD GUARD: never delete users already bound to IdP
+            if (user.getExternalSubjectId() != null) {
+                continue;
+            }
+
+            userRepository.delete(user);
+            deleted++;
+        }
+
+        return deleted;
+    }
+
+    @Transactional
+    public void deleteUser(User user) {
+        userRepository.delete(user);
     }
 
 }

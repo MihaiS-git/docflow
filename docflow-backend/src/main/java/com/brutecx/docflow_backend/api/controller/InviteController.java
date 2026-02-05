@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.api.controller;
 
+import com.brutecx.docflow_backend.application.invite.CleanupResult;
 import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
 import com.brutecx.docflow_backend.domain.invite.CreateInviteRequest;
 import jakarta.validation.Valid;
@@ -7,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 
 @RestController
@@ -30,6 +33,19 @@ public class InviteController {
         );
 
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/revoke")
+    public ResponseEntity<Void> revokeInvite(@PathVariable UUID id) {
+        inviteService.revokeInvite(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/cleanup")
+    public ResponseEntity<CleanupResult> cleanup() {
+        return ResponseEntity.ok(
+                inviteService.cleanupExpiredInvitesAndOrphanedUsers()
+        );
     }
 
 }

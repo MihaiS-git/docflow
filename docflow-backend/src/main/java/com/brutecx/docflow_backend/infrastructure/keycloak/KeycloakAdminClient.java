@@ -428,5 +428,23 @@ public class KeycloakAdminClient {
         return location.substring(idx + 1);
     }
 
+    public void deleteUserById(String subjectId) {
+        Objects.requireNonNull(subjectId, "subjectId");
 
+        String token = fetchAccessToken();
+        String url = adminBaseUrl() + "/users/" + subjectId;
+
+        try {
+            keycloakAdminRestClient.delete()
+                    .uri(url)
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (Exception ex) {
+            throw new RestClientException(
+                    "Failed to delete Keycloak user " + subjectId,
+                    ex
+            );
+        }
+    }
 }
