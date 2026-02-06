@@ -56,6 +56,9 @@ dependencies {
 //	Email
     implementation "org.springframework.boot:spring-boot-starter-mail"
 
+    // Flyway
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
 }
 
 tasks.named('test') {

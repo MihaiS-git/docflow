@@ -10,8 +10,14 @@ import {
   revokeInvite,
 } from "@/lib/admin/adminInvites";
 import { getEffectiveInviteStatus } from "@/lib/admin/inviteStatus";
+import { useAuth } from "@/lib/auth/useAuth";
 
 export default function AdminInvitesPage() {
+  const { status, identity } = useAuth();
+
+  const isAdmin =
+    status === "AUTH" && identity?.roles.includes("ADMIN");
+
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -26,8 +32,25 @@ export default function AdminInvitesPage() {
   const [loadingInvites, setLoadingInvites] = useState(false);
 
   useEffect(() => {
+    if (!isAdmin) return;
     loadInvites();
-  }, []);
+  }, [isAdmin]);
+
+  if (status === "LOADING") {
+    return <div>Loading auth…</div>;
+  }
+
+  if (status !== "AUTH") {
+    return <div>Please login.</div>;
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="text-red-600">
+        Access denied (ADMIN only)
+      </div>
+    );
+  }
 
   async function loadInvites() {
     setLoadingInvites(true);

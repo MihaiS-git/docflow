@@ -15,8 +15,8 @@ export default function Home() {
 
         {identity?.roles.includes("ADMIN") && (
           <>
-            <a href="/admin/users">Admin</a>
-            <a href="/admin/invites">Invites</a>
+            <a href="/console/users">Admin</a>
+            <a href="/console/invites">Invites</a>
           </>
         )}
 

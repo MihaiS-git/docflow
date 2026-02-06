@@ -1,3 +1,6 @@
+secrets:
+  soc_password:
+    file: ./secrets/soc_password.txt
 services:
   nginx:
     image: nginx:1.27-alpine
@@ -12,7 +15,20 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
     networks:
-      - default
+      - edge_net
+  
+  frontend:
+    container_name: docflow-frontend
+    build:
+      context: ../docflow-frontend
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    expose:
+      - "3000"
+    restart: unless-stopped
+    networks:
+      - edge_net
 
   backend:
     image: docflow-backend:dev
@@ -48,11 +64,11 @@ services:
 
       # --- Keycloak Admin Events ---
       KEYCLOAK_ADMIN_BASE_URL: ${KEYCLOAK_ADMIN_BASE_URL}
-      KEYCLOAK_REALM: docflow
-      KEYCLOAK_ADMIN_CLIENT_ID: docflow-admin-events
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID}
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
-      KEYCLOAK_ADMIN_POLL_DELAY_MS: 5000
-      KEYCLOAK_ADMIN_PAGE_SIZE: 100
+      KEYCLOAK_ADMIN_POLL_DELAY_MS: ${KEYCLOAK_ADMIN_POLL_DELAY_MS}
+      KEYCLOAK_ADMIN_PAGE_SIZE: ${KEYCLOAK_ADMIN_PAGE_SIZE}
 
       KC_HOSTNAME: ${KC_HOSTNAME}
 
@@ -67,7 +83,10 @@ services:
       DOCFLOW_BOOTSTRAP_ADMIN_EMAIL: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
       DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
       DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
-
+    networks:
+      - edge_net
+      - app_net
+      - obs_net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 10s
@@ -85,29 +104,34 @@ services:
     volumes:
       - docflow-db-data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    secrets:
+      - soc_password
+    networks:
+      - app_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DOCFLOW_DB_USER} -d ${DOCFLOW_DB_NAME}"]
       interval: 30s
       timeout: 10s
       retries: 5
-    ports: []
 
-  pgadmin:
-    image: dpage/pgadmin4:8.10
-    container_name: docflow-pgadmin
+  db-audit-grants:
+    image: postgres:16-alpine
+    container_name: docflow-db-audit-grants
     depends_on:
       docflow-db:
         condition: service_healthy
+      backend:
+        condition: service_healthy
     environment:
-      PGADMIN_DEFAULT_EMAIL: audit@docflow.local
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-      PGADMIN_CONFIG_SERVER_MODE: "True"
-    ports:
-      - "127.0.0.1:5050:80"   # 🔒 localhost only
-    volumes:
-      - pgadmin-data:/var/lib/pgadmin
+      POSTGRES_DB: ${DOCFLOW_DB_NAME}
+      POSTGRES_USER: ${DOCFLOW_DB_USER}
+      PGPASSWORD: ${DOCFLOW_DB_PASSWORD}
     networks:
-      - default
+      - app_net
+    volumes:
+      - ./postgres/scripts/apply-audit-grants.sh:/apply-audit-grants.sh:ro
+    entrypoint: ["/bin/sh", "/apply-audit-grants.sh"]
+    restart: "no"
 
   keycloak-db:
     image: postgres:16-alpine
@@ -118,12 +142,13 @@ services:
       POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
     volumes:
       - keycloak-db-data:/var/lib/postgresql/data
+    networks:
+      - idp_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USERNAME} -d ${KEYCLOAK_DB_NAME}"]
       interval: 30s
       timeout: 10s
       retries: 5
-    ports: []
 
   keycloak:
     container_name: docflow-keycloak
@@ -151,9 +176,11 @@ services:
       KC_HOSTNAME_ADMIN: ${KC_HOSTNAME}
       KC_LOG_LEVEL: DEBUG
 
-    ports: []
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
+    networks:
+      - idp_net
+      - edge_net
     healthcheck:
       test: ["CMD", "bash", "-lc", "exec 3<>/dev/tcp/localhost/8080"]
       interval: 5s
@@ -170,6 +197,8 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+    networks:
+      - idp_net
     volumes:
       - ./keycloak/kc-init.sh:/kc-init.sh:ro
     entrypoint: ["/bin/sh", "/kc-init.sh"]
@@ -180,23 +209,33 @@ services:
     container_name: docflow-prometheus
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
+    networks:
+      - obs_net
 
   grafana:
     image: grafana/grafana:11.1.0
     container_name: docflow-grafana
-    ports:
-      - "3001:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - obs_net
 
 volumes:
   docflow-db-data:
   grafana-data:
   keycloak-db-data:
   pgadmin-data:
+
+networks:
+  edge_net:
+    driver: bridge
+  app_net:
+    driver: bridge
+  idp_net:
+    driver: bridge
+  obs_net:
+    driver: bridge

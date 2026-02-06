@@ -16,13 +16,16 @@ spring:
       ddl-auto: validate
   mail:
     host: ${SMTP_HOST}
-    port: ${SMTP_PORT:587}
+    port: ${SMTP_PORT}
     username: ${SMTP_USERNAME}
     password: ${SMTP_PASSWORD}
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
       mail.smtp.starttls.required: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
 
 logging:
   level:

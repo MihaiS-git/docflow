@@ -4,15 +4,15 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakOidcUserService;
+import com.brutecx.docflow_backend.security.enforcement.AuthenticatedAuthorizationManager;
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
+import com.brutecx.docflow_backend.security.handler.ApiAuthenticationEntryPoint;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
 import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
 import com.brutecx.docflow_backend.security.session.SessionSecurityProperties;
 import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.ServletContextInitializer;
@@ -20,8 +20,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.security.authorization.AuthorityAuthorizationManager;
 import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.Customizer;
@@ -83,8 +81,9 @@ public class SecurityConfig {
             AbsoluteSessionTimeoutFilter absoluteSessionTimeoutFilter,
             RequestCorrelationIdFilter requestCorrelationIdFilter,
             KeycloakOidcUserService keycloakOidcUserService,
-            ObjectMapper objectMapper,
-            InviteApplicationService inviteApplicationService
+            InviteApplicationService inviteApplicationService,
+            ApiAuthenticationEntryPoint apiAuthenticationEntryPoint,
+            AuthenticatedAuthorizationManager authenticatedAuthorizationManager
     ) throws Exception {
 
         http
@@ -138,7 +137,6 @@ public class SecurityConfig {
                         // -------- AUTH APIs --------
                         .requestMatchers(HttpMethod.POST, "/api/invites/validate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
 
                         // -------- ADMIN APIs (LIFECYCLE + RBAC) --------
@@ -166,30 +164,26 @@ public class SecurityConfig {
                         )
 
                         // -------- ALL OTHER API CALLS --------
-                        .requestMatchers("/api/**").access(lifecycleAuthorizationManager)
+                        .requestMatchers("/api/**").access(
+                                AuthorizationManagers.allOf(
+                                        authenticatedAuthorizationManager,
+                                        lifecycleAuthorizationManager
+                                )
+                        )
 
                         .anyRequest().authenticated()
                 )
 
                 .exceptionHandling(ex -> ex
-                                .accessDeniedHandler(restAccessDeniedHandler)
-                                .authenticationEntryPoint((req, res, authEx) -> {
-                                    if (req.getRequestURI().startsWith("/api/")) {
-                                        ErrorResponse body = ErrorResponse.of(
-                                                HttpStatus.UNAUTHORIZED.value(),
-                                                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
-                                                "UNAUTHORIZED",
-                                                "Authentication required",
-                                                req.getRequestURI()
-                                        );
-                                        res.setStatus(HttpStatus.UNAUTHORIZED.value());
-                                        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                                        objectMapper.writeValue(res.getOutputStream(), body);
-                                        return;
-                                    }
-                                    new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/keycloak")
-                                            .commence(req, res, authEx);
-                                })
+                        .accessDeniedHandler(restAccessDeniedHandler)
+                        .authenticationEntryPoint((req, res, authEx) -> {
+                            if (req.getRequestURI().startsWith("/api/")) {
+                                apiAuthenticationEntryPoint.commence(req, res, authEx);
+                                return;
+                            }
+                            new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/keycloak")
+                                    .commence(req, res, authEx);
+                        })
                 )
 
                 .httpBasic(AbstractHttpConfigurer::disable)

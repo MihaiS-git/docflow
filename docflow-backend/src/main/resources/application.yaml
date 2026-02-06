@@ -13,9 +13,7 @@ spring:
             client-id: ${KEYCLOAK_CLIENT_ID}
             authorization-grant-type: authorization_code
             scope: openid,profile,email,roles
-#            redirect-uri: "http://localhost:8085/login/oauth2/code/{registrationId}"
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
-#            redirect-uri: "http://brutecx.test:8085/login/oauth2/code/{registrationId}"
         provider:
           keycloak:
             authorization-uri: ${KEYCLOAK_AUTH_URI}
@@ -25,9 +23,9 @@ spring:
             # user-info-uri is intentionally REMOVED
             # Spring must NOT call /userinfo (it caused 401 + login failure)
   datasource:
-    url: ${DB_URL}
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   jpa:
     open-in-view: false
   lifecycle:

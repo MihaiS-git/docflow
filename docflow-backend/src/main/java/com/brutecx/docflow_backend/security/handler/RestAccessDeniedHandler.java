@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.security.handler;
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
+import com.brutecx.docflow_backend.audit.rbac.IRbacDeniedAuditService;
 import com.brutecx.docflow_backend.web.ClientIpResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.ServletException;
@@ -31,6 +32,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
     private final ObjectMapper objectMapper;
     private final ILifecycleDeniedAuditService lifecycleDeniedAuditService;
     private final ClientIpResolver clientIpResolver;
+    private final IRbacDeniedAuditService rbacDeniedAuditService;
 
     @Override
     public void handle(
@@ -113,6 +115,27 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
             response.addHeader(
                     "Set-Cookie",
                     "JSESSIONID=; Max-Age=0; Path=/; HttpOnly; SameSite=None; Secure"
+            );
+        } else {
+            String requestId = MDC.get("requestId");
+
+            if (requestId == null || requestId.isBlank()) {
+                requestId = request.getHeader("X-Request-Id");
+            }
+
+            String subjectId = null;
+
+            if (auth != null && auth.getPrincipal() instanceof OidcUser oidcUser) {
+                subjectId = oidcUser.getSubject();
+            }
+
+            rbacDeniedAuditService.record(
+                    requestId,
+                    subjectId,
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    clientIpResolver.resolve(request),
+                    request.getHeader("User-Agent")
             );
         }
 

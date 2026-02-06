@@ -607,8 +607,8 @@
     "enabled" : true,
     "alwaysDisplayInConsole" : false,
     "clientAuthenticatorType" : "client-secret",
-    "redirectUris" : [ "http://brutecx.test:8085/login/oauth2/code/keycloak", "http://brutecx.test:8085/realms/docflow/account", "http://brutecx.test:3000/*", "http://brutecx.test:8085/*" ],
-    "webOrigins" : [ "http://brutecx.local:3000" ],
+    "redirectUris" : [ "http://brutecx.test:8085/login/oauth2/code/keycloak" ],
+    "webOrigins" : [ "http://brutecx.local:8085" ],
     "notBefore" : 0,
     "bearerOnly" : false,
     "consentRequired" : false,
@@ -622,7 +622,7 @@
     "attributes" : {
       "access.token.lifespan" : "600",
       "frontchannel.logout.session.required" : "true",
-      "post.logout.redirect.uris" : "http://brutecx.test:3000##http://brutecx.test:3000/*",
+      "post.logout.redirect.uris" : "http://brutecx.test:8085",
       "oauth2.device.authorization.grant.enabled" : "false",
       "backchannel.logout.revoke.offline.tokens" : "false",
       "use.refresh.tokens" : "true",
@@ -1503,7 +1503,7 @@
       "subType" : "anonymous",
       "subComponents" : { },
       "config" : {
-        "allowed-protocol-mapper-types" : [ "saml-user-attribute-mapper", "oidc-sha256-pairwise-sub-mapper", "saml-role-list-mapper", "oidc-usermodel-property-mapper", "oidc-usermodel-attribute-mapper", "oidc-full-name-mapper", "oidc-address-mapper", "saml-user-property-mapper" ]
+        "allowed-protocol-mapper-types" : [ "oidc-full-name-mapper", "saml-user-attribute-mapper", "oidc-address-mapper", "saml-user-property-mapper", "saml-role-list-mapper", "oidc-usermodel-attribute-mapper", "oidc-sha256-pairwise-sub-mapper", "oidc-usermodel-property-mapper" ]
       }
     }, {
       "id" : "e2ce5c3d-716b-45b9-a2eb-52076128b7dd",
@@ -1528,7 +1528,7 @@
       "subType" : "authenticated",
       "subComponents" : { },
       "config" : {
-        "allowed-protocol-mapper-types" : [ "oidc-usermodel-attribute-mapper", "oidc-address-mapper", "oidc-full-name-mapper", "saml-user-property-mapper", "oidc-usermodel-property-mapper", "saml-user-attribute-mapper", "saml-role-list-mapper", "oidc-sha256-pairwise-sub-mapper" ]
+        "allowed-protocol-mapper-types" : [ "oidc-usermodel-attribute-mapper", "saml-role-list-mapper", "saml-user-attribute-mapper", "oidc-full-name-mapper", "oidc-usermodel-property-mapper", "saml-user-property-mapper", "oidc-address-mapper", "oidc-sha256-pairwise-sub-mapper" ]
       }
     } ],
     "org.keycloak.keys.KeyProvider" : [ {
