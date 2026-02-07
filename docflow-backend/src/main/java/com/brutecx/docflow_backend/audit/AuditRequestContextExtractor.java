@@ -10,7 +10,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Component
 public final class AuditRequestContextExtractor {
 
-    private static final String REQUEST_ID_MDC_KEY = "requestId";
+    private static final String CORRELATION_ID_MDC_KEY = "correlationId";
 
     private final ClientIpResolver clientIpResolver;
 
@@ -19,12 +19,12 @@ public final class AuditRequestContextExtractor {
     }
 
     public AuditRequestContext from(HttpServletRequest request) {
-        String requestId = MDC.get(REQUEST_ID_MDC_KEY);
+        String correlationId = MDC.get(CORRELATION_ID_MDC_KEY);
         String ip = clientIpResolver.resolve(request);
         String ua = request.getHeader("User-Agent");
 
         return new AuditRequestContext(
-                requestId,
+                correlationId,
                 null,
                 ip != null ? ip : "UNKNOWN",
                 ua != null ? ua : "N/A"
@@ -42,7 +42,7 @@ public final class AuditRequestContextExtractor {
         if (attrs == null) {
             // Called outside HTTP request context (scheduled jobs / async thread)
             return new AuditRequestContext(
-                    MDC.get(REQUEST_ID_MDC_KEY),
+                    MDC.get(CORRELATION_ID_MDC_KEY),
                     null,
                     "N/A",
                     "N/A"

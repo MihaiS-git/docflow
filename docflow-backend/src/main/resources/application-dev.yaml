@@ -10,20 +10,19 @@ spring:
             authorization-uri: ${KEYCLOAK_AUTH_URI}
             token-uri: ${KEYCLOAK_TOKEN_URI}
             jwk-set-uri: ${KEYCLOAK_JWKS_URI}
-
   datasource:
     url: ${SPRING_DATASOURCE_URL}
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
-
   jpa:
     hibernate:
-      ddl-auto: validate
-
+      ddl-auto: update # validate
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
   devtools:
     restart:
-      enabled: true
-
+      enabled: false
   mail:
     host: ${SMTP_HOST}
     port: ${SMTP_PORT}
@@ -33,10 +32,6 @@ spring:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
       mail.smtp.starttls.required: true
-
-  flyway:
-    enabled: true
-    baseline-on-migrate: true
 
 # dev profile must work over plain HTTP (LAN/dev). OAuth2 state is stored in session cookie.
 server:

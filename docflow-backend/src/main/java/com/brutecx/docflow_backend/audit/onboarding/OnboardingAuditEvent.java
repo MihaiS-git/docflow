@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.audit.onboarding;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,7 +17,14 @@ import java.util.UUID;
                 @Index(name = "idx_onboarding_invite_id", columnList = "invite_id"),
                 @Index(name = "idx_onboarding_subject_id", columnList = "subject_id"),
                 @Index(name = "idx_onboarding_tenant_id", columnList = "tenant_id"),
-                @Index(name = "idx_onboarding_timestamp", columnList = "timestamp")
+                @Index(name = "idx_onboarding_timestamp", columnList = "timestamp"),
+                @Index(name = "idx_onboarding_correlation_id", columnList = "correlation_id")
+        },
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_onboarding_invite_once",
+                        columnNames = {"invite_id"}
+                )
         }
 )
 @Getter
@@ -43,8 +51,8 @@ public class OnboardingAuditEvent {
     @Column(nullable = false, updatable = false, name = "invite_id")
     private UUID inviteId;
 
-    @Column(nullable = false, updatable = false, name = "request_id", length = 128)
-    private String requestId;
+    @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
+    private String correlationId;
 
     @Column(nullable = false, updatable = false, length = 128)
     private String ip;
@@ -59,6 +67,10 @@ public class OnboardingAuditEvent {
     @Column(updatable = false, length = 64)
     private String failureReason;
 
+    @NotNull
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
+    private String eventFingerprint;
+
     @PrePersist
     void prePersist() {
         this.timestamp = Instant.now();
@@ -69,20 +81,22 @@ public class OnboardingAuditEvent {
             String subjectId,
             UUID tenantId,
             UUID inviteId,
-            String requestId,
+            String correlationId,
             String ip,
             String userAgent,
             OnboardingOutcome outcome,
-            String failureReason
+            String failureReason,
+            String eventFingerprint
     ) {
         this.actorUserId = actorUserId;
         this.subjectId = subjectId;
         this.tenantId = tenantId;
         this.inviteId = inviteId;
-        this.requestId = requestId;
+        this.correlationId = correlationId;
         this.ip = ip;
         this.userAgent = userAgent;
         this.outcome = outcome;
         this.failureReason = failureReason;
+        this.eventFingerprint = eventFingerprint;
     }
 }

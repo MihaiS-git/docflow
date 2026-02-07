@@ -2,6 +2,7 @@ package com.brutecx.docflow_backend.domain.admin;
 
 import com.brutecx.docflow_backend.api.dto.admin.AdminUserResponseDTO;
 import com.brutecx.docflow_backend.api.error.SelfActionForbiddenException;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.security.AuthRoleExtractor;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
@@ -79,12 +80,21 @@ public class AdminUserService {
                 actor.getExternalSubjectId()
         );
 
+        String eventFingerprint = EventFingerprint.of(List.of(
+                "ADMIN",
+                AdminAuditActionType.USER_LOCKED.name(),
+                actor.getId().toString(),
+                target.getId().toString(),
+                actor.getTenant().getId().toString(),
+                ctx.correlationId()
+        ));
+
         try {
             adminAuditEventService.record(
                     actor.getId(),
                     ctx.ip(),
                     ctx.userAgent(),
-                    ctx.requestId(),
+                    ctx.correlationId(),
                     actor.getExternalSubjectId(),
                     actor.getTenant().getId(),
                     AdminAuditActionType.USER_LOCKED,
@@ -92,7 +102,8 @@ public class AdminUserService {
                     new UserStateChangeMetadata(
                             UserStateChangeReason.MANUAL_ADMIN_ACTION,
                             "revokedSessions=" + revokedSessions
-                    )
+                    ),
+                    eventFingerprint
             );
         } catch (Exception e) {
             log.error(
@@ -128,11 +139,20 @@ public class AdminUserService {
                 actor.getExternalSubjectId()
         );
 
+        String eventFingerprint = EventFingerprint.of(List.of(
+                "ADMIN",
+                AdminAuditActionType.USER_DISABLED.name(),
+                actor.getId().toString(),
+                target.getId().toString(),
+                actor.getTenant().getId().toString(),
+                ctx.correlationId()
+        ));
+
         adminAuditEventService.record(
                 actor.getId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                ctx.requestId(),
+                ctx.correlationId(),
                 actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 AdminAuditActionType.USER_DISABLED,
@@ -140,7 +160,8 @@ public class AdminUserService {
                 new UserStateChangeMetadata(
                         UserStateChangeReason.MANUAL_ADMIN_ACTION,
                         "revokedSessions=" + revokedSessions
-                )
+                ),
+                eventFingerprint
         );
     }
 
@@ -151,17 +172,25 @@ public class AdminUserService {
         AuditRequestContext ctx =
                 auditRequestContextExtractor.fromCurrentRequest();
 
-
         if (target.getStatus() == UserStatus.ACTIVE) {
             return; // idempotent
         }
         target.activate();
 
+        String eventFingerprint = EventFingerprint.of(List.of(
+                "ADMIN",
+                AdminAuditActionType.USER_ACTIVATED.name(),
+                actor.getId().toString(),
+                target.getId().toString(),
+                actor.getTenant().getId().toString(),
+                ctx.correlationId()
+        ));
+
         adminAuditEventService.record(
                 actor.getId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                ctx.requestId(),
+                ctx.correlationId(),
                 actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 AdminAuditActionType.USER_ACTIVATED,
@@ -169,7 +198,8 @@ public class AdminUserService {
                 new UserStateChangeMetadata(
                         UserStateChangeReason.MANUAL_ADMIN_ACTION,
                         null
-                )
+                ),
+                eventFingerprint
         );
     }
 }

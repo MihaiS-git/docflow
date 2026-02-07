@@ -154,18 +154,13 @@ public class KeycloakAdminClient {
      * Assigns the given realm role to the user with the given userId.
      */
     public void assignRealmRole(String userId, String roleName) {
-        log.info("Keycloak - Assigning realm role '{}' to user '{}'", roleName, userId);
         String token = fetchAccessToken();
-        log.info("Keycloak - Fetched access token for role assignment {}", token);
         Map<String, Object> role = fetchRealmRole(roleName, token);
-        log.info("Keycloak - Fetched realm role details for '{}': {}", roleName, role);
 
         String url = props.baseUrl()
                 + "/admin/realms/" + props.realm()
                 + "/users/" + userId
                 + "/role-mappings/realm";
-
-        log.info("Keycloak - Assigning role via URL: {}", url);
 
         try {
             keycloakAdminRestClient.post()
@@ -174,9 +169,11 @@ public class KeycloakAdminClient {
                     .body(List.of(role))
                     .retrieve()
                     .toBodilessEntity();
-            log.info("Keycloak - Successfully assigned role via POST + keycloakAdminRestClient");
         } catch (Exception ex) {
-            log.error("Keycloak assignRealmRole failed", ex);
+            log.error(
+                    "KEYCLOAK ROLE ASSIGN FAILED role={} userId={}",
+                    roleName, userId, ex
+            );
             throw new RestClientException(
                     "Failed to assign realm role '" + roleName + "' to user " + userId,
                     ex

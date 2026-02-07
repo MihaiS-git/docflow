@@ -1,4 +1,4 @@
-package com.brutecx.docflow_backend.api.controller;
+package com.brutecx.docflow_backend.api.controller.admin.invite;
 
 import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
 import jakarta.servlet.http.HttpSession;

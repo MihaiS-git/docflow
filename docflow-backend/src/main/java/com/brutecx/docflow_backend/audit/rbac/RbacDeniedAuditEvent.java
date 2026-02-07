@@ -18,7 +18,7 @@ import java.util.UUID;
         indexes = {
                 @Index(name = "idx_rbac_denied_timestamp", columnList = "timestamp"),
                 @Index(name = "idx_rbac_denied_subject_id", columnList = "subject_id"),
-                @Index(name = "idx_rbac_denied_request_id", columnList = "request_id")
+                @Index(name = "idx_rbac_denied_correlation_id", columnList = "correlation_id")
         },
         uniqueConstraints = {
                 @UniqueConstraint(
@@ -35,8 +35,8 @@ public class RbacDeniedAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "request_id", updatable = false, length = 128)
-    private String requestId;
+    @Column(name = "correlation_id", updatable = false, length = 128)
+    private String correlationId;
 
     @Column(name = "subject_id", updatable = false, length = 128)
     private String subjectId;
@@ -64,7 +64,7 @@ public class RbacDeniedAuditEvent {
     private String eventFingerprint;
 
     public RbacDeniedAuditEvent(
-            String requestId,
+            String correlationId,
             String subjectId,
             String httpMethod,
             String path,
@@ -72,7 +72,7 @@ public class RbacDeniedAuditEvent {
             String userAgent,
             String eventFingerprint
     ) {
-        this.requestId = requestId;
+        this.correlationId = correlationId;
         this.subjectId = subjectId;
         this.httpMethod = httpMethod;
         this.path = path;

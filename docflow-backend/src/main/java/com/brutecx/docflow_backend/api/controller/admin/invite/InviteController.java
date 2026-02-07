@@ -1,4 +1,4 @@
-package com.brutecx.docflow_backend.api.controller;
+package com.brutecx.docflow_backend.api.controller.admin.invite;
 
 import com.brutecx.docflow_backend.application.invite.CleanupResult;
 import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -15,6 +16,7 @@ import java.util.UUID;
 @RestController
 @RequiredArgsConstructor
 @Profile({"dev", "prod"})
+@PreAuthorize("hasRole('ADMIN')")
 @RequestMapping("/api/admin/invites")
 public class InviteController {
 

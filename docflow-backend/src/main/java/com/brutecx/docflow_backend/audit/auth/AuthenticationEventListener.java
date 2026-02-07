@@ -12,7 +12,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.event.AbstractAuthenticationFailureEvent;
 import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.security.authentication.event.LogoutSuccessEvent;
-import org.springframework.security.core.Authentication; // ADDED: pass auth into resolver
+import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Component;
 
@@ -79,7 +79,7 @@ public class AuthenticationEventListener {
     }
 
     private void persist(AuthenticationResult result, String username, Authentication authentication) {
-        String correlationId = MDC.get("requestId");
+        String correlationId = MDC.get("correlationId");
 
         String resolvedUsername =
                 (username != null && !username.isBlank()) ? username : "UNKNOWN";
@@ -117,6 +117,11 @@ public class AuthenticationEventListener {
         } catch (DataIntegrityViolationException ex) {
             // duplicate event → safe to ignore
             return;
+        } catch (Exception ex) {
+            log.error(
+                    "AUTH AUDIT FAILURE. result={} username={} correlationId={}",
+                    result, resolvedUsername, correlationId, ex
+            );
         }
 
         log.info(
@@ -130,7 +135,4 @@ public class AuthenticationEventListener {
         );
     }
 
-    private void persist(AuthenticationResult result, String username) {
-        persist(result, username, null);
-    }
 }

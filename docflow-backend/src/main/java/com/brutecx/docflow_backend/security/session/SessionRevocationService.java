@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.security.session;
 
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,14 +64,22 @@ public class SessionRevocationService {
         }
 
         if (revoked > 0) {
+            String eventFingerprint = EventFingerprint.of(List.of(
+                    "USER_SESSION_REVOKED",
+                    targetExternalSubjectId,
+                    String.valueOf(revoked),
+                    ctx.correlationId()
+            ));
+
             lifecycleDeniedAuditService.record(
-                    ctx.requestId(),                 // same correlation model already used
+                    ctx.correlationId(),
                     targetExternalSubjectId,
                     "USER_SESSION_REVOKED",
                     "ADMIN_ACTION",
                     "SESSION_INVALIDATION",
                     ctx.ip(), // no HttpServletRequest available here (service layer)
-                    ctx.userAgent()  // no UA available here (service layer)
+                    ctx.userAgent(), // no UA available here (service layer)
+                    eventFingerprint
             );
         }
 

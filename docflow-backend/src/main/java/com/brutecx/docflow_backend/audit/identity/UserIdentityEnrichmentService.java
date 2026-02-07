@@ -33,47 +33,46 @@ public class UserIdentityEnrichmentService implements IUserIdentityProjectionSer
     @Async
     @Transactional
     public void ensureProjected(String subjectId) {
-
-        log.debug("Ensuring projected identity for user {}", subjectId);
-
         if (subjectId == null || "UNKNOWN".equals(subjectId)) {
             return;
         }
 
-        log.info("Ensuring projected identity for user {}", subjectId);
+        try {
+            Optional<UserIdentityProjection> existingOpt = repo.findById(subjectId);
 
-        Optional<UserIdentityProjection> existingOpt = repo.findById(subjectId);
-        if (existingOpt.isPresent()) {
-            UserIdentityProjection existing = existingOpt.get();
-            log.info("Found existing identity for user {}", subjectId);
+            if (existingOpt.isPresent()) {
+                UserIdentityProjection existing = existingOpt.get();
 
-            if (existing.isInitialized() && existing.isFresh(Duration.ofHours(24))) {
-                log.info("Found existing identity for user {}", subjectId);
+                if (existing.isInitialized() && existing.isFresh(Duration.ofHours(24))) {
+                    log.debug("Identity projection fresh for subjectId={}", subjectId);
+                    return;
+                }
+            }
 
+            UserIdentityProjection projection = existingOpt
+                    .orElseGet(() -> new UserIdentityProjection(subjectId, "KEYCLOAK"));
+
+            KeycloakUser kcUser = keycloak.fetchUser(subjectId);
+            if (kcUser == null) {
+                log.warn("Identity projection failed: Keycloak user not found subjectId={}", subjectId);
                 return;
             }
+
+            projection.update(
+                    kcUser.username(),
+                    kcUser.email(),
+                    kcUser.displayName()
+            );
+
+            repo.save(projection);
+            log.debug("Identity projection updated subjectId={}", subjectId);
+
+        } catch (Exception ex) {
+            log.error(
+                    "IDENTITY PROJECTION FAILURE subjectId={}",
+                    subjectId,
+                    ex
+            );
         }
-
-        log.info("Found existing identity for user {}", subjectId);
-
-        UserIdentityProjection projection = existingOpt
-                .orElseGet(() -> new UserIdentityProjection(subjectId, "KEYCLOAK"));
-
-        log.info("Found existing identity for user {}", subjectId);
-        KeycloakUser kcUser = keycloak.fetchUser(subjectId);
-        if (kcUser == null) {
-            log.warn("Keycloak user not found for subjectId {}", subjectId);
-            return;
-        }
-
-        log.info("Found existing identity for user {}", subjectId);
-        projection.update(
-                kcUser.username(),
-                kcUser.email(),
-                kcUser.displayName()
-        );
-
-        log.info("Updated existing identity for user {}", subjectId);
-        repo.save(projection);
     }
 }

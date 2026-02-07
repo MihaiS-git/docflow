@@ -17,7 +17,7 @@ import java.util.UUID;
         name = "unauthenticated_access_audit_events",
         indexes = {
                 @Index(name = "idx_unauth_access_timestamp", columnList = "timestamp"),
-                @Index(name = "idx_unauth_access_request_id", columnList = "request_id"),
+                @Index(name = "idx_unauth_access_correlation_id", columnList = "correlation_id"),
                 @Index(name = "idx_unauth_access_path", columnList = "path")
         },
         uniqueConstraints = {
@@ -32,8 +32,8 @@ public class UnauthenticatedAccessAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "request_id", nullable = true, updatable = false, length = 128)
-    private String requestId;
+    @Column(name = "correlation_id", updatable = false, length = 128)
+    private String correlationId;
 
     @NotNull
     @Column(name = "http_method", nullable = false, updatable = false, length = 16)
@@ -43,10 +43,10 @@ public class UnauthenticatedAccessAuditEvent {
     @Column(name = "path", nullable = false, updatable = false, length = 512)
     private String path;
 
-    @Column(name = "ip", nullable = true, updatable = false, length = 128)
+    @Column(name = "ip", updatable = false, length = 128)
     private String ip;
 
-    @Column(name = "user_agent", nullable = true, updatable = false, length = 512)
+    @Column(name = "user_agent", updatable = false, length = 512)
     private String userAgent;
 
     @NotNull
@@ -58,14 +58,14 @@ public class UnauthenticatedAccessAuditEvent {
     private String eventFingerprint;
 
     public UnauthenticatedAccessAuditEvent(
-            String requestId,
+            String correlationId,
             String httpMethod,
             String path,
             String ip,
             String userAgent,
             String eventFingerprint
     ) {
-        this.requestId = requestId;
+        this.correlationId = correlationId;
         this.httpMethod = httpMethod;
         this.path = path;
         this.ip = ip;

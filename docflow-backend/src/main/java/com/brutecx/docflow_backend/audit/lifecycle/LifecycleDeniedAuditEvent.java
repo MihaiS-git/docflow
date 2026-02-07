@@ -18,13 +18,9 @@ import java.util.UUID;
         indexes = {
                 @Index(name = "idx_lifecycle_denied_timestamp", columnList = "timestamp"),
                 @Index(name = "idx_lifecycle_denied_subject_id", columnList = "subject_id"),
-                @Index(name = "idx_lifecycle_denied_request_id", columnList = "request_id")
+                @Index(name = "idx_lifecycle_denied_correlation_id", columnList = "correlation_id")
         },
         uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_lifecycle_denied_request_reason",
-                        columnNames = {"request_id", "reason_code", "path"}
-                ),
                 @UniqueConstraint(
                         name = "uk_lifecycle_denied_event_fingerprint",
                         columnNames = {"event_fingerprint"}
@@ -39,26 +35,26 @@ public class LifecycleDeniedAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "request_id", nullable = true, updatable = false, length = 128)
-    private String requestId;
+    @Column(name = "correlation_id", updatable = false, length = 128)
+    private String correlationId;
 
-    @Column(name = "subject_id", nullable = true, updatable = false, length = 128)
+    @Column(name = "subject_id", updatable = false, length = 128)
     private String subjectId;
 
     @NotNull
     @Column(name = "reason_code", nullable = false, updatable = false, length = 64)
     private String reasonCode;
 
-    @Column(name = "http_method", nullable = true, updatable = false, length = 16)
+    @Column(name = "http_method", updatable = false, length = 16)
     private String httpMethod;
 
-    @Column(name = "path", nullable = true, updatable = false, length = 512)
+    @Column(name = "path", updatable = false, length = 512)
     private String path;
 
-    @Column(name = "ip", nullable = true, updatable = false, length = 128)
+    @Column(name = "ip", updatable = false, length = 128)
     private String ip;
 
-    @Column(name = "user_agent", nullable = true, updatable = false, length = 512)
+    @Column(name = "user_agent", updatable = false, length = 512)
     private String userAgent;
 
     @NotNull
@@ -70,7 +66,7 @@ public class LifecycleDeniedAuditEvent {
     private String eventFingerprint;
 
     public LifecycleDeniedAuditEvent(
-            String requestId,
+            String correlationId,
             String subjectId,
             String reasonCode,
             String httpMethod,
@@ -79,7 +75,7 @@ public class LifecycleDeniedAuditEvent {
             String userAgent,
             String eventFingerprint
     ) {
-        this.requestId = requestId;
+        this.correlationId = correlationId;
         this.subjectId = subjectId;
         this.reasonCode = reasonCode;
         this.httpMethod = httpMethod;

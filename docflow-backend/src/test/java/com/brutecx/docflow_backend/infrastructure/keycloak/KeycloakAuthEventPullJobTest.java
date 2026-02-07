@@ -45,7 +45,7 @@ public class KeycloakAuthEventPullJobTest {
         assertThat(saved.getUsername()).isEqualTo("user-id-1");
         assertThat(saved.getIp()).isEqualTo("10.0.0.2");
         assertThat(saved.getUserAgent()).isEqualTo("UA-1");
-        assertThat(saved.getRequestId()).isEqualTo("sess-1");
+        assertThat(saved.getCorrelationId()).isEqualTo("sess-1");
         assertThat(saved.getTimestamp().toEpochMilli()).isEqualTo(1000L);
 
         ArgumentCaptor<KeycloakEventCheckpoint> cpCaptor = ArgumentCaptor.forClass(KeycloakEventCheckpoint.class);

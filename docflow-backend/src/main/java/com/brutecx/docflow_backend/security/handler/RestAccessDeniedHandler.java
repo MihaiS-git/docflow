@@ -2,6 +2,7 @@ package com.brutecx.docflow_backend.security.handler;
 
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import com.brutecx.docflow_backend.audit.rbac.IRbacDeniedAuditService;
 import com.brutecx.docflow_backend.web.ClientIpResolver;
@@ -23,6 +24,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.List;
 
 @Slf4j
 @Component
@@ -52,38 +54,50 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
         String errorCode = "ACCESS_DENIED";
 
+        String correlationId = MDC.get("correlationId");
+        if (correlationId == null || correlationId.isBlank()) {
+            correlationId = request.getHeader("X-Correlation-Id");
+        }
+
+        String subjectId = null;
+        if (auth != null && auth.getPrincipal() instanceof OidcUser oidcUser) {
+            subjectId = oidcUser.getSubject();
+        }
+
+        String ip = clientIpResolver.resolve(request);
+        String userAgent = request.getHeader("User-Agent");
+        String httpMethod = request.getMethod();
+        String uri = request.getRequestURI();
+
         if (ex instanceof LifecycleAccessDeniedException lifecycleEx) {
             errorCode = lifecycleEx.getErrorCode();
 
-            String requestId = MDC.get("requestId");
-            String subjectId = null;
+            String eventFingerprint = EventFingerprint.of(List.of(
+                    "LIFECYCLE_DENIED",
+                    errorCode,
+                    uri,
+                    correlationId
+            ));
 
             try {
-                if (requestId == null || requestId.isBlank()) {
-                    requestId = request.getHeader("X-Request-Id");
-                }
-
-                if (auth != null && auth.getPrincipal() instanceof OidcUser oidcUser) {
-                    subjectId = oidcUser.getSubject();
-                }
-
-                String ip = clientIpResolver.resolve(request);
-
-                String userAgent = request.getHeader("User-Agent");
-
                 lifecycleDeniedAuditService.record(
-                        requestId,
+                        correlationId,
                         subjectId,
                         errorCode,
-                        request.getMethod(),
-                        request.getRequestURI(),
+                        httpMethod,
+                        correlationId,
                         ip,
-                        userAgent
+                        userAgent,
+                        eventFingerprint
                 );
             } catch (Exception auditEx) {
                 if (auditEx instanceof DataIntegrityViolationException) {
-                    log.warn("Lifecycle audit insert rejected by DB constraint (likely duplicate). requestId={} reasonCode={} uri={}",
-                            requestId, errorCode, request.getRequestURI());
+                    log.warn(
+                            "Lifecycle audit deduped. correlationId={} reasonCode={} uri={}",
+                            correlationId,
+                            errorCode,
+                            uri
+                    );
                 }
 
                 Throwable root = auditEx;
@@ -92,12 +106,12 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                 }
 
                 log.error(
-                        "LIFECYCLE AUDIT FAILURE → requestId={} subjectId={} reasonCode={} method={} uri={} rootType={} rootMsg={}",
-                        requestId,
+                        "LIFECYCLE AUDIT FAILURE → correlationId={} subjectId={} reasonCode={} method={} uri={} rootType={} rootMsg={}",
+                        correlationId,
                         subjectId,
                         errorCode,
-                        request.getMethod(),
-                        request.getRequestURI(),
+                        httpMethod,
+                        uri,
                         root.getClass().getName(),
                         root.getMessage(),
                         auditEx
@@ -117,26 +131,40 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                     "JSESSIONID=; Max-Age=0; Path=/; HttpOnly; SameSite=None; Secure"
             );
         } else {
-            String requestId = MDC.get("requestId");
+            String eventFingerprint = EventFingerprint.of(List.of(
+                    "RBAC_DENIED",
+                    uri,
+                    correlationId
+            ));
 
-            if (requestId == null || requestId.isBlank()) {
-                requestId = request.getHeader("X-Request-Id");
+            try {
+                rbacDeniedAuditService.record(
+                        correlationId,
+                        subjectId,
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        clientIpResolver.resolve(request),
+                        request.getHeader("User-Agent"),
+                        eventFingerprint
+                );
+            } catch (Exception auditEx) {
+                if (auditEx instanceof DataIntegrityViolationException) {
+                    log.warn(
+                            "RBAC audit deduped. correlationId={} uri={}",
+                            correlationId,
+                            uri
+                    );
+                }
+
+                log.error(
+                        "RBAC AUDIT FAILURE → correlationId={} subjectId={} method={} uri={}",
+                        correlationId,
+                        subjectId,
+                        httpMethod,
+                        uri,
+                        auditEx
+                );
             }
-
-            String subjectId = null;
-
-            if (auth != null && auth.getPrincipal() instanceof OidcUser oidcUser) {
-                subjectId = oidcUser.getSubject();
-            }
-
-            rbacDeniedAuditService.record(
-                    requestId,
-                    subjectId,
-                    request.getMethod(),
-                    request.getRequestURI(),
-                    clientIpResolver.resolve(request),
-                    request.getHeader("User-Agent")
-            );
         }
 
         ErrorResponse body = ErrorResponse.of(

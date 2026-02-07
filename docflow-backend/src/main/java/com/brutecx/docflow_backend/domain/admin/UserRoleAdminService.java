@@ -2,6 +2,7 @@ package com.brutecx.docflow_backend.domain.admin;
 
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
 import com.brutecx.docflow_backend.audit.admin.RoleChangeMetadata;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -33,7 +35,6 @@ public class UserRoleAdminService {
             UUID targetUserId,
             String roleName
     ) {
-        log.info("Assigning role {} to user {}", roleName, targetUserId);
         if (NON_ASSIGNABLE_ROLES.contains(roleName)) {
             return; // idempotent no-op
         }
@@ -43,33 +44,40 @@ public class UserRoleAdminService {
         AuditRequestContext ctx =
                 auditRequestContextExtractor.fromCurrentRequest();
 
-        log.info("Assigning role {} to target {}, by actor {}", roleName, target, actor);
-
         try {
             keycloakRoleAdminClient.assignRealmRole(
                     target.getExternalSubjectId(),
                     roleName
             );
         } catch (Exception e) {
-            log.error("Failed to assign role {} to user {}: {}", roleName, targetUserId, e.getMessage());
+            log.error(
+                    "ROLE ASSIGN FAILED role={} targetUserId={} actorUserId={}",
+                    roleName, targetUserId, actor.getId(), e
+            );
             throw e;
         }
 
-        log.info("Assigned role {} to target {}, by actor {}", roleName, target, actor);
+        String eventFingerprint = EventFingerprint.of(List.of(
+                "ADMIN",
+                AdminAuditActionType.ROLE_ASSIGNED.name(),
+                actor.getId().toString(),
+                target.getId().toString(),
+                actor.getTenant().getId().toString(),
+                ctx.correlationId()
+        ));
 
         auditEventService.record(
                 actor.getId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                ctx.requestId(),
+                ctx.correlationId(),
                 actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 AdminAuditActionType.ROLE_ASSIGNED,
                 target.getId(),
-                new RoleChangeMetadata(roleName, null)
+                new RoleChangeMetadata(roleName, null),
+                eventFingerprint
         );
-
-        log.info("Audit event persisted");
     }
 
     @Transactional
@@ -86,21 +94,39 @@ public class UserRoleAdminService {
         AuditRequestContext ctx =
                 auditRequestContextExtractor.fromCurrentRequest();
 
-        keycloakRoleAdminClient.revokeRealmRole(
-                target.getExternalSubjectId(),
-                roleName
-        );
+        try {
+            keycloakRoleAdminClient.revokeRealmRole(
+                    target.getExternalSubjectId(),
+                    roleName
+            );
+        } catch (Exception e) {
+            log.error(
+                    "ROLE REVOKE FAILED role={} targetUserId={} actorUserId={}",
+                    roleName, targetUserId, actor.getId(), e
+            );
+            throw e;
+        }
+
+        String eventFingerprint = EventFingerprint.of(List.of(
+                "ADMIN",
+                AdminAuditActionType.ROLE_REVOKED.name(),
+                actor.getId().toString(),
+                target.getId().toString(),
+                actor.getTenant().getId().toString(),
+                ctx.correlationId()
+        ));
 
         auditEventService.record(
                 actor.getId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                ctx.requestId(),
+                ctx.correlationId(),
                 actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 AdminAuditActionType.ROLE_REVOKED,
                 target.getId(),
-                new RoleChangeMetadata(roleName, null)
+                new RoleChangeMetadata(roleName, null),
+                eventFingerprint
         );
     }
 }

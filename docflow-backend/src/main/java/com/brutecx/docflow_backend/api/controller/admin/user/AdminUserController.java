@@ -1,4 +1,4 @@
-package com.brutecx.docflow_backend.api.controller;
+package com.brutecx.docflow_backend.api.controller.admin.user;
 
 import com.brutecx.docflow_backend.api.dto.admin.AdminUserResponseDTO;
 import com.brutecx.docflow_backend.domain.admin.AdminUserService;
@@ -6,6 +6,7 @@ import com.brutecx.docflow_backend.domain.admin.UserRoleAdminService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -13,6 +14,7 @@ import java.util.UUID;
 
 @Slf4j
 @RestController
+@PreAuthorize("hasRole('ADMIN')")
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
 public class AdminUserController {

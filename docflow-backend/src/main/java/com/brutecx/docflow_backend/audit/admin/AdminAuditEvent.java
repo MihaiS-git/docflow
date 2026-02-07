@@ -19,7 +19,7 @@ import java.util.UUID;
                 @Index(name = "idx_admin_audit_timestamp", columnList = "timestamp"),
                 @Index(name = "idx_admin_audit_actor_user_id", columnList = "actor_user_id"),
                 @Index(name = "idx_admin_audit_tenant_id", columnList = "tenant_id"),
-                @Index(name = "idx_admin_audit_request_id", columnList = "request_id"),
+                @Index(name = "idx_admin_audit_correlation_id", columnList = "correlation_id"),
                 @Index(name = "idx_admin_audit_subject_id", columnList = "subject_id")
         }
 )
@@ -50,8 +50,8 @@ public class AdminAuditEvent {
     private String userAgent;
 
     @NotNull
-    @Column(nullable = false, updatable = false, name = "request_id", length = 128)
-    private String requestId;
+    @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
+    private String correlationId;
 
     @NotNull
     @Column(nullable = false, updatable = false, name = "subject_id", length = 128)
@@ -73,26 +73,32 @@ public class AdminAuditEvent {
     @Column(columnDefinition = "jsonb", updatable = false)
     private AdminAuditMetadata metadata;
 
+    @NotNull
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
+    private String eventFingerprint;
+
     public AdminAuditEvent(
             UUID actorUserId,
             String ip,
             String userAgent,
-            String requestId,
+            String correlationId,
             String subjectId,
             UUID tenantId,
             AdminAuditActionType actionType,
             UUID targetUserId,
-            AdminAuditMetadata metadata
+            AdminAuditMetadata metadata,
+            String eventFingerprint
     ) {
         this.actorUserId = actorUserId;
         this.ip = ip;
         this.userAgent = userAgent;
-        this.requestId = requestId;
+        this.correlationId = correlationId;
         this.subjectId = subjectId;
         this.tenantId = tenantId;
         this.actionType = actionType;
         this.targetUserId = targetUserId;
         this.metadata = metadata;
+        this.eventFingerprint = eventFingerprint;
     }
 
     @PrePersist

@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.security.handler;
 
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.unauth.IUnauthenticatedAccessAuditService;
 import com.brutecx.docflow_backend.web.ClientIpResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.util.List;
 
 @Slf4j
 @Component
@@ -37,22 +39,40 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
         // We only use this entry point for /api/** in SecurityConfig, but keep it defensive.
         String uri = request.getRequestURI();
 
-        String requestId = MDC.get("requestId");
-        if (requestId == null || requestId.isBlank()) {
-            requestId = request.getHeader("X-Request-Id");
+        String correlationId = MDC.get("correlationId");
+        if (correlationId == null || correlationId.isBlank()) {
+            correlationId = request.getHeader("X-Correlation-Id"); // CHANGED
         }
+
+        String httpMethod = request.getMethod();
+        String ip = clientIpResolver.resolve(request);
+        String userAgent = request.getHeader("User-Agent");
+
+        String eventFingerprint = EventFingerprint.of(List.of(
+                "UNAUTHENTICATED",
+                correlationId,
+                httpMethod,
+                uri
+        ));
 
         try {
             unauthenticatedAccessAuditService.record(
-                    requestId,
-                    request.getMethod(),
+                    correlationId,
+                    httpMethod,
                     uri,
-                    clientIpResolver.resolve(request),
-                    request.getHeader("User-Agent")
+                    ip,
+                    userAgent,
+                    eventFingerprint
             );
         } catch (Exception e) {
             // Never break auth flow due to audit persistence failure
-            log.error("UNAUTH AUDIT FAILURE → requestId={} method={} uri={}", requestId, request.getMethod(), uri, e);
+            log.error(
+                    "UNAUTH AUDIT FAILURE → correlationId={} method={} uri={}",
+                    correlationId,
+                    httpMethod,
+                    uri,
+                    e
+            );
         }
 
         ErrorResponse body = ErrorResponse.of(

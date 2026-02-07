@@ -1,48 +1,46 @@
 package com.brutecx.docflow_backend.audit.unauth;
 
-import com.brutecx.docflow_backend.audit.EventFingerprint;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAccessAuditService {
 
     private final UnauthenticatedAccessAuditEventRepository repository;
+    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     @Override
     public void record(
-            String requestId,
+            String correlationId,
             String httpMethod,
             String path,
             String ip,
-            String userAgent
+            String userAgent,
+            String eventFingerprint
     ) {
-        String fingerprint = EventFingerprint.of(List.of(
-                "UNAUTHENTICATED",
-                requestId,
-                httpMethod,
-                path,
-                ip,
-                userAgent
-        ));
 
         try {
             repository.save(new UnauthenticatedAccessAuditEvent(
-                    requestId,
+                    correlationId,
                     httpMethod,
                     path,
                     ip,
                     userAgent,
-                    fingerprint
+                    eventFingerprint
             ));
         } catch (DataIntegrityViolationException e) {
-            log.debug("Unauthenticated access audit deduped. requestId={} method={} path={}", requestId, httpMethod, path);
+            log.debug("Unauthenticated access audit deduped. correlationId={} method={} path={}",
+                    correlationId, httpMethod, path
+            );
+        } catch (Exception ex) {
+            log.error(
+                    "UNAUTH AUDIT FAILURE. correlationId={} method={} path={}",
+                    correlationId, httpMethod, path, ex
+            );
         }
     }
 }

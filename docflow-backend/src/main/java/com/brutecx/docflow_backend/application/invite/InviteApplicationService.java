@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.application.invite;
 import com.brutecx.docflow_backend.api.error.InviteNotFoundException;
 import com.brutecx.docflow_backend.application.mail.IMailService;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.admin.*;
 import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditService;
 import com.brutecx.docflow_backend.domain.invite.Invite;
@@ -120,16 +121,24 @@ public class InviteApplicationService {
                             success ? null : (failure != null ? failure.getClass().getSimpleName() : "UNKNOWN")
                     );
 
+            String eventFingerprint = EventFingerprint.of(List.of(
+                    AdminAuditActionType.USER_INVITED.name(),
+                    tenant.getId().toString(),
+                    normalizedEmail,
+                    ctx.correlationId()
+            ));
+
             adminAuditEventService.record(
                     actorUserId,
                     ctx.ip(),
                     ctx.userAgent(),
-                    ctx.requestId(),
+                    ctx.correlationId(),
                     subjectId,
                     tenant.getId(),
                     AdminAuditActionType.USER_INVITED,
                     null,
-                    metadata
+                    metadata,
+                    eventFingerprint
             );
         }
     }
@@ -172,25 +181,51 @@ public class InviteApplicationService {
                         new InviteNotFoundException("Invite not found for the provided token")
                 );
 
+        var ctx = auditContextExtractor.fromCurrentRequest();
+
         if (invite.isExpired()) {
+            String eventFingerprint = EventFingerprint.of(List.of(
+                    "INVITE_EXPIRED",
+                    tenantService.getCurrentTenant().getId().toString(),
+                    invite.getId().toString(),
+                    ctx.correlationId()
+            ));
+
             onboardingAuditService.recordFailure(
                     null,
                     null,
                     tenantService.getCurrentTenant().getId(),
                     invite.getId(),
-                    "INVITE_EXPIRED"
+                    "INVITE_EXPIRED",
+                    ctx.correlationId(),
+                    ctx.ip(),
+                    ctx.userAgent(),
+                    eventFingerprint
             );
+
             throw new InviteNotFoundException("Invite link invalid or expired");
         }
 
         if (invite.getStatus() == InviteStatus.ACCEPTED) {
+            String eventFingerprint = EventFingerprint.of(List.of(
+                    "INVITE_REPLAY",
+                    tenantService.getCurrentTenant().getId().toString(),
+                    invite.getId().toString(),
+                    ctx.correlationId()
+            ));
+
             onboardingAuditService.recordFailure(
                     null,
                     null,
                     tenantService.getCurrentTenant().getId(),
                     invite.getId(),
-                    "INVITE_REPLAY"
+                    "INVITE_REPLAY",
+                    ctx.correlationId(),
+                    ctx.ip(),
+                    ctx.userAgent(),
+                    eventFingerprint
             );
+
             throw new InviteNotFoundException("Invite link invalid or expired");
         }
 
@@ -199,25 +234,50 @@ public class InviteApplicationService {
 
     @Transactional
     void acceptInviteOrThrow(Invite invite) {
+        var ctx = auditContextExtractor.fromCurrentRequest();
+
         if (invite.getStatus() == InviteStatus.ACCEPTED) {
+            String eventFingerprint = EventFingerprint.of(List.of(
+                    "INVITE_REPLAY",
+                    tenantService.getCurrentTenant().getId().toString(),
+                    invite.getId().toString(),
+                    ctx.correlationId()
+            ));
+
             onboardingAuditService.recordFailure(
                     userService.getRequiredCurrentUser().getId(),
                     userService.getRequiredCurrentUser().getExternalSubjectId(),
                     tenantService.getCurrentTenant().getId(),
                     invite.getId(),
-                    "INVITE_REPLAY"
+                    "INVITE_REPLAY",
+                    ctx.correlationId(),
+                    ctx.ip(),
+                    ctx.userAgent(),
+                    eventFingerprint
             );
+
             throw new IllegalArgumentException("Invite link invalid or expired");
         }
+
         UUID actorUserId = userService.getRequiredCurrentUser().getId();
         String subjectId = userService.getRequiredCurrentUser().getExternalSubjectId();
 
-        // ONBOARDING AUDIT — exactly once
+        String eventFingerprint = EventFingerprint.of(List.of(
+                "INVITE_ACCEPTED",
+                tenantService.getCurrentTenant().getId().toString(),
+                invite.getId().toString(),
+                ctx.correlationId()
+        ));
+
         onboardingAuditService.recordOnce(
                 actorUserId,
                 subjectId,
                 tenantService.getCurrentTenant().getId(),
-                invite.getId()
+                invite.getId(),
+                ctx.correlationId(),
+                ctx.ip(),
+                ctx.userAgent(),
+                eventFingerprint
         );
 
         invite.markAccepted();
@@ -273,16 +333,24 @@ public class InviteApplicationService {
                         null
                 );
 
+        String eventFingerprint = EventFingerprint.of(List.of(
+                AdminAuditActionType.INVITE_REVOKED.name(),
+                tenantService.getCurrentTenant().getId().toString(),
+                invite.getId().toString(),
+                ctx.correlationId()
+        ));
+
         adminAuditEventService.record(
                 actor.getId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                ctx.requestId(),
+                ctx.correlationId(),
                 actor.getExternalSubjectId(),
                 tenantService.getCurrentTenant().getId(),
                 AdminAuditActionType.INVITE_REVOKED,
                 null,
-                metadata
+                metadata,
+                eventFingerprint
         );
     }
 
@@ -313,11 +381,19 @@ public class InviteApplicationService {
         var ctx = auditContextExtractor.fromCurrentRequest();
         var actor = userService.getRequiredCurrentUser();
 
+        String eventFingerprint = EventFingerprint.of(List.of(
+                AdminAuditActionType.INVITE_CLEANUP.name(),
+                tenantService.getCurrentTenant().getId().toString(),
+                String.valueOf(expiredInvites.size()),
+                String.valueOf(deletedUsers),
+                ctx.correlationId()
+        ));
+
         adminAuditEventService.record(
                 actor.getId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                ctx.requestId(),
+                ctx.correlationId(),
                 actor.getExternalSubjectId(),
                 tenantService.getCurrentTenant().getId(),
                 AdminAuditActionType.INVITE_CLEANUP,
@@ -325,7 +401,8 @@ public class InviteApplicationService {
                 new InviteCleanupAuditMetadata(
                         expiredInvites.size(),
                         deletedUsers
-                )
+                ),
+                eventFingerprint
         );
 
         return new CleanupResult(

@@ -16,7 +16,11 @@ import java.util.UUID;
         indexes = {
                 @Index(name = "idx_auth_events_timestamp", columnList = "timestamp"),
                 @Index(name = "idx_auth_events_username", columnList = "username"),
-                @Index(name = "idx_auth_events_request_id", columnList = "request_id")
+                @Index(name = "idx_auth_events_correlation_id", columnList = "correlation_id"),
+                @Index(
+                        name = "idx_auth_events_username_timestamp",
+                        columnList = "username, timestamp"
+                )
         },
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_auth_events_event_fingerprint", columnNames = {"event_fingerprint"})
@@ -62,8 +66,8 @@ public class AuthenticationEvent {
     @Column(name = "user_agent", nullable = false, updatable = false, length = 512)
     private String userAgent;
 
-    @Column(name = "request_id", nullable = true, updatable = false, length = 128)
-    private String requestId;
+    @Column(name = "correlation_id", nullable = true, updatable = false, length = 128)
+    private String correlationId;
 
     @NotNull
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
@@ -77,7 +81,7 @@ public class AuthenticationEvent {
             String idp,
             String ip,
             String userAgent,
-            String requestId,
+            String correlationId,
             String eventFingerprint
     ) {
         this.source = source;
@@ -87,7 +91,7 @@ public class AuthenticationEvent {
         this.idp = idp;
         this.ip = ip;
         this.userAgent = userAgent;
-        this.requestId = requestId;
+        this.correlationId = correlationId;
         this.eventFingerprint = eventFingerprint;
     }
 

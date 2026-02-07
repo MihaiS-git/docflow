@@ -1,5 +1,7 @@
 package com.brutecx.docflow_backend.audit.admin;
 
+import com.brutecx.docflow_backend.audit.EventFingerprint;
+
 import java.util.UUID;
 
 public interface IAdminAuditEventService {
@@ -7,11 +9,12 @@ public interface IAdminAuditEventService {
             UUID actorUserId,
             String ip,
             String userAgent,
-            String requestId,
+            String correlationId,
             String subjectId,
             UUID tenantId,
             AdminAuditActionType actionType,
             UUID targetUserId,
-            AdminAuditMetadata metadata
+            AdminAuditMetadata metadata,
+            String eventFingerprint
     );
 }
