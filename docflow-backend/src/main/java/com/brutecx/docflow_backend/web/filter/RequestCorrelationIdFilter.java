@@ -22,7 +22,7 @@ import java.util.UUID;
 public class RequestCorrelationIdFilter extends OncePerRequestFilter {
 
     public static final String HEADER_NAME = "X-Request-Id";
-    public static final String MDC_KEY = "requestId";
+    public static final String MDC_KEY = "correlationId";
 
     @Override
     protected void doFilterInternal(

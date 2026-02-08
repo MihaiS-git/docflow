@@ -1,7 +1,5 @@
 package com.brutecx.docflow_backend.audit.admin;
 
-import com.brutecx.docflow_backend.audit.EventFingerprint;
-
 import java.util.UUID;
 
 public interface IAdminAuditEventService {
