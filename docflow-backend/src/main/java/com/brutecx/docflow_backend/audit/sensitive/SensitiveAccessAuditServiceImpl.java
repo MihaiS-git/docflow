@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
@@ -18,7 +19,7 @@ public class SensitiveAccessAuditServiceImpl
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(
             UUID actorUserId,
             String actorExternalSubjectId,
@@ -38,7 +39,8 @@ public class SensitiveAccessAuditServiceImpl
     ) {
 
         try {
-            repository.save(new SensitiveAccessAuditEvent(
+            log.debug("Persist sensitive access event");
+            repository.saveAndFlush(new SensitiveAccessAuditEvent(
                     actorUserId,
                     actorExternalSubjectId,
                     tenantId,
@@ -55,7 +57,7 @@ public class SensitiveAccessAuditServiceImpl
                     dataClassification,
                     eventFingerprint
             ));
-
+            log.debug("Persisted sensitive access event");
         } catch (DataIntegrityViolationException ex) {
             log.debug(
                     "SENSITIVE ACCESS AUDIT DEDUPLICATED. correlationId={} fingerprint={}",
