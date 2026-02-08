@@ -1,11 +1,11 @@
-package com.brutecx.docflow_backend.domain.admin.audit;
+package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.admin.audit.AdminAuditDTO;
+import com.brutecx.docflow_backend.api.dto.admin.audit.OnboardingAuditDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.admin.AdminAuditEvent;
-import com.brutecx.docflow_backend.audit.admin.AdminAuditEventRepository;
+import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditEvent;
+import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditEventRepository;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
@@ -22,19 +22,19 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class AdminAuditQueryService {
+public class OnboardingAuditQueryService {
 
-    private final AdminAuditEventRepository repository;
+    private final OnboardingAuditEventRepository repository;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
     private final AuditRequestContextExtractor auditRequestContextExtractor;
     private final UserService userService;
 
     @Transactional(readOnly = true)
-    public Page<AdminAuditDTO> query(
+    public Page<OnboardingAuditDTO> query(
             Instant from,
             Instant to,
             String correlationId,
-            UUID actorUserId,
+            String subjectId,
             UUID tenantId,
             Pageable pageable
     ) {
@@ -45,12 +45,12 @@ public class AdminAuditQueryService {
                 Sort.by(Sort.Direction.DESC, "timestamp")
         );
 
-        Page<AdminAuditEvent> page;
+        Page<OnboardingAuditEvent> page;
 
         if (correlationId != null && !correlationId.isBlank()) {
             page = repository.findByCorrelationId(correlationId, sortedPageable);
-        } else if (actorUserId != null) {
-            page = repository.findByActorUserId(actorUserId, sortedPageable);
+        } else if (subjectId != null && !subjectId.isBlank()) {
+            page = repository.findBySubjectId(subjectId, sortedPageable);
         } else if (tenantId != null) {
             page = repository.findByTenantId(tenantId, sortedPageable);
         } else {
@@ -63,7 +63,7 @@ public class AdminAuditQueryService {
 
         recordSensitiveAccess();
 
-        return page.map(AdminAuditDTO::from);
+        return page.map(OnboardingAuditDTO::from);
     }
 
     private void recordSensitiveAccess() {
@@ -74,7 +74,7 @@ public class AdminAuditQueryService {
         String fingerprint = EventFingerprint.of(List.of(
                 "SENSITIVE_ACCESS",
                 "AUDIT_READ",
-                "ADMIN_ACTIONS",
+                "ONBOARDING",
                 actor.getId().toString(),
                 actor.getTenant().getId().toString(),
                 ctx.correlationId()
@@ -85,7 +85,7 @@ public class AdminAuditQueryService {
                 actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 SensitiveAccessSubjectType.AUDIT_STREAM,
-                "ADMIN_ACTIONS",
+                "ONBOARDING",
                 "AUDIT",
                 "READ",
                 null,
@@ -93,7 +93,7 @@ public class AdminAuditQueryService {
                 ctx.ip(),
                 ctx.userAgent(),
                 "AUDIT_READ",
-                "Read admin audit stream",
+                "Read onboarding audit stream",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );

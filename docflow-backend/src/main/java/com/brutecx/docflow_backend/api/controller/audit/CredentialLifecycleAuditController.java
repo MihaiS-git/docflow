@@ -1,7 +1,7 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
-import com.brutecx.docflow_backend.api.dto.admin.audit.OnboardingAuditDTO;
-import com.brutecx.docflow_backend.domain.audit.OnboardingAuditQueryService;
+import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEvent;
+import com.brutecx.docflow_backend.domain.audit.CredentialLifecycleAuditQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -11,18 +11,17 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
-import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/audit/onboarding")
+@RequestMapping("/api/audit/credential-lifecycle")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
-public class OnboardingAuditController {
+@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+public class CredentialLifecycleAuditController {
 
-    private final OnboardingAuditQueryService queryService;
+    private final CredentialLifecycleAuditQueryService queryService;
 
     @GetMapping
-    public ResponseEntity<Page<OnboardingAuditDTO>> query(
+    public ResponseEntity<Page<CredentialLifecycleAuditEvent>> query(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
@@ -35,15 +34,12 @@ public class OnboardingAuditController {
             String correlationId,
 
             @RequestParam(required = false)
-            String subjectId,
-
-            @RequestParam(required = false)
-            UUID tenantId,
+            String subjectExternalId,
 
             Pageable pageable
     ) {
         return ResponseEntity.ok(
-                queryService.query(from, to, correlationId, subjectId, tenantId, pageable)
+                queryService.query(from, to, correlationId, subjectExternalId, pageable)
         );
     }
 }

@@ -1,14 +1,10 @@
-package com.brutecx.docflow_backend.domain.admin.audit;
+package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.admin.audit.RbacDeniedAuditDTO;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
+import com.brutecx.docflow_backend.audit.credential.*;
+import com.brutecx.docflow_backend.audit.sensitive.*;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
-import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.rbac.RbacDeniedAuditEvent;
-import com.brutecx.docflow_backend.audit.rbac.RbacDeniedAuditEventRepository;
-import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
-import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
-import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import lombok.RequiredArgsConstructor;
@@ -21,58 +17,58 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-public class RbacDeniedAuditQueryService {
+public class CredentialLifecycleAuditQueryService {
 
-    private final RbacDeniedAuditEventRepository repository;
+    private final CredentialLifecycleAuditEventRepository repository;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
-    private final AuditRequestContextExtractor auditRequestContextExtractor;
+    private final AuditRequestContextExtractor ctxExtractor;
     private final UserService userService;
 
     @Transactional(readOnly = true)
-    public Page<RbacDeniedAuditDTO> query(
+    public Page<CredentialLifecycleAuditEvent> query(
             Instant from,
             Instant to,
             String correlationId,
-            String subjectId,
+            String subjectExternalId,
             Pageable pageable
     ) {
 
-        Pageable sortedPageable = PageRequest.of(
-                pageable.getPageNumber(),
-                pageable.getPageSize(),
-                Sort.by(Sort.Direction.DESC, "timestamp")
-        );
+        Pageable sorted =
+                PageRequest.of(
+                        pageable.getPageNumber(),
+                        pageable.getPageSize(),
+                        Sort.by(Sort.Direction.DESC, "timestamp")
+                );
 
-        Page<RbacDeniedAuditEvent> page;
+        Page<CredentialLifecycleAuditEvent> page;
 
         if (correlationId != null && !correlationId.isBlank()) {
-            page = repository.findByCorrelationId(correlationId, sortedPageable);
-        } else if (subjectId != null && !subjectId.isBlank()) {
-            page = repository.findBySubjectId(subjectId, sortedPageable);
+            page = repository.findByCorrelationId(correlationId, sorted);
+        } else if (subjectExternalId != null && !subjectExternalId.isBlank()) {
+            page = repository.findBySubjectExternalId(subjectExternalId, sorted);
         } else {
             page = repository.findByTimestampBetween(
                     from != null ? from : Instant.EPOCH,
                     to != null ? to : Instant.now(),
-                    sortedPageable
+                    sorted
             );
         }
 
         recordSensitiveAccess();
 
-        return page.map(RbacDeniedAuditDTO::from);
+        return page;
     }
 
     private void recordSensitiveAccess() {
+
         User actor = userService.getRequiredCurrentUser();
-        AuditRequestContext ctx =
-                auditRequestContextExtractor.fromCurrentRequest();
+        AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
 
         String fingerprint = EventFingerprint.of(List.of(
                 "SENSITIVE_ACCESS",
                 "AUDIT_READ",
-                "RBAC_DENIED",
+                "CREDENTIAL_LIFECYCLE",
                 actor.getId().toString(),
-                actor.getTenant().getId().toString(),
                 ctx.correlationId()
         ));
 
@@ -81,7 +77,7 @@ public class RbacDeniedAuditQueryService {
                 actor.getExternalSubjectId(),
                 actor.getTenant().getId(),
                 SensitiveAccessSubjectType.AUDIT_STREAM,
-                "RBAC_DENIED",
+                "CREDENTIAL_LIFECYCLE",
                 "AUDIT",
                 "READ",
                 null,
@@ -89,7 +85,7 @@ public class RbacDeniedAuditQueryService {
                 ctx.ip(),
                 ctx.userAgent(),
                 "AUDIT_READ",
-                "Read RBAC denied audit stream",
+                "Read credential lifecycle audit stream",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );

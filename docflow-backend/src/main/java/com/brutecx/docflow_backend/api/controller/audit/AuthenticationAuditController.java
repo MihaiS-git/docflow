@@ -1,7 +1,7 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.admin.audit.AuthenticationAuditDTO;
-import com.brutecx.docflow_backend.domain.admin.audit.AuthenticationAuditQueryService;
+import com.brutecx.docflow_backend.domain.audit.AuthenticationAuditQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
