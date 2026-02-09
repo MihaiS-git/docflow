@@ -23,6 +23,7 @@ public class RequestCorrelationIdFilter extends OncePerRequestFilter {
 
     public static final String HEADER_NAME = "X-Request-Id";
     public static final String MDC_KEY = "correlationId";
+    public static final String MDC_SOURCE_KEY = "correlationSource";
 
     @Override
     protected void doFilterInternal(
@@ -31,17 +32,23 @@ public class RequestCorrelationIdFilter extends OncePerRequestFilter {
             FilterChain filterChain
     ) throws ServletException, IOException {
 
-        String requestId = Optional.ofNullable(request.getHeader(HEADER_NAME))
-                .filter(h -> !h.isBlank())
-                .orElseGet(() -> UUID.randomUUID().toString());
+        boolean fromHeader = Optional.ofNullable(request.getHeader(HEADER_NAME))
+                 .filter(h -> !h.isBlank())
+                 .isPresent();
+
+         String requestId = fromHeader
+                 ? request.getHeader(HEADER_NAME)
+                 : UUID.randomUUID().toString();
 
         MDC.put(MDC_KEY, requestId);
+        MDC.put(MDC_SOURCE_KEY, fromHeader ? "REQUEST_ID" : "GENERATED");
         response.setHeader(HEADER_NAME, requestId);
 
         try {
             filterChain.doFilter(request, response);
         } finally {
             MDC.remove(MDC_KEY);
+            MDC.remove(MDC_SOURCE_KEY);
         }
     }
 }

@@ -1,5 +1,8 @@
-package com.brutecx.docflow_backend.api.dto.admin.audit;
+package com.brutecx.docflow_backend.api.dto.audit;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessAuditEvent;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
@@ -21,6 +24,9 @@ public record SensitiveAccessAuditDTO(
         String resourcePath,
 
         String correlationId,
+        CorrelationSource correlationSource,
+        ExecutionContext executionContext,
+        AuditResult result,
         String ip,
         String userAgent,
 
@@ -46,6 +52,9 @@ public record SensitiveAccessAuditDTO(
                 event.getResourcePath(),
 
                 event.getCorrelationId(),
+                event.getCorrelationSource(),
+                event.getExecutionContext(),
+                event.getResult(),
                 event.getIp(),
                 event.getUserAgent(),
 

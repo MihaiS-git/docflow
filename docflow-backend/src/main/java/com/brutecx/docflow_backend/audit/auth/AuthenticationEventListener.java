@@ -2,6 +2,9 @@ package com.brutecx.docflow_backend.audit.auth;
 
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.identity.IUserIdentityProjectionService;
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -80,6 +83,7 @@ public class AuthenticationEventListener {
 
     private void persist(AuthenticationResult result, String username, Authentication authentication) {
         String correlationId = MDC.get("correlationId");
+        String mdcSource = MDC.get("correlationSource");
 
         String resolvedUsername =
                 (username != null && !username.isBlank()) ? username : "UNKNOWN";
@@ -91,6 +95,18 @@ public class AuthenticationEventListener {
                 : "N/A";
 
         Instant eventTime = Instant.now();
+
+        CorrelationSource correlationSource =
+                "GENERATED".equalsIgnoreCase(mdcSource)
+                                ? CorrelationSource.GENERATED
+                                : CorrelationSource.REQUEST_ID;
+
+        AuditResult auditResult =
+                switch (result) {
+                        case SUCCESS -> AuditResult.SUCCESS;
+                        case FAILURE -> AuditResult.FAILED;
+                        case LOGOUT -> AuditResult.SUCCESS;
+                    };
 
         String eventFingerprint = EventFingerprint.of(List.of(
                 result.name(),
@@ -109,6 +125,9 @@ public class AuthenticationEventListener {
                 ip,
                 userAgent,
                 correlationId,
+                correlationSource,
+                ExecutionContext.AUTH_FLOW,
+                auditResult,
                 eventFingerprint
         );
 

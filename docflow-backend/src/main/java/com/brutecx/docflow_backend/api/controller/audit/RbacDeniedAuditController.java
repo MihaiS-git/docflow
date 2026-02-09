@@ -1,6 +1,6 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
-import com.brutecx.docflow_backend.api.dto.admin.audit.RbacDeniedAuditDTO;
+import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditDTO;
 import com.brutecx.docflow_backend.domain.audit.RbacDeniedAuditQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;

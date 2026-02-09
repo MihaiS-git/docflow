@@ -1,4 +1,4 @@
-package com.brutecx.docflow_backend.api.dto.admin.audit;
+package com.brutecx.docflow_backend.api.dto.audit;
 
 import com.brutecx.docflow_backend.audit.lifecycle.LifecycleDeniedAuditEvent;
 

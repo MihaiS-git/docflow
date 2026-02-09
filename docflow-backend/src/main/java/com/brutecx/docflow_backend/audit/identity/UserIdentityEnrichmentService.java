@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.identity;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakUser;
 import lombok.extern.slf4j.Slf4j;
@@ -21,13 +24,16 @@ public class UserIdentityEnrichmentService implements IUserIdentityProjectionSer
 
     private final UserIdentityProjectionRepository repo;
     private final KeycloakAdminClient keycloak;
+    private final IdentityProjectionAuditEventRepository auditRepo;
 
     public UserIdentityEnrichmentService(
             UserIdentityProjectionRepository repo,
-            KeycloakAdminClient keycloak
+            KeycloakAdminClient keycloak,
+            IdentityProjectionAuditEventRepository auditRepo
     ) {
         this.repo = repo;
         this.keycloak = keycloak;
+        this.auditRepo = auditRepo;
     }
 
     @Async
@@ -64,7 +70,13 @@ public class UserIdentityEnrichmentService implements IUserIdentityProjectionSer
                     kcUser.displayName()
             );
 
-            repo.save(projection);
+            auditRepo.save(new IdentityProjectionAuditEvent(
+                    subjectId,
+                    ExecutionContext.SCHEDULED_JOB,
+                    CorrelationSource.ADMIN_EVENT_ID,
+                    AuditResult.SUCCESS,
+                    "IDENTITY_PROJECTED"
+            ));
             log.debug("Identity projection updated subjectId={}", subjectId);
 
         } catch (Exception ex) {

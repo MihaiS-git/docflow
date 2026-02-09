@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.auth;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
@@ -70,6 +73,21 @@ public class AuthenticationEvent {
     private String correlationId;
 
     @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "correlation_source", nullable = false, updatable = false, length = 32)
+    private CorrelationSource correlationSource;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "execution_context", nullable = false, updatable = false, length = 32)
+    private ExecutionContext executionContext;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "audit_result", nullable = false, updatable = false, length = 16)
+    private AuditResult auditResult;
+
+    @NotNull
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
@@ -82,6 +100,9 @@ public class AuthenticationEvent {
             String ip,
             String userAgent,
             String correlationId,
+            CorrelationSource correlationSource,
+            ExecutionContext executionContext,
+            AuditResult auditResult,
             String eventFingerprint
     ) {
         this.source = source;
@@ -92,6 +113,9 @@ public class AuthenticationEvent {
         this.ip = ip;
         this.userAgent = userAgent;
         this.correlationId = correlationId;
+        this.correlationSource = correlationSource;
+        this.executionContext = executionContext;
+        this.auditResult = auditResult;
         this.eventFingerprint = eventFingerprint;
     }
 

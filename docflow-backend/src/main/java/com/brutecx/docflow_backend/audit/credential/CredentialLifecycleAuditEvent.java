@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.credential;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -35,12 +38,8 @@ public class CredentialLifecycleAuditEvent {
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
-    /* =========================
-       SUBJECT (KEYCLOAK)
-       ========================= */
-
     @Column(name = "subject_external_id", length = 128, updatable = false)
-    private String subjectExternalId; // Keycloak userId
+    private String subjectExternalId;
 
     @Column(name = "client_id", length = 128, updatable = false)
     private String clientId;
@@ -51,10 +50,6 @@ public class CredentialLifecycleAuditEvent {
     @Column(nullable = false, updatable = false, length = 128)
     private String ip;
 
-    /* =========================
-       CREDENTIAL LIFECYCLE
-       ========================= */
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 64)
     private CredentialLifecycleEventType eventType;
@@ -62,16 +57,26 @@ public class CredentialLifecycleAuditEvent {
     @Column(length = 128, updatable = false)
     private String requiredAction;
 
-    /* =========================
-       REQUEST CONTEXT
-       ========================= */
-
     @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
     private String correlationId;
 
-    /* =========================
-       IDEMPOTENCY
-       ========================= */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false, name = "correlation_source", length = 32)
+    private CorrelationSource correlationSource;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false, name = "execution_context", length = 32)
+    private ExecutionContext executionContext;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false, name = "result", length = 16)
+    private AuditResult result;
+
+    @Column(nullable = false, updatable = false, name = "reason_code", length = 64)
+    private String reasonCode;
+
+    @Column(name = "reason_detail", updatable = false, length = 512)
+    private String reasonDetail;
 
     @Column(nullable = false, updatable = false, name = "event_fingerprint", length = 128)
     private String eventFingerprint;
@@ -85,6 +90,11 @@ public class CredentialLifecycleAuditEvent {
             CredentialLifecycleEventType eventType,
             String requiredAction,
             String correlationId,
+            CorrelationSource correlationSource,
+            ExecutionContext executionContext,
+            AuditResult result,
+            String reasonCode,
+            String reasonDetail,
             String eventFingerprint
     ) {
         this.timestamp = timestamp;
@@ -95,6 +105,11 @@ public class CredentialLifecycleAuditEvent {
         this.eventType = eventType;
         this.requiredAction = requiredAction;
         this.correlationId = correlationId;
+        this.correlationSource = correlationSource;
+        this.executionContext = executionContext;
+        this.result = result;
+        this.reasonCode = reasonCode;
+        this.reasonDetail = reasonDetail;
         this.eventFingerprint = eventFingerprint;
     }
 }

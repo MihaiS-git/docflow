@@ -5,6 +5,9 @@ import com.brutecx.docflow_backend.audit.auth.AuthenticationEvent;
 import com.brutecx.docflow_backend.audit.auth.AuthenticationEventRepository;
 import com.brutecx.docflow_backend.audit.auth.AuthenticationEventSource;
 import com.brutecx.docflow_backend.audit.auth.AuthenticationResult;
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -94,9 +97,16 @@ public class KeycloakAuthEventPullJob {
                     e.sessionId() != null ? e.sessionId() : "-"
             ));
 
-            String correlationId = (e.sessionId() != null && !e.sessionId().isBlank())
-                    ? e.sessionId()
-                    : UUID.randomUUID().toString();
+            String correlationId;
+            CorrelationSource correlationSource;
+
+            if (e.sessionId() != null && !e.sessionId().isBlank()) {
+                correlationId = e.sessionId();
+                correlationSource = CorrelationSource.SESSION_ID;
+            } else {
+                correlationId = CHECKPOINT_ID + ":" + e.time();
+                correlationSource = CorrelationSource.PULL_RUN;
+            }
 
             String username = (e.userId() != null && !e.userId().isBlank())
                     ? e.userId()
@@ -117,6 +127,9 @@ public class KeycloakAuthEventPullJob {
                     e.ipAddress() != null ? e.ipAddress() : "UNKNOWN",
                     userAgent,
                     correlationId,
+                    correlationSource,
+                    ExecutionContext.ADMIN_API,
+                    AuditResult.FAILED,
                     fingerprint
             );
 

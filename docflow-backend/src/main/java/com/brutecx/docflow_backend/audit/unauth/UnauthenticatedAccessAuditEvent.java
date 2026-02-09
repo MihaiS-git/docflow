@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.unauth;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
@@ -36,6 +39,21 @@ public class UnauthenticatedAccessAuditEvent {
     private String correlationId;
 
     @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "correlation_source", nullable = false, updatable = false, length = 32)
+    private CorrelationSource correlationSource;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "execution_context", nullable = false, updatable = false, length = 32)
+    private ExecutionContext executionContext;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "result", nullable = false, updatable = false, length = 16)
+    private AuditResult result;
+
+    @NotNull
     @Column(name = "http_method", nullable = false, updatable = false, length = 16)
     private String httpMethod;
 
@@ -59,6 +77,9 @@ public class UnauthenticatedAccessAuditEvent {
 
     public UnauthenticatedAccessAuditEvent(
             String correlationId,
+            CorrelationSource correlationSource,
+           ExecutionContext executionContext,
+           AuditResult result,
             String httpMethod,
             String path,
             String ip,
@@ -66,6 +87,9 @@ public class UnauthenticatedAccessAuditEvent {
             String eventFingerprint
     ) {
         this.correlationId = correlationId;
+        this.correlationSource = correlationSource;
+        this.executionContext = executionContext;
+        this.result = result;
         this.httpMethod = httpMethod;
         this.path = path;
         this.ip = ip;

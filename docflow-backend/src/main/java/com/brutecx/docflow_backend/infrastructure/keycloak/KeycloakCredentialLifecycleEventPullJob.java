@@ -2,6 +2,9 @@ package com.brutecx.docflow_backend.infrastructure.keycloak;
 
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.credential.*;
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -80,6 +83,13 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             type,
                             extractRequiredAction(e),
                             correlationId,
+                            (e.sessionId() != null && !e.sessionId().isBlank())
+                                    ? CorrelationSource.SESSION_ID
+                                    : CorrelationSource.GENERATED,
+                            ExecutionContext.SCHEDULED_JOB,
+                            AuditResult.SUCCESS,
+                            "CREDENTIAL_" + type.name(),
+                            null,
                             fingerprint
                     );
 

@@ -1,8 +1,11 @@
-package com.brutecx.docflow_backend.api.dto.admin.audit;
+package com.brutecx.docflow_backend.api.dto.audit;
 
 import com.brutecx.docflow_backend.audit.auth.AuthenticationEvent;
 import com.brutecx.docflow_backend.audit.auth.AuthenticationEventSource;
 import com.brutecx.docflow_backend.audit.auth.AuthenticationResult;
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 
 import java.time.Instant;
 
@@ -15,6 +18,9 @@ public record AuthenticationAuditDTO(
         String ip,
         String userAgent,
         String correlationId,
+        CorrelationSource correlationSource,
+        ExecutionContext executionContext,
+        AuditResult auditResult,
         String eventFingerprint
 ) {
 
@@ -28,6 +34,9 @@ public record AuthenticationAuditDTO(
                 event.getIp(),
                 event.getUserAgent(),
                 event.getCorrelationId(),
+                event.getCorrelationSource(),
+                event.getExecutionContext(),
+                event.getAuditResult(),
                 event.getEventFingerprint()
         );
     }

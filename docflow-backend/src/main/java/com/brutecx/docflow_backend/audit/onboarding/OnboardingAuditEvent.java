@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.onboarding;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
@@ -54,18 +57,37 @@ public class OnboardingAuditEvent {
     @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
     private String correlationId;
 
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "correlation_source", nullable = false, updatable = false, length = 32)
+    private CorrelationSource correlationSource;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "execution_context", nullable = false, updatable = false, length = 32)
+    private ExecutionContext executionContext;
+
     @Column(nullable = false, updatable = false, length = 128)
     private String ip;
 
     @Column(nullable = false, updatable = false, name = "user_agent", length = 512)
     private String userAgent;
 
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "result", nullable = false, updatable = false, length = 16)
+    private AuditResult result;
+
     @Column(nullable = false, updatable = false, length = 32)
     @Enumerated(EnumType.STRING)
     private OnboardingOutcome outcome;
 
-    @Column(updatable = false, length = 64)
-    private String failureReason;
+    @NotNull
+    @Column(name = "reason_code", nullable = false, updatable = false, length = 64)
+    private String reasonCode;
+
+    @Column(name = "reason_detail", updatable = false, length = 512)
+    private String reasonDetail;
 
     @NotNull
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
@@ -82,10 +104,14 @@ public class OnboardingAuditEvent {
             UUID tenantId,
             UUID inviteId,
             String correlationId,
+            CorrelationSource correlationSource,
+            ExecutionContext executionContext,
             String ip,
             String userAgent,
+            AuditResult result,
             OnboardingOutcome outcome,
-            String failureReason,
+            String reasonCode,
+            String reasonDetail,
             String eventFingerprint
     ) {
         this.actorUserId = actorUserId;
@@ -93,10 +119,14 @@ public class OnboardingAuditEvent {
         this.tenantId = tenantId;
         this.inviteId = inviteId;
         this.correlationId = correlationId;
+        this.correlationSource = correlationSource;
+        this.executionContext = executionContext;
         this.ip = ip;
         this.userAgent = userAgent;
+        this.result = result;
         this.outcome = outcome;
-        this.failureReason = failureReason;
+        this.reasonCode = reasonCode;
+        this.reasonDetail = reasonDetail;
         this.eventFingerprint = eventFingerprint;
     }
 }

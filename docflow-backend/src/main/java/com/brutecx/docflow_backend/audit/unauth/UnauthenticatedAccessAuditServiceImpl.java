@@ -1,10 +1,18 @@
 package com.brutecx.docflow_backend.audit.unauth;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.RequestContextHolder;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 @Service
 @RequiredArgsConstructor
@@ -24,8 +32,13 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
     ) {
 
         try {
+            Provenance provenance = resolveProvenance(correlationId, eventFingerprint);
+
             repository.save(new UnauthenticatedAccessAuditEvent(
-                    correlationId,
+                    provenance.correlationId,
+                    provenance.correlationSource,
+                    provenance.executionContext,
+                    provenance.result,
                     httpMethod,
                     path,
                     ip,
@@ -42,5 +55,50 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                     correlationId, httpMethod, path, ex
             );
         }
+    }
+
+    private Provenance resolveProvenance(String correlationId, String eventFingerprint) {
+        ExecutionContext executionContext =
+                (RequestContextHolder.getRequestAttributes() != null)
+                        ? ExecutionContext.HTTP
+                        : ExecutionContext.SYSTEM;
+
+        // Unauthenticated access is a FAILED outcome by definition
+        AuditResult result = AuditResult.FAILED;
+
+        String mdcSource = MDC.get("correlationSource");
+        if (correlationId != null && !correlationId.isBlank()) {
+            CorrelationSource source =
+                    "GENERATED".equalsIgnoreCase(mdcSource)
+                            ? CorrelationSource.GENERATED
+                            : CorrelationSource.REQUEST_ID;
+            return new Provenance(correlationId, source, executionContext, result);
+        }
+
+        // No real correlation → deterministic generated id, explicitly labeled
+        String generated = "gen-" + shortSha256(eventFingerprint != null ? eventFingerprint : "NO_FINGERPRINT");
+        return new Provenance(generated, CorrelationSource.GENERATED, executionContext, result);
+    }
+
+    private static String shortSha256(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(24);
+            for (int i = 0; i < 12; i++) {
+                sb.append(String.format("%02x", hash[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "hash_error";
+        }
+    }
+
+    private record Provenance(
+            String correlationId,
+            CorrelationSource correlationSource,
+            ExecutionContext executionContext,
+            AuditResult result
+    ) {
     }
 }

@@ -1,5 +1,8 @@
-package com.brutecx.docflow_backend.api.dto.admin.audit;
+package com.brutecx.docflow_backend.api.dto.audit;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.rbac.RbacDeniedAuditEvent;
 
 import java.time.Instant;
@@ -12,6 +15,9 @@ public record RbacDeniedAuditDTO(
         String ip,
         String userAgent,
         String correlationId,
+        CorrelationSource correlationSource,
+        ExecutionContext executionContext,
+        AuditResult result,
         String eventFingerprint
 ) {
 
@@ -24,6 +30,9 @@ public record RbacDeniedAuditDTO(
                 event.getIp(),
                 event.getUserAgent(),
                 event.getCorrelationId(),
+                event.getCorrelationSource(),
+                event.getExecutionContext(),
+                event.getResult(),
                 event.getEventFingerprint()
         );
     }

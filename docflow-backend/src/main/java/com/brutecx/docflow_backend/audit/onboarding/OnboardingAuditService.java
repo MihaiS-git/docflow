@@ -1,8 +1,12 @@
 package com.brutecx.docflow_backend.audit.onboarding;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,15 +41,24 @@ public class OnboardingAuditService {
             );
         }
         try {
+            CorrelationSource correlationSource =
+                    "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+                            ? CorrelationSource.GENERATED
+                            : CorrelationSource.REQUEST_ID;
+
             repository.save(new OnboardingAuditEvent(
                     actorUserId,
                     subjectId,
                     tenantId,
                     inviteId,
                     correlationId,
+                    correlationSource,
+                    ExecutionContext.HTTP,
                     ip,
                     userAgent,
+                    AuditResult.SUCCESS,
                     OnboardingOutcome.SUCCESS,
+                    "ONBOARDING_SUCCESS",
                     null,
                     eventFingerprint
             ));
@@ -75,15 +88,24 @@ public class OnboardingAuditService {
             );
         }
         try {
+            CorrelationSource correlationSource =
+                    "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+                            ? CorrelationSource.GENERATED
+                            : CorrelationSource.REQUEST_ID;
+
             repository.save(new OnboardingAuditEvent(
                     actorUserId,
                     null,
                     tenantId,
                     inviteId,
                     correlationId,
+                    correlationSource,
+                    ExecutionContext.HTTP,
                     ip,
                     userAgent,
+                    AuditResult.FAILED,
                     OnboardingOutcome.FAILURE,
+                    "ONBOARDING_FAILURE",
                     failureReason,
                     eventFingerprint
             ));
@@ -94,5 +116,4 @@ public class OnboardingAuditService {
             );
         }
     }
-
 }

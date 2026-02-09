@@ -1,8 +1,12 @@
 package com.brutecx.docflow_backend.audit.admin;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,11 +35,21 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
             String eventFingerprint
     ) {
         try {
+            CorrelationSource correlationSource =
+                    "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+                            ? CorrelationSource.GENERATED
+                            : CorrelationSource.REQUEST_ID;
+
+            AuditResult result = resolveResult(metadata);
+
             repository.save(new AdminAuditEvent(
                     actorUserId,
                     ip,
                     userAgent,
                     correlationId,
+                    correlationSource,
+                    ExecutionContext.HTTP,
+                    result,
                     subjectId,
                     tenantId,
                     actionType,
@@ -49,6 +63,16 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                     correlationId, actorUserId, actionType, ex
             );
         }
+    }
+
+    private AuditResult resolveResult(AdminAuditMetadata metadata) {
+        if (metadata instanceof InviteAuditMetadata invite) {
+            return invite.outcome() == InviteOutcome.FAILURE
+                    ? AuditResult.FAILED
+                    : AuditResult.SUCCESS;
+        }
+        // All other admin actions are successful if persisted
+        return AuditResult.SUCCESS;
     }
 
 }

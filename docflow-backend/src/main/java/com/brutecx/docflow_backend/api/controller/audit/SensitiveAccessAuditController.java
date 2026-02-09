@@ -1,6 +1,6 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
-import com.brutecx.docflow_backend.api.dto.admin.audit.SensitiveAccessAuditDTO;
+import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditDTO;
 import com.brutecx.docflow_backend.domain.audit.SensitiveAccessAuditQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;

@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.sensitive;
 
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -74,6 +77,18 @@ public class SensitiveAccessAuditEvent {
     @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
     private String correlationId;
 
+    @Column(nullable = false, updatable = false, name = "correlation_source", length = 32)
+    @Enumerated(EnumType.STRING)
+    private CorrelationSource correlationSource;
+
+    @Column(nullable = false, updatable = false, name = "execution_context", length = 32)
+    @Enumerated(EnumType.STRING)
+    private ExecutionContext executionContext;
+
+    @Column(nullable = false, updatable = false, name = "result", length = 16)
+    @Enumerated(EnumType.STRING)
+    private AuditResult result;
+
     @Column(nullable = false, updatable = false, length = 128)
     private String ip;
 
@@ -120,13 +135,16 @@ public class SensitiveAccessAuditEvent {
             String action,
             String resourcePath,
             String correlationId,
+            CorrelationSource correlationSource,
+            ExecutionContext executionContext,
+            AuditResult result,
             String ip,
             String userAgent,
             String reasonCode,
             String reasonDetail,
             SensitiveDataClassification dataClassification,
             String eventFingerprint
-    ) {
+            ) {
         this.actorUserId = actorUserId;
         this.actorExternalSubjectId = actorExternalSubjectId;
         this.tenantId = tenantId;
@@ -136,6 +154,9 @@ public class SensitiveAccessAuditEvent {
         this.action = action;
         this.resourcePath = resourcePath;
         this.correlationId = correlationId;
+        this.correlationSource = correlationSource;
+        this.executionContext = executionContext;
+        this.result = result;
         this.ip = ip;
         this.userAgent = userAgent;
         this.reasonCode = reasonCode;

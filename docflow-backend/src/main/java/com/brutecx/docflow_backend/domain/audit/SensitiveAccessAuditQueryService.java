@@ -1,6 +1,6 @@
 package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.admin.audit.SensitiveAccessAuditDTO;
+import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
