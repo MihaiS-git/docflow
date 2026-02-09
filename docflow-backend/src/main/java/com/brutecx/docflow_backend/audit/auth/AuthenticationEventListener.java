@@ -5,6 +5,7 @@ import com.brutecx.docflow_backend.audit.identity.IUserIdentityProjectionService
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -37,17 +38,20 @@ public class AuthenticationEventListener {
     private final HttpServletRequest request;
     private final IUserIdentityProjectionService identityProjectionService;
     private final ClientIpResolver clientIpResolver;
+    private final AuditChainService auditChainService;
 
     public AuthenticationEventListener(
             AuthenticationEventRepository repository,
             HttpServletRequest request,
             IUserIdentityProjectionService identityProjectionService,
-            ClientIpResolver clientIpResolver
+            ClientIpResolver clientIpResolver,
+            AuditChainService auditChainService
     ) {
         this.repository = repository;
         this.request = request;
         this.identityProjectionService = identityProjectionService;
         this.clientIpResolver = clientIpResolver;
+        this.auditChainService = auditChainService;
     }
 
     @EventListener
@@ -116,6 +120,22 @@ public class AuthenticationEventListener {
                 String.valueOf(eventTime.toEpochMilli())
         ));
 
+        String material = String.join("|",
+                "AUTH",
+                result.name(),
+                resolvedUsername,
+                ip,
+                correlationId,
+                eventFingerprint
+        );
+
+        AuditChainService.ChainHash chain =
+                auditChainService.nextHash(
+                        "AUTH",
+                        resolvedUsername,
+                        material
+                );
+
         AuthenticationEvent entity = new AuthenticationEvent(
                 AuthenticationEventSource.SPRING_SECURITY,
                 eventTime,
@@ -128,7 +148,10 @@ public class AuthenticationEventListener {
                 correlationSource,
                 ExecutionContext.AUTH_FLOW,
                 auditResult,
-                eventFingerprint
+                eventFingerprint,
+                chain.chainVersion(),
+                chain.prevHash(),
+                chain.eventHash()
         );
 
         try {

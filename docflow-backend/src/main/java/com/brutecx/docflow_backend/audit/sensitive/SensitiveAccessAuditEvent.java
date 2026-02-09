@@ -117,6 +117,19 @@ public class SensitiveAccessAuditEvent {
     private String eventFingerprint;
 
     /* =========================
+       TAMPER EVIDENCE (PHASE-4)
+       ========================= */
+
+    @Column(nullable = false, updatable = false, name = "chain_version")
+    private int chainVersion;
+
+    @Column(nullable = false, updatable = false, name = "prev_event_hash", length = 128)
+    private String prevEventHash;
+
+    @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
+    private String eventHash;
+
+    /* =========================
        LIFECYCLE
        ========================= */
 
@@ -143,8 +156,11 @@ public class SensitiveAccessAuditEvent {
             String reasonCode,
             String reasonDetail,
             SensitiveDataClassification dataClassification,
-            String eventFingerprint
-            ) {
+            String eventFingerprint,
+            int chainVersion,
+            String prevEventHash,
+            String eventHash
+    ) {
         this.actorUserId = actorUserId;
         this.actorExternalSubjectId = actorExternalSubjectId;
         this.tenantId = tenantId;
@@ -163,5 +179,8 @@ public class SensitiveAccessAuditEvent {
         this.reasonDetail = reasonDetail;
         this.dataClassification = dataClassification;
         this.eventFingerprint = eventFingerprint;
+        this.chainVersion = chainVersion;
+        this.prevEventHash = prevEventHash;
+        this.eventHash = eventHash;
     }
 }

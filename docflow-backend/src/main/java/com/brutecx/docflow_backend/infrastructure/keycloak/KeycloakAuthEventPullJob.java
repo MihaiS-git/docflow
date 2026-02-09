@@ -8,6 +8,7 @@ import com.brutecx.docflow_backend.audit.auth.AuthenticationResult;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -42,15 +43,18 @@ public class KeycloakAuthEventPullJob {
     private final KeycloakAdminClient keycloak;
     private final KeycloakEventCheckpointRepository checkpointRepo;
     private final AuthenticationEventRepository authEventRepo;
+    private final AuditChainService auditChainService;
 
     public KeycloakAuthEventPullJob(
             KeycloakAdminClient keycloak,
             KeycloakEventCheckpointRepository checkpointRepo,
-            AuthenticationEventRepository authEventRepo
+            AuthenticationEventRepository authEventRepo,
+            AuditChainService auditChainService
     ) {
         this.keycloak = keycloak;
         this.checkpointRepo = checkpointRepo;
         this.authEventRepo = authEventRepo;
+        this.auditChainService = auditChainService;
     }
 
     @Scheduled(
@@ -118,6 +122,22 @@ public class KeycloakAuthEventPullJob {
                 if (ua != null && !ua.isBlank()) userAgent = ua;
 
             }
+
+            String material = String.join("|",
+                    "AUTH",
+                    "KEYCLOAK",
+                    username,
+                    correlationId,
+                    fingerprint
+            );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            "AUTH",
+                            username,
+                            material
+                    );
+
             AuthenticationEvent entity = new AuthenticationEvent(
                     AuthenticationEventSource.KEYCLOAK_ADMIN_EVENTS,
                     Instant.ofEpochMilli(e.time()),
@@ -130,7 +150,10 @@ public class KeycloakAuthEventPullJob {
                     correlationSource,
                     ExecutionContext.ADMIN_API,
                     AuditResult.FAILED,
-                    fingerprint
+                    fingerprint,
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
             );
 
             try {

@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.sensitive;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +24,7 @@ public class SensitiveAccessAuditServiceImpl
         implements ISensitiveAccessAuditService {
 
     private final SensitiveAccessAuditEventRepository repository;
+    private final AuditChainService auditChainService;
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     @Override
@@ -37,7 +39,6 @@ public class SensitiveAccessAuditServiceImpl
             String action,
             String resourcePath,
             String correlationId,
-
             String ip,
             String userAgent,
             String reasonCode,
@@ -48,6 +49,26 @@ public class SensitiveAccessAuditServiceImpl
 
         try {
             Provenance provenance = resolveProvenance(correlationId, eventFingerprint);
+
+            String tenantIdStr = (tenantId != null) ? tenantId.toString() : null;
+            String material = String.join("|",
+                    "SENSITIVE_ACCESS",
+                    String.valueOf(actorUserId),
+                    String.valueOf(actorExternalSubjectId),
+                    String.valueOf(tenantId),
+                    String.valueOf(subjectType),
+                    String.valueOf(subjectId),
+                    String.valueOf(resource),
+                    String.valueOf(action),
+                    String.valueOf(resourcePath),
+                    String.valueOf(correlationId),
+                    String.valueOf(reasonCode),
+                    String.valueOf(dataClassification),
+                    String.valueOf(eventFingerprint)
+            );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash("SENSITIVE_ACCESS", tenantIdStr, material);
 
             repository.saveAndFlush(new SensitiveAccessAuditEvent(
                     actorUserId,
@@ -67,7 +88,10 @@ public class SensitiveAccessAuditServiceImpl
                     reasonCode,
                     reasonDetail,
                     dataClassification,
-                    eventFingerprint
+                    eventFingerprint,
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
             ));
         } catch (DataIntegrityViolationException ex) {
             log.debug(

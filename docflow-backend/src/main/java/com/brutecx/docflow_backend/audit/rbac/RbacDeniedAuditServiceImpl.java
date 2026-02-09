@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.rbac;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,7 @@ public class RbacDeniedAuditServiceImpl
         implements IRbacDeniedAuditService {
 
     private final RbacDeniedAuditEventRepository repository;
+    private final AuditChainService auditChainService;
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     @Override
@@ -37,6 +39,23 @@ public class RbacDeniedAuditServiceImpl
         try {
             Provenance provenance = resolveProvenance(correlationId, eventFingerprint);
 
+            String material = String.join("|",
+                    "RBAC_DENIED",
+                    provenance.executionContext.name(),
+                    provenance.correlationId,
+                    subjectId != null ? subjectId : "-",
+                    httpMethod,
+                    path,
+                    eventFingerprint
+            );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            "RBAC_DENIED",
+                            provenance.correlationId,
+                            material
+                    );
+
             repository.save(new RbacDeniedAuditEvent(
                     provenance.correlationId,
                     provenance.correlationSource,
@@ -47,7 +66,10 @@ public class RbacDeniedAuditServiceImpl
                     path,
                     ip,
                     userAgent,
-                    eventFingerprint
+                    eventFingerprint,
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
             ));
         } catch (Exception ex) {
             log.error(

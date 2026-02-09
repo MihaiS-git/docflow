@@ -20,13 +20,13 @@ import java.util.Optional;
  */
 @Slf4j
 @Service
-public class UserIdentityEnrichmentService implements IUserIdentityProjectionService {
+public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectionService {
 
     private final UserIdentityProjectionRepository repo;
     private final KeycloakAdminClient keycloak;
     private final IdentityProjectionAuditEventRepository auditRepo;
 
-    public UserIdentityEnrichmentService(
+    public UserIdentityEnrichmentServiceImpl(
             UserIdentityProjectionRepository repo,
             KeycloakAdminClient keycloak,
             IdentityProjectionAuditEventRepository auditRepo

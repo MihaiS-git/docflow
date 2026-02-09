@@ -146,9 +146,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       dispatch({ type: "AUTH_OK", identity, localUser });
-    } catch {
-      // If identity fails because of a 401/403, apiFetch already emitted event.
-      // Fall back to ANON for other errors.
+    } catch (e) {
+      if (e instanceof ForbiddenError) {
+        // already handled by emitAuthError → BLOCKED
+        return;
+      }
+
       toAnon();
     }
   }, [toAnon, toBlocked]);

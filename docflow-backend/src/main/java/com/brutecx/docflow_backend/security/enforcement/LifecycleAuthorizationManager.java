@@ -31,7 +31,6 @@ import java.util.function.Supplier;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@SuppressWarnings("deprecation")
 public class LifecycleAuthorizationManager implements AuthorizationManager<RequestAuthorizationContext> {
 
     private final TenantService tenantService;
@@ -42,96 +41,54 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
             Supplier<Authentication> authenticationSupplier,
             RequestAuthorizationContext context
     ) {
+        return authorizeInternal(authenticationSupplier, context);
+    }
+
+    private AuthorizationDecision authorizeInternal(
+            Supplier<Authentication> authenticationSupplier,
+            RequestAuthorizationContext context
+    ) {
         Authentication authentication = authenticationSupplier.get();
         String uri = context.getRequest().getRequestURI();
 
-        // allow invite bootstrap endpoints unconditionally
         if (uri.startsWith("/api/invites/")) {
             return new AuthorizationDecision(true);
         }
 
-        if (authentication != null) {
-            log.debug(
-                    "SECURITY DEBUG → uri={}, authorities={}",
-                    uri,
-                    authentication.getAuthorities()
-            );
-        }
-
-        // Not authenticated → let other mechanisms decide
         if (authentication == null || !authentication.isAuthenticated()) {
             return new AuthorizationDecision(true);
         }
 
-        // Only enforce for real human users
         if (!(authentication.getPrincipal() instanceof OidcUser oidcUser)) {
             return new AuthorizationDecision(true);
         }
 
         String subject = oidcUser.getSubject();
         String email = oidcUser.getEmail();
-        log.info("Lifecycle check: subject={}, email={}, uri={}", subject, email, uri);
 
-        // 1. Tenant lifecycle
-        Tenant tenant;
-        try {
-            tenant = tenantService.getCurrentTenant();
-        } catch (Exception ex) {
-            log.warn(
-                    "LIFECYCLE DENIED → tenant resolution failed for principal subject={} email={} uri={}",
-                    subject,
-                    email,
-                    uri
-            );
-            throw new LifecycleAccessDeniedException(
-                    "TENANT_RESOLUTION_FAILED",
-                    "Tenant resolution failed"
-            );
-        }
+        Tenant tenant = tenantService.getCurrentTenant();
 
         if (tenant.getStatus() == TenantStatus.SUSPENDED) {
-            log.warn(
-                    "LIFECYCLE DENIED → tenant suspended for principal subject={} email={} tenantId={}",
-                    subject,
-                    email,
-                    tenant.getId()
-            );
             throw new LifecycleAccessDeniedException(
                     "TENANT_SUSPENDED",
                     "Tenant is suspended"
             );
         }
 
-        // 2. User lifecycle
-        // Invite-only rule: never create users here.
-        // Resolve by subject first; if not bound yet, fall back to tenant+email (bootstrap / invited users).
         User user = userRepository.findByExternalSubjectId(subject)
                 .orElseGet(() -> userRepository
                         .findByTenantIdAndEmailIgnoreCase(tenant.getId(), email)
                         .orElse(null));
 
         if (user == null) {
-            log.warn(
-                    "LIFECYCLE DENIED → local user missing for principal subject={} email={} uri={}",
-                    subject,
-                    email,
-                    uri
-            );
             throw new LifecycleAccessDeniedException(
                     "LOCAL_USER_MISSING",
                     "Authenticated subject not mapped to a local user"
             );
         }
 
-        // If the user is already bound to a different subject, deny (prevents account swapping by email).
-        if (user.getExternalSubjectId() != null && !user.getExternalSubjectId().equals(subject)) {
-            log.warn(
-                    "LIFECYCLE DENIED → subject mismatch for email={} tenantId={} expectedSubject={} actualSubject={}",
-                    email,
-                    tenant.getId(),
-                    user.getExternalSubjectId(),
-                    subject
-            );
+        if (user.getExternalSubjectId() != null &&
+                !user.getExternalSubjectId().equals(subject)) {
             throw new LifecycleAccessDeniedException(
                     "SUBJECT_MISMATCH",
                     "Authenticated subject does not match the bound local user"
@@ -139,12 +96,6 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
-            log.warn(
-                    "LIFECYCLE DENIED → user inactive for principal subject={} email={} status={}",
-                    subject,
-                    email,
-                    user.getStatus()
-            );
             throw new LifecycleAccessDeniedException(
                     "USER_NOT_ACTIVE",
                     "User is not active"

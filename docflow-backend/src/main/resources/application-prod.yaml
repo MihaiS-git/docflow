@@ -37,6 +37,10 @@ docflow:
       email: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
       first-name: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
       last-name: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
+  audit:
+    chain:
+      enabled: true
+      secret: ${AUDIT_CHAIN_SECRET}
   security:
     keycloak:
       admin:

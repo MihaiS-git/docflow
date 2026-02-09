@@ -58,6 +58,10 @@ docflow:
     email: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
     first-name: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
     last-name: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
+  audit:
+    chain:
+      enabled: true
+      secret: ${AUDIT_CHAIN_SECRET}
   security:
     allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
     keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI:http://localhost:8085/realms/docflow/protocol/openid-connect/logout}

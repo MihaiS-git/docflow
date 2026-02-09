@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.admin;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,7 @@ import java.util.UUID;
 public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
 
     private final AdminAuditEventRepository repository;
+    private final AuditChainService auditChainService;
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     @Override
@@ -42,6 +44,24 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
 
             AuditResult result = resolveResult(metadata);
 
+            String material = String.join("|",
+             "ADMIN_AUDIT",
+             actorUserId.toString(),
+             subjectId,
+             tenantId.toString(),
+             actionType.name(),
+             result.name(),
+             correlationId,
+             eventFingerprint
+             );
+
+            AuditChainService.ChainHash chain =
+             auditChainService.nextHash(
+                             "ADMIN_AUDIT",
+                             tenantId.toString(),
+                             material
+                             );
+
             repository.save(new AdminAuditEvent(
                     actorUserId,
                     ip,
@@ -55,7 +75,10 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                     actionType,
                     targetUserId,
                     metadata,
-                    eventFingerprint
+                    eventFingerprint,
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
             ));
         } catch (Exception ex) {
             log.error(

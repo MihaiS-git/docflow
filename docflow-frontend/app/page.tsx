@@ -27,7 +27,7 @@ export default function Home() {
           </div>
         )}
 
-        {!isAuthenticated && <button onClick={login}>Login</button>}
+        {status === "ANON" && <button onClick={login}>Login</button>}
 
         {identity && (
           <pre className="mt-6 text-xs opacity-80">

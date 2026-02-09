@@ -2,15 +2,18 @@ package com.brutecx.docflow_backend.infrastructure.mail.smtp;
 
 import com.brutecx.docflow_backend.application.mail.IMailService;
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
-@Profile({"dev", "prod"})
+@Profile("!test")
 @RequiredArgsConstructor
 public class SmtpMailService implements IMailService {
 
@@ -60,4 +63,10 @@ public class SmtpMailService implements IMailService {
 
         sendMail(to, "You're invited", body);
     }
+
+    @PostConstruct
+    void init() {
+        log.warn("SMTP MAIL SERVICE ACTIVE");
+    }
+
 }

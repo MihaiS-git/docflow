@@ -5,6 +5,7 @@ import com.brutecx.docflow_backend.audit.credential.*;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -31,6 +32,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
     private final KeycloakAdminClient keycloak;
     private final KeycloakEventCheckpointRepository checkpointRepo;
     private final CredentialLifecycleAuditEventRepository repository;
+    private final AuditChainService auditChainService;
 
     @Scheduled(
             initialDelayString = "${docflow.security.keycloak.admin.initial-delay-ms:30000}",
@@ -69,9 +71,31 @@ public class KeycloakCredentialLifecycleEventPullJob {
                     String.valueOf(e.time())
             ));
 
-            String correlationId = (e.sessionId() != null && !e.sessionId().isBlank())
-                    ? e.sessionId()
-                    : UUID.randomUUID().toString();
+            String correlationId;
+            CorrelationSource correlationSource;
+
+            if (e.sessionId() != null && !e.sessionId().isBlank()) {
+                correlationId = e.sessionId();
+                correlationSource = CorrelationSource.SESSION_ID;
+            } else {
+                correlationId = CHECKPOINT_ID + ":" + e.time();
+                correlationSource = CorrelationSource.PULL_RUN;
+            }
+
+            String material = String.join("|",
+                    "CREDENTIAL",
+                    type.name(),
+                    e.userId(),
+                    e.clientId(),
+                    String.valueOf(e.time())
+            );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            "CREDENTIAL",
+                            correlationId,
+                            material
+                    );
 
             CredentialLifecycleAuditEvent entity =
                     new CredentialLifecycleAuditEvent(
@@ -83,14 +107,15 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             type,
                             extractRequiredAction(e),
                             correlationId,
-                            (e.sessionId() != null && !e.sessionId().isBlank())
-                                    ? CorrelationSource.SESSION_ID
-                                    : CorrelationSource.GENERATED,
+                            correlationSource,
                             ExecutionContext.SCHEDULED_JOB,
                             AuditResult.SUCCESS,
                             "CREDENTIAL_" + type.name(),
                             null,
-                            fingerprint
+                            fingerprint,
+                            chain.chainVersion(),
+                            chain.prevHash(),
+                            chain.eventHash()
                     );
 
             try {

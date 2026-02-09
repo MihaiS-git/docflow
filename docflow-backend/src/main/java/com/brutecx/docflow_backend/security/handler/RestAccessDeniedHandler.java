@@ -7,10 +7,10 @@ import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import com.brutecx.docflow_backend.audit.rbac.IRbacDeniedAuditService;
 import com.brutecx.docflow_backend.web.ClientIpResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.ServletException;
+//import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
+//import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -41,7 +41,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
             HttpServletRequest request,
             HttpServletResponse response,
             AccessDeniedException ex
-    ) throws IOException, ServletException {
+    ) throws IOException {
 
         var auth = SecurityContextHolder.getContext().getAuthentication();
 
@@ -118,18 +118,18 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                 );
             }
 
-            HttpSession session = request.getSession(false);
-            if (session != null) {
-                session.invalidate();
-            }
-
-            SecurityContextHolder.clearContext();
-
-            // Explicitly expire JSESSIONID (Tomcat default cookie)
-            response.addHeader(
-                    "Set-Cookie",
-                    "JSESSIONID=; Max-Age=0; Path=/; HttpOnly; SameSite=None; Secure"
-            );
+//            HttpSession session = request.getSession(false);
+//            if (session != null) {
+//                session.invalidate();
+//            }
+//
+//            SecurityContextHolder.clearContext();
+//
+//            // Explicitly expire JSESSIONID (Tomcat default cookie)
+//            response.addHeader(
+//                    "Set-Cookie",
+//                    "JSESSIONID=; Max-Age=0; Path=/; HttpOnly; SameSite=None; Secure"
+//            );
         } else {
             String eventFingerprint = EventFingerprint.of(List.of(
                     "RBAC_DENIED",

@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.onboarding;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,7 @@ import java.util.UUID;
 public class OnboardingAuditService {
 
     private final OnboardingAuditEventRepository repository;
+    private final AuditChainService auditChainService;
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -46,6 +48,22 @@ public class OnboardingAuditService {
                             ? CorrelationSource.GENERATED
                             : CorrelationSource.REQUEST_ID;
 
+            String material = String.join("|",
+                    "ONBOARDING",
+                    "SUCCESS",
+                    inviteId.toString(),
+                    subjectId,
+                    tenantId.toString(),
+                    correlationId
+            );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            "ONBOARDING",
+                            correlationId,
+                            material
+                    );
+
             repository.save(new OnboardingAuditEvent(
                     actorUserId,
                     subjectId,
@@ -60,7 +78,10 @@ public class OnboardingAuditService {
                     OnboardingOutcome.SUCCESS,
                     "ONBOARDING_SUCCESS",
                     null,
-                    eventFingerprint
+                    eventFingerprint,
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
             ));
         } catch (Exception ex) {
             log.error(
@@ -93,6 +114,21 @@ public class OnboardingAuditService {
                             ? CorrelationSource.GENERATED
                             : CorrelationSource.REQUEST_ID;
 
+            String material = String.join("|",
+                    "ONBOARDING",
+                    "FAILURE",
+                    inviteId.toString(),
+                    tenantId.toString(),
+                    failureReason != null ? failureReason : "-"
+            );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            "ONBOARDING",
+                            correlationId,
+                            material
+                    );
+
             repository.save(new OnboardingAuditEvent(
                     actorUserId,
                     null,
@@ -107,7 +143,10 @@ public class OnboardingAuditService {
                     OnboardingOutcome.FAILURE,
                     "ONBOARDING_FAILURE",
                     failureReason,
-                    eventFingerprint
+                    eventFingerprint,
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
             ));
         } catch (Exception ex) {
             log.error(

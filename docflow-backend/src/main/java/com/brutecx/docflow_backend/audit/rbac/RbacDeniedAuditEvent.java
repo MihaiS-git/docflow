@@ -81,6 +81,17 @@ public class RbacDeniedAuditEvent {
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
+    @NotNull
+    @Column(name = "chain_version", nullable = false, updatable = false)
+    private int chainVersion;
+
+    @Column(name = "prev_event_hash", updatable = false, length = 64)
+    private String prevEventHash;
+
+    @NotNull
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
+    private String eventHash;
+
     public RbacDeniedAuditEvent(
             String correlationId,
             CorrelationSource correlationSource,
@@ -91,7 +102,10 @@ public class RbacDeniedAuditEvent {
             String path,
             String ip,
             String userAgent,
-            String eventFingerprint
+            String eventFingerprint,
+            int chainVersion,
+            String prevEventHash,
+            String eventHash
     ) {
         this.correlationId = correlationId;
         this.correlationSource = correlationSource;
@@ -103,6 +117,9 @@ public class RbacDeniedAuditEvent {
         this.ip = ip;
         this.userAgent = userAgent;
         this.eventFingerprint = eventFingerprint;
+        this.chainVersion = chainVersion;
+        this.prevEventHash = prevEventHash;
+        this.eventHash = eventHash;
     }
 
     @PrePersist

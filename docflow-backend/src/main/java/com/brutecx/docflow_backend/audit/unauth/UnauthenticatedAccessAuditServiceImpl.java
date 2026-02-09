@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.unauth;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,7 @@ import java.security.MessageDigest;
 public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAccessAuditService {
 
     private final UnauthenticatedAccessAuditEventRepository repository;
+    private final AuditChainService auditChainService;
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     @Override
@@ -34,6 +36,22 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
         try {
             Provenance provenance = resolveProvenance(correlationId, eventFingerprint);
 
+            String material = String.join("|",
+                    "UNAUTH",
+                    provenance.executionContext.name(),
+                    provenance.correlationId,
+                    httpMethod,
+                    path,
+                    eventFingerprint
+            );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            "UNAUTH",
+                            provenance.correlationId,
+                            material
+                    );
+
             repository.save(new UnauthenticatedAccessAuditEvent(
                     provenance.correlationId,
                     provenance.correlationSource,
@@ -43,7 +61,10 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                     path,
                     ip,
                     userAgent,
-                    eventFingerprint
+                    eventFingerprint,
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
             ));
         } catch (DataIntegrityViolationException e) {
             log.debug("Unauthenticated access audit deduped. correlationId={} method={} path={}",

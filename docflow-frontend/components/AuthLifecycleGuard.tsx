@@ -35,11 +35,27 @@ export default function AuthLifecycleGuard({
 }: {
   children: React.ReactNode;
 }) {
-  const ctx = useContext(AuthContext);
+  const rawCtx = useContext(AuthContext);
   const router = useRouter();
 
+  const ctx = useMemo(
+    () =>
+      rawCtx ?? {
+        status: "ANON" as const,
+        identity: null,
+        localUser: null,
+        blockedCode: null,
+        login: () => {},
+        logout: () => {},
+        refresh: async () => {},
+        clearBlocked: () => {},
+        isAuthenticated: false,
+      },
+    [rawCtx],
+  );
+
   const blocked = useMemo(() => {
-    if (!ctx || ctx.status !== "BLOCKED" || !ctx.blockedCode) return null;
+    if (ctx.status !== "BLOCKED" || !ctx.blockedCode) return null;
     return mapBlocked(ctx.blockedCode);
   }, [ctx]);
 
@@ -61,7 +77,7 @@ export default function AuthLifecycleGuard({
 
           <button
             className="mt-6 px-4 py-2 bg-red-600 hover:bg-red-700 rounded"
-            onClick={() => (window.location.href = "/")}
+            onClick={() => ctx.clearBlocked()}
           >
             Go to login
           </button>

@@ -91,6 +91,15 @@ public class AuthenticationEvent {
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
+    @Column(nullable = false, updatable = false, name = "chain_version")
+    private int chainVersion;
+
+    @Column(nullable = false, updatable = false, name = "prev_event_hash", length = 128)
+    private String prevEventHash;
+
+    @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
+    private String eventHash;
+
     public AuthenticationEvent(
             AuthenticationEventSource source,
             Instant timestamp,
@@ -103,7 +112,10 @@ public class AuthenticationEvent {
             CorrelationSource correlationSource,
             ExecutionContext executionContext,
             AuditResult auditResult,
-            String eventFingerprint
+            String eventFingerprint,
+            int chainVersion,
+            String prevEventHash,
+            String eventHash
     ) {
         this.source = source;
         this.timestamp = timestamp;
@@ -117,6 +129,9 @@ public class AuthenticationEvent {
         this.executionContext = executionContext;
         this.auditResult = auditResult;
         this.eventFingerprint = eventFingerprint;
+        this.chainVersion = chainVersion;
+        this.prevEventHash = prevEventHash;
+        this.eventHash = eventHash;
     }
 
     @PrePersist

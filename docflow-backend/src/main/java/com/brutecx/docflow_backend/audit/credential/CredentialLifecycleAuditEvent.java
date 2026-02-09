@@ -81,6 +81,15 @@ public class CredentialLifecycleAuditEvent {
     @Column(nullable = false, updatable = false, name = "event_fingerprint", length = 128)
     private String eventFingerprint;
 
+    @Column(name = "chain_version", nullable = false, updatable = false)
+    private int chainVersion;
+
+    @Column(name = "prev_event_hash", updatable = false, length = 64)
+    private String prevEventHash;
+
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
+    private String eventHash;
+
     public CredentialLifecycleAuditEvent(
             Instant timestamp,
             String subjectExternalId,
@@ -95,7 +104,10 @@ public class CredentialLifecycleAuditEvent {
             AuditResult result,
             String reasonCode,
             String reasonDetail,
-            String eventFingerprint
+            String eventFingerprint,
+            int chainVersion,
+            String prevEventHash,
+            String eventHash
     ) {
         this.timestamp = timestamp;
         this.subjectExternalId = subjectExternalId;
@@ -111,5 +123,8 @@ public class CredentialLifecycleAuditEvent {
         this.reasonCode = reasonCode;
         this.reasonDetail = reasonDetail;
         this.eventFingerprint = eventFingerprint;
+        this.chainVersion = chainVersion;
+        this.prevEventHash = prevEventHash;
+        this.eventHash = eventHash;
     }
 }

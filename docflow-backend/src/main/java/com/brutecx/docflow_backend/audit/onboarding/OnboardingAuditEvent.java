@@ -93,6 +93,17 @@ public class OnboardingAuditEvent {
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
+    @NotNull
+    @Column(name = "chain_version", nullable = false, updatable = false)
+    private int chainVersion;
+
+    @Column(name = "prev_event_hash", updatable = false, length = 64)
+    private String prevEventHash;
+
+    @NotNull
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
+    private String eventHash;
+
     @PrePersist
     void prePersist() {
         this.timestamp = Instant.now();
@@ -112,7 +123,10 @@ public class OnboardingAuditEvent {
             OnboardingOutcome outcome,
             String reasonCode,
             String reasonDetail,
-            String eventFingerprint
+            String eventFingerprint,
+            int chainVersion,
+            String prevEventHash,
+            String eventHash
     ) {
         this.actorUserId = actorUserId;
         this.subjectId = subjectId;
@@ -128,5 +142,8 @@ public class OnboardingAuditEvent {
         this.reasonCode = reasonCode;
         this.reasonDetail = reasonDetail;
         this.eventFingerprint = eventFingerprint;
+        this.chainVersion = chainVersion;
+        this.prevEventHash = prevEventHash;
+        this.eventHash = eventHash;
     }
 }
