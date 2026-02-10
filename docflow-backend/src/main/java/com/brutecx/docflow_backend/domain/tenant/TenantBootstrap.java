@@ -6,6 +6,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -19,17 +20,13 @@ public class TenantBootstrap implements ApplicationRunner {
 
 
     @Override
-    public void run(ApplicationArguments args) throws Exception {
-        Optional<Tenant> existing = tenantRepository.findAll()
-                .stream()
-                .findFirst();
-
-        if(existing.isPresent()){
+    @Transactional
+    public void run(ApplicationArguments args) {
+        if (tenantRepository.count() > 0) {
             return;
         }
 
         Tenant tenant = new Tenant("Brutecx");
-
         tenantRepository.save(tenant);
     }
 }

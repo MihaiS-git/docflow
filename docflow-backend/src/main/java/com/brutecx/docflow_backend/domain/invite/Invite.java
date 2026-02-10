@@ -10,6 +10,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -45,6 +46,9 @@ public class Invite {
     @Column(nullable = false)
     private InviteStatus status;
 
+    @Column(name = "tenant_id", nullable = false, updatable = false)
+    private UUID tenantId;
+
     @Getter
     @ManyToOne(
             fetch = FetchType.LAZY,
@@ -57,9 +61,10 @@ public class Invite {
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
-    public static Invite create(String email) {
+    public static Invite create(String email, UUID tenantId) {
         Invite invite = new Invite();
-        invite.email = email;
+        invite.tenantId = Objects.requireNonNull(tenantId);
+        invite.email = Objects.requireNonNull(email);
         invite.token = TokenGenerator.generate();
         invite.expiresAt = Instant.now().plus(7, ChronoUnit.DAYS);
         invite.status = InviteStatus.PENDING;

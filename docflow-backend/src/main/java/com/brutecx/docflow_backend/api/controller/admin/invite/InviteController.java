@@ -27,6 +27,7 @@ public class InviteController {
             @RequestBody @Valid CreateInviteRequest request
     ) {
         inviteService.createAndSendInvite(
+                request.targetTenantId(),
                 request.email(),
                 request.firstName(),
                 request.lastName(),
@@ -43,10 +44,10 @@ public class InviteController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/cleanup")
-    public ResponseEntity<CleanupResult> cleanup() {
+    @PostMapping("/cleanup/{targetTenantId}")
+    public ResponseEntity<CleanupResult> cleanup(@PathVariable UUID targetTenantId) {
         return ResponseEntity.ok(
-                inviteService.cleanupExpiredInvitesAndOrphanedUsers()
+                inviteService.cleanupExpiredInvitesAndOrphanedUsers(targetTenantId)
         );
     }
 

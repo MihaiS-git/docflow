@@ -54,13 +54,14 @@ public class InviteApplicationService {
      */
     @Transactional
     public void createAndSendInvite(
+            UUID targetTenantId,
             String email,
             String firstName,
             String lastName,
             String jobTitle,
             String department
     ) {
-        Tenant tenant = tenantService.getCurrentTenant();
+        Tenant tenant = tenantService.getRequired(targetTenantId);
         String normalizedEmail = email.toLowerCase(java.util.Locale.ROOT);
 
         var ctx = auditContextExtractor.fromCurrentRequest();
@@ -82,7 +83,7 @@ public class InviteApplicationService {
                     department
             );
 
-            invite = Invite.create(normalizedEmail);
+            invite = Invite.create(normalizedEmail, tenant.getId());
             invite.linkUser(user);
             inviteRepository.save(invite);
 
@@ -183,10 +184,12 @@ public class InviteApplicationService {
 
         var ctx = auditContextExtractor.fromCurrentRequest();
 
+        UUID inviteTenantId = requireInviteTenant(invite);
+
         if (invite.isExpired()) {
             String eventFingerprint = EventFingerprint.of(List.of(
                     "INVITE_EXPIRED",
-                    tenantService.getCurrentTenant().getId().toString(),
+                    inviteTenantId.toString(),
                     invite.getId().toString(),
                     ctx.correlationId()
             ));
@@ -194,7 +197,7 @@ public class InviteApplicationService {
             onboardingAuditService.recordFailure(
                     null,
                     null,
-                    tenantService.getCurrentTenant().getId(),
+                    inviteTenantId,
                     invite.getId(),
                     "INVITE_EXPIRED",
                     ctx.correlationId(),
@@ -209,7 +212,7 @@ public class InviteApplicationService {
         if (invite.getStatus() == InviteStatus.ACCEPTED) {
             String eventFingerprint = EventFingerprint.of(List.of(
                     "INVITE_REPLAY",
-                    tenantService.getCurrentTenant().getId().toString(),
+                    inviteTenantId.toString(),
                     invite.getId().toString(),
                     ctx.correlationId()
             ));
@@ -217,7 +220,7 @@ public class InviteApplicationService {
             onboardingAuditService.recordFailure(
                     null,
                     null,
-                    tenantService.getCurrentTenant().getId(),
+                    inviteTenantId,
                     invite.getId(),
                     "INVITE_REPLAY",
                     ctx.correlationId(),
@@ -236,10 +239,12 @@ public class InviteApplicationService {
     void acceptInviteOrThrow(Invite invite) {
         var ctx = auditContextExtractor.fromCurrentRequest();
 
+        UUID inviteTenantId = requireInviteTenant(invite);
+
         if (invite.getStatus() == InviteStatus.ACCEPTED) {
             String eventFingerprint = EventFingerprint.of(List.of(
                     "INVITE_REPLAY",
-                    tenantService.getCurrentTenant().getId().toString(),
+                    inviteTenantId.toString(),
                     invite.getId().toString(),
                     ctx.correlationId()
             ));
@@ -247,7 +252,7 @@ public class InviteApplicationService {
             onboardingAuditService.recordFailure(
                     userService.getRequiredCurrentUser().getId(),
                     userService.getRequiredCurrentUser().getExternalSubjectId(),
-                    tenantService.getCurrentTenant().getId(),
+                    inviteTenantId,
                     invite.getId(),
                     "INVITE_REPLAY",
                     ctx.correlationId(),
@@ -264,7 +269,7 @@ public class InviteApplicationService {
 
         String eventFingerprint = EventFingerprint.of(List.of(
                 "INVITE_ACCEPTED",
-                tenantService.getCurrentTenant().getId().toString(),
+                inviteTenantId.toString(),
                 invite.getId().toString(),
                 ctx.correlationId()
         ));
@@ -272,7 +277,7 @@ public class InviteApplicationService {
         onboardingAuditService.recordOnce(
                 actorUserId,
                 subjectId,
-                tenantService.getCurrentTenant().getId(),
+                inviteTenantId,
                 invite.getId(),
                 ctx.correlationId(),
                 ctx.ip(),
@@ -293,6 +298,8 @@ public class InviteApplicationService {
                 .orElseThrow(() ->
                         new InviteNotFoundException("Invite not found")
                 );
+
+        UUID inviteTenantId = requireInviteTenant(invite);
 
         if (invite.getStatus() != InviteStatus.PENDING) {
             throw new IllegalStateException(
@@ -335,7 +342,6 @@ public class InviteApplicationService {
 
         String eventFingerprint = EventFingerprint.of(List.of(
                 AdminAuditActionType.INVITE_REVOKED.name(),
-                tenantService.getCurrentTenant().getId().toString(),
                 invite.getId().toString(),
                 ctx.correlationId()
         ));
@@ -346,7 +352,7 @@ public class InviteApplicationService {
                 ctx.userAgent(),
                 ctx.correlationId(),
                 actor.getExternalSubjectId(),
-                tenantService.getCurrentTenant().getId(),
+                inviteTenantId,
                 AdminAuditActionType.INVITE_REVOKED,
                 null,
                 metadata,
@@ -358,11 +364,12 @@ public class InviteApplicationService {
      * Admin-only: manual cleanup of expired invites and orphaned users.
      */
     @Transactional
-    public CleanupResult cleanupExpiredInvitesAndOrphanedUsers() {
+    public CleanupResult cleanupExpiredInvitesAndOrphanedUsers(UUID targetTenantId) {
         Instant now = Instant.now();
 
         List<Invite> expiredInvites =
-                inviteRepository.findByStatusAndExpiresAtBefore(
+                inviteRepository.findByTenantIdAndStatusAndExpiresAtBefore(
+                        targetTenantId,
                         InviteStatus.PENDING,
                         now
                 );
@@ -383,7 +390,7 @@ public class InviteApplicationService {
 
         String eventFingerprint = EventFingerprint.of(List.of(
                 AdminAuditActionType.INVITE_CLEANUP.name(),
-                tenantService.getCurrentTenant().getId().toString(),
+                targetTenantId.toString(),
                 String.valueOf(expiredInvites.size()),
                 String.valueOf(deletedUsers),
                 ctx.correlationId()
@@ -395,7 +402,7 @@ public class InviteApplicationService {
                 ctx.userAgent(),
                 ctx.correlationId(),
                 actor.getExternalSubjectId(),
-                tenantService.getCurrentTenant().getId(),
+                targetTenantId,
                 AdminAuditActionType.INVITE_CLEANUP,
                 null,
                 new InviteCleanupAuditMetadata(
@@ -411,8 +418,14 @@ public class InviteApplicationService {
         );
     }
 
+    private static UUID requireInviteTenant(Invite invite) {
+        UUID tenantId = invite.getTenantId();
+        if (tenantId == null) {
+            throw new IllegalStateException("Invite is missing tenantId");
+        }
+        return tenantId;
+    }
 
-    // strong temporary password generator
     private static String generateTemporaryPassword() {
         byte[] bytes = new byte[32]; // 256-bit entropy
         new SecureRandom().nextBytes(bytes);

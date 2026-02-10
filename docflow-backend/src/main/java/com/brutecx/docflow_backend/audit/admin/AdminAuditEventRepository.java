@@ -5,6 +5,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.UUID;
 
 public interface AdminAuditEventRepository extends JpaRepository<AdminAuditEvent, UUID> {
@@ -29,4 +30,9 @@ public interface AdminAuditEventRepository extends JpaRepository<AdminAuditEvent
             Pageable pageable
     );
 
+    Page<AdminAuditEvent> findByTenantIdAndActionTypeIn(
+            UUID tenantId,
+            EnumSet<AdminAuditActionType> tenantActions,
+            Pageable pageable
+    );
 }

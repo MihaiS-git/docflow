@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * Data Transfer Object (DTO) for structured error responses in the API.
@@ -21,6 +22,7 @@ public class ErrorResponse {
     private final String errorCode;
     private final String message;
     private final String path;
+    private final Map<String, Object> details;
 
     public static ErrorResponse of(
             int status,
@@ -36,6 +38,26 @@ public class ErrorResponse {
                 .errorCode(errorCode)
                 .message(message)
                 .path(path)
+                .details(null)
+                .build();
+    }
+
+    public static ErrorResponse of(
+            int status,
+            String error,
+            String errorCode,
+            String message,
+            String path,
+            Map<String, Object> details
+    ) {
+        return ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(status)
+                .error(error)
+                .errorCode(errorCode)
+                .message(message)
+                .path(path)
+                .details(details)
                 .build();
     }
 }

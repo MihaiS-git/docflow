@@ -18,7 +18,6 @@ public class AuditChainState {
 
     /**
      * Composite key encoded as: <stream>|<tenantId-or-NULL>
-     * Keeps Phase-4 minimal without embeddables.
      */
     @Id
     @Column(name = "state_key", nullable = false, updatable = false, length = 256)

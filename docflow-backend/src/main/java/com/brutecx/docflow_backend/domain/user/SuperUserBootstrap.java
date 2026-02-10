@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Bootstraps the initial local admin user at application startup.
+ * Bootstraps the initial superuser at application startup.
  * Invariants:
  * - Invite-only forever (no auto-registration on login).
  * - externalSubjectId is NULL at bootstrap time.
@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Order(1)
 @Profile({"dev", "prod"})
-public class AdminBootstrap implements ApplicationRunner {
+public class SuperUserBootstrap implements ApplicationRunner {
 
     private final UserRepository userRepository;
     private final TenantService tenantService;
@@ -53,9 +53,8 @@ public class AdminBootstrap implements ApplicationRunner {
             throw new IllegalStateException("Missing required property: docflow.bootstrap.admin.last-name");
         }
 
-        Tenant tenant = tenantService.getCurrentTenant();
+        Tenant tenant = tenantService.getSingleTenantForBootstrap();
 
-        // Idempotent: ensure the local bootstrap admin exists
         boolean exists = userRepository.existsByTenantIdAndEmailIgnoreCase(tenant.getId(), adminEmail);
         if (exists) {
             log.info("Bootstrap admin already exists for tenantId={} email={}", tenant.getId(), adminEmail);
@@ -66,18 +65,15 @@ public class AdminBootstrap implements ApplicationRunner {
                 adminEmail,
                 adminFirstName,
                 adminLastName,
-                "Admin",
+                "SuperUser",
                 "Admin"
         );
-
-        // Must remain inert until explicit bootstrap-claim
-        admin.lock();
 
         tenant.addUser(admin);
         userRepository.save(admin);
 
         log.info(
-                "Bootstrapped local admin user (LOCKED, unbound) for tenantId={} email={}",
+                "Bootstrapped superuser (LOCKED, unbound) for tenantId={} email={}",
                 tenant.getId(),
                 adminEmail
         );

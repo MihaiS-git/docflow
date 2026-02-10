@@ -16,6 +16,7 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.stereotype.Component;
 
+import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
@@ -33,8 +34,8 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class LifecycleAuthorizationManager implements AuthorizationManager<RequestAuthorizationContext> {
 
-    private final TenantService tenantService;
     private final UserRepository userRepository;
+    private final TenantService tenantService;
 
     @Override
     public AuthorizationDecision check(
@@ -64,26 +65,22 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         }
 
         String subject = oidcUser.getSubject();
-        String email = oidcUser.getEmail();
 
-        Tenant tenant = tenantService.getCurrentTenant();
+        User user = userRepository.findByExternalSubjectId(subject)
+                .orElseThrow(() ->
+                        new LifecycleAccessDeniedException(
+                                "LOCAL_USER_MISSING",
+                                "Authenticated subject not mapped to a local user"
+                        )
+                );
 
-        if (tenant.getStatus() == TenantStatus.SUSPENDED) {
+        UUID tenantId = user.getTenant().getId();
+        TenantStatus tenantStatus = tenantService.getRequiredTenantStatus(tenantId);
+
+        if (tenantStatus == TenantStatus.SUSPENDED) {
             throw new LifecycleAccessDeniedException(
                     "TENANT_SUSPENDED",
                     "Tenant is suspended"
-            );
-        }
-
-        User user = userRepository.findByExternalSubjectId(subject)
-                .orElseGet(() -> userRepository
-                        .findByTenantIdAndEmailIgnoreCase(tenant.getId(), email)
-                        .orElse(null));
-
-        if (user == null) {
-            throw new LifecycleAccessDeniedException(
-                    "LOCAL_USER_MISSING",
-                    "Authenticated subject not mapped to a local user"
             );
         }
 

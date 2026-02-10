@@ -10,8 +10,10 @@ import java.util.UUID;
 public interface InviteRepository extends JpaRepository<Invite, UUID> {
     Optional<Invite> findByToken(String token);
 
-    List<Invite> findByStatusAndExpiresAtBefore(
+    List<Invite> findByTenantIdAndStatusAndExpiresAtBefore(
+            UUID tenantId,
             InviteStatus status,
-            Instant now
+            Instant expiresAt
     );
+
 }

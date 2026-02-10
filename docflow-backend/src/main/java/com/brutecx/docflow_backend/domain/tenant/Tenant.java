@@ -36,7 +36,7 @@ public class Tenant {
     @Column(name = "data_region", length = 512)
     private String dataRegion;
 
-    @Column(name = "retention_days",length = 512)
+    @Column(name = "retention_days", length = 512)
     private Long retentionDays;
 
     @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY, cascade = CascadeType.PERSIST, orphanRemoval = true)
@@ -75,12 +75,50 @@ public class Tenant {
         return bootstrapEnabled;
     }
 
+    public void rename(String name) {
+        this.name = Objects.requireNonNull(name);
+    }
+
     public void disableBootstrap() {
+        requireActive("DISABLE_BOOTSTRAP");
         this.bootstrapEnabled = false;
     }
 
     public void suspend() {
+        if (this.status == TenantStatus.SUSPENDED) {
+            throw new TenantLifecycleViolationException("Tenant is already SUSPENDED");
+        }
         this.status = TenantStatus.SUSPENDED;
+    }
+
+    public void reactivate() {
+        if (this.status != TenantStatus.SUSPENDED) {
+            throw new TenantLifecycleViolationException(
+                    "Tenant is not SUSPENDED; cannot reactivate"
+            );
+        }
+        this.status = TenantStatus.ACTIVE;
+    }
+
+    public void updateName(String name) {
+        requireActive("UPDATE_NAME");
+        this.name = Objects.requireNonNull(name);
+    }
+
+    public void updateDataRegion(String dataRegion) {
+        requireActive("UPDATE_DATA_REGION");
+        this.dataRegion = dataRegion;
+    }
+
+    public void updateRetentionDays(Long retentionDays) {
+        requireActive("UPDATE_RETENTION_DAYS");
+        this.retentionDays = retentionDays;
+    }
+
+    private void requireActive(String operation) {
+        if (this.status == TenantStatus.SUSPENDED) {
+            throw new TenantLifecycleViolationException("Tenant is SUSPENDED; operation denied: " + operation);
+        }
     }
 
 }
