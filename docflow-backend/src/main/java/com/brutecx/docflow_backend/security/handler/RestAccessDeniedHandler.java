@@ -5,12 +5,9 @@ import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import com.brutecx.docflow_backend.audit.rbac.IRbacDeniedAuditService;
-import com.brutecx.docflow_backend.web.ClientIpResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
-//import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-//import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -33,7 +30,6 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
     private final ObjectMapper objectMapper;
     private final ILifecycleDeniedAuditService lifecycleDeniedAuditService;
-    private final ClientIpResolver clientIpResolver;
     private final IRbacDeniedAuditService rbacDeniedAuditService;
 
     @Override
@@ -55,24 +51,20 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
         String errorCode = "ACCESS_DENIED";
 
         String correlationId = MDC.get("correlationId");
-        if (correlationId == null || correlationId.isBlank()) {
-            correlationId = request.getHeader("X-Correlation-Id");
-        }
 
         String subjectId = null;
         if (auth != null && auth.getPrincipal() instanceof OidcUser oidcUser) {
             subjectId = oidcUser.getSubject();
         }
 
-        String ip = clientIpResolver.resolve(request);
-        String userAgent = request.getHeader("User-Agent");
         String httpMethod = request.getMethod();
         String uri = request.getRequestURI();
 
         if (ex instanceof LifecycleAccessDeniedException lifecycleEx) {
+
             errorCode = lifecycleEx.getErrorCode();
 
-            String eventFingerprint = EventFingerprint.of(List.of(
+            String fingerprint = EventFingerprint.of(List.of(
                     "LIFECYCLE_DENIED",
                     errorCode,
                     uri,
@@ -81,14 +73,11 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
             try {
                 lifecycleDeniedAuditService.record(
-                        correlationId,
                         subjectId,
                         errorCode,
                         httpMethod,
-                        correlationId,
-                        ip,
-                        userAgent,
-                        eventFingerprint
+                        uri,
+                        fingerprint
                 );
             } catch (Exception auditEx) {
                 if (auditEx instanceof DataIntegrityViolationException) {
@@ -100,38 +89,20 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                     );
                 }
 
-                Throwable root = auditEx;
-                while (root.getCause() != null && root.getCause() != root) {
-                    root = root.getCause();
-                }
-
                 log.error(
-                        "LIFECYCLE AUDIT FAILURE → correlationId={} subjectId={} reasonCode={} method={} uri={} rootType={} rootMsg={}",
+                        "LIFECYCLE AUDIT FAILURE → correlationId={} subjectId={} reasonCode={} method={} uri={}",
                         correlationId,
                         subjectId,
                         errorCode,
                         httpMethod,
                         uri,
-                        root.getClass().getName(),
-                        root.getMessage(),
                         auditEx
                 );
             }
 
-//            HttpSession session = request.getSession(false);
-//            if (session != null) {
-//                session.invalidate();
-//            }
-//
-//            SecurityContextHolder.clearContext();
-//
-//            // Explicitly expire JSESSIONID (Tomcat default cookie)
-//            response.addHeader(
-//                    "Set-Cookie",
-//                    "JSESSIONID=; Max-Age=0; Path=/; HttpOnly; SameSite=None; Secure"
-//            );
         } else {
-            String eventFingerprint = EventFingerprint.of(List.of(
+
+            String fingerprint = EventFingerprint.of(List.of(
                     "RBAC_DENIED",
                     uri,
                     correlationId
@@ -139,13 +110,10 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
             try {
                 rbacDeniedAuditService.record(
-                        correlationId,
                         subjectId,
-                        request.getMethod(),
-                        request.getRequestURI(),
-                        clientIpResolver.resolve(request),
-                        request.getHeader("User-Agent"),
-                        eventFingerprint
+                        httpMethod,
+                        uri,
+                        fingerprint
                 );
             } catch (Exception auditEx) {
                 if (auditEx instanceof DataIntegrityViolationException) {
@@ -172,7 +140,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                 HttpStatus.FORBIDDEN.getReasonPhrase(),
                 errorCode,
                 ex.getMessage(),
-                request.getRequestURI()
+                uri
         );
 
         response.setStatus(HttpStatus.FORBIDDEN.value());

@@ -1,9 +1,10 @@
 package com.brutecx.docflow_backend.api.controller.admin.tenant;
 
 import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO;
+import com.brutecx.docflow_backend.api.dto.user.UserResponseDTO;
+import com.brutecx.docflow_backend.api.dto.user.UserResponseMapper;
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -21,14 +22,13 @@ import java.util.UUID;
 @RequestMapping("/api/admin/tenants")
 public class AdminTenantController {
 
-    private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
 
     private final TenantService tenantService;
 
-    /* ---------------------------
-     * Queries
-     * --------------------------- */
+    /* ===========================
+       Queries
+       =========================== */
 
     @GetMapping
     public ResponseEntity<Page<TenantListItemDTO>> listAll(
@@ -49,6 +49,29 @@ public class AdminTenantController {
         );
     }
 
+    @GetMapping("/{tenantId}/users")
+    public ResponseEntity<Page<UserResponseDTO>> listTenantUsers(
+            @PathVariable UUID tenantId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt") String sort,
+            @RequestParam(defaultValue = "DESC") Sort.Direction direction
+    ) {
+
+        Pageable pageable = PageRequest.of(
+                page,
+                Math.min(size, MAX_PAGE_SIZE),
+                Sort.by(direction, sort)
+        );
+
+        Page<UserResponseDTO> result =
+                tenantService.listUsersByTenant(tenantId, pageable)
+                        .map(UserResponseMapper::toDto);
+
+        return ResponseEntity.ok(result);
+    }
+
+
     @GetMapping("/active")
     public ResponseEntity<Page<TenantListItemDTO>> listActive(
             @RequestParam(defaultValue = "0") int page,
@@ -68,14 +91,17 @@ public class AdminTenantController {
         );
     }
 
-    /* ---------------------------
-     * Mutations (unchanged)
-     * --------------------------- */
+    /* ===========================
+       Mutations
+       =========================== */
 
     @PostMapping
-    public ResponseEntity<Tenant> create(@RequestParam String name) {
+    public ResponseEntity<Tenant> create(
+            @RequestParam String name,
+            @RequestParam(required = false) String comment
+    ) {
         return ResponseEntity.ok(
-                tenantService.create(name)
+                tenantService.create(name, comment)
         );
     }
 
@@ -86,8 +112,7 @@ public class AdminTenantController {
             @RequestParam(required = false) String dataRegion,
             @RequestParam(required = false) Long retentionDays,
             @RequestParam(required = false) Boolean disableBootstrap,
-            @RequestParam(required = false) String comment,
-            HttpServletRequest request
+            @RequestParam(required = false) String comment
     ) {
         tenantService.updateTenant(
                 tenantId,
@@ -95,10 +120,7 @@ public class AdminTenantController {
                 dataRegion,
                 retentionDays,
                 disableBootstrap,
-                comment,
-                request.getRemoteAddr(),
-                request.getHeader("User-Agent"),
-                request.getHeader("X-Request-Id")
+                comment
         );
 
         return ResponseEntity.noContent().build();
@@ -107,20 +129,13 @@ public class AdminTenantController {
     @PostMapping("/{tenantId}/suspend")
     public ResponseEntity<Void> suspend(
             @PathVariable UUID tenantId,
-            @RequestParam String comment,
-            HttpServletRequest request
+            @RequestParam String comment
     ) {
-        if (comment.isBlank()) {
+        if (comment == null || comment.isBlank()) {
             throw new IllegalArgumentException("Comment is required for tenant suspension");
         }
 
-        tenantService.suspendTenant(
-                tenantId,
-                comment,
-                request.getRemoteAddr(),
-                request.getHeader("User-Agent"),
-                request.getHeader("X-Request-Id")
-        );
+        tenantService.suspendTenant(tenantId, comment);
 
         return ResponseEntity.noContent().build();
     }
@@ -129,20 +144,13 @@ public class AdminTenantController {
     @PostMapping("/{tenantId}/reactivate")
     public ResponseEntity<Void> reactivate(
             @PathVariable UUID tenantId,
-            @RequestParam String comment,
-            HttpServletRequest request
+            @RequestParam String comment
     ) {
-        if (comment.isBlank()) {
+        if (comment == null || comment.isBlank()) {
             throw new IllegalArgumentException("Comment is required for tenant reactivation");
         }
 
-        tenantService.reactivateTenant(
-                tenantId,
-                comment,
-                request.getRemoteAddr(),
-                request.getHeader("User-Agent"),
-                request.getHeader("X-Request-Id")
-        );
+        tenantService.reactivateTenant(tenantId, comment);
 
         return ResponseEntity.noContent().build();
     }
@@ -159,5 +167,4 @@ public class AdminTenantController {
                 t.getUpdatedAt()
         );
     }
-
 }

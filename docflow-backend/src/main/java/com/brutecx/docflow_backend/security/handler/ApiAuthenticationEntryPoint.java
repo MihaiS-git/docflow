@@ -3,8 +3,9 @@ package com.brutecx.docflow_backend.security.handler;
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.unauth.IUnauthenticatedAccessAuditService;
-import com.brutecx.docflow_backend.web.ClientIpResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -13,9 +14,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
-
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.util.List;
@@ -27,7 +25,6 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
     private final ObjectMapper objectMapper;
     private final IUnauthenticatedAccessAuditService unauthenticatedAccessAuditService;
-    private final ClientIpResolver clientIpResolver;
 
     @Override
     public void commence(
@@ -36,39 +33,28 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
             AuthenticationException authException
     ) throws IOException {
 
-        // We only use this entry point for /api/** in SecurityConfig, but keep it defensive.
         String uri = request.getRequestURI();
-
-        String correlationId = MDC.get("correlationId");
-        if (correlationId == null || correlationId.isBlank()) {
-            correlationId = request.getHeader("X-Correlation-Id"); // CHANGED
-        }
-
         String httpMethod = request.getMethod();
-        String ip = clientIpResolver.resolve(request);
-        String userAgent = request.getHeader("User-Agent");
 
-        String eventFingerprint = EventFingerprint.of(List.of(
-                "UNAUTHENTICATED",
-                correlationId,
-                httpMethod,
-                uri
+        // fingerprint must NOT depend on correlation presence (service will require correlation from ctx)
+        String fingerprint = EventFingerprint.of(List.of(
+                "UNAUTH",
+                httpMethod != null ? httpMethod : "UNKNOWN",
+                uri != null ? uri : "UNKNOWN"
         ));
 
         try {
             unauthenticatedAccessAuditService.record(
-                    correlationId,
                     httpMethod,
                     uri,
-                    ip,
-                    userAgent,
-                    eventFingerprint
+                    fingerprint
             );
         } catch (Exception e) {
-            // Never break auth flow due to audit persistence failure
+            // do not break auth flow
+            String corr = MDC.get("correlationId");
             log.error(
-                    "UNAUTH AUDIT FAILURE → correlationId={} method={} uri={}",
-                    correlationId,
+                    "UNAUTH AUDIT FAILURE correlationId={} method={} uri={}",
+                    corr,
                     httpMethod,
                     uri,
                     e

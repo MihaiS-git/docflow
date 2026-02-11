@@ -13,10 +13,25 @@ export default function Home() {
 
         {status === "LOADING" && <div>Loading…</div>}
 
+        {status === "BOOTSTRAP" && (
+          <div className="mt-6 space-y-2">
+            <p className="opacity-80">
+              This system has not been initialized yet.
+            </p>
+            <a
+              href="/bootstrap/activate"
+              className="inline-block px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white"
+            >
+              Initialize system
+            </a>
+          </div>
+        )}
+
         {identity?.roles.includes("ADMIN") && (
           <>
             <a href="/console/users">Admin</a>
             <a href="/console/invites">Invites</a>
+            <a href="/console/tenants">Tenants</a>
           </>
         )}
 

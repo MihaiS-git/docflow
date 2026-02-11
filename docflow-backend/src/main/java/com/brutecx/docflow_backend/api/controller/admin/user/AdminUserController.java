@@ -3,8 +3,13 @@ package com.brutecx.docflow_backend.api.controller.admin.user;
 import com.brutecx.docflow_backend.api.dto.admin.AdminUserResponseDTO;
 import com.brutecx.docflow_backend.domain.admin.AdminUserService;
 import com.brutecx.docflow_backend.domain.admin.UserRoleAdminService;
+import com.brutecx.docflow_backend.domain.user.UserStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -22,10 +27,31 @@ public class AdminUserController {
     private final AdminUserService adminUserService;
     private final UserRoleAdminService userRoleAdminService;
 
-
     @GetMapping
-    public ResponseEntity<List<AdminUserResponseDTO>> listUsers() {
-        return ResponseEntity.ok(adminUserService.listUsers());
+    public ResponseEntity<Page<AdminUserResponseDTO>> listUsers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt") String sort,
+            @RequestParam(defaultValue = "DESC") Sort.Direction direction,
+            @RequestParam(required = false) UUID tenantId,
+            @RequestParam(required = false) UserStatus status,
+            @RequestParam(required = false) String email
+    ) {
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(direction, sort)
+        );
+
+        return ResponseEntity.ok(
+                adminUserService.listUsers(
+                        pageable,
+                        tenantId,
+                        status,
+                        email
+                )
+        );
     }
 
     @GetMapping("/roles")

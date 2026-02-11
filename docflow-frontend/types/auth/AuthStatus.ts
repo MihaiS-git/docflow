@@ -1,1 +1,6 @@
-export type AuthStatus = "ANON" | "AUTH" | "LOADING" | "BLOCKED";
+export type AuthStatus =
+  | "ANON"
+  | "LOADING"
+  | "BOOTSTRAP"
+  | "AUTH"
+  | "BLOCKED";

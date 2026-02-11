@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.sensitive;
 
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -14,8 +17,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -23,9 +25,12 @@ import java.util.UUID;
 public class SensitiveAccessAuditServiceImpl
         implements ISensitiveAccessAuditService {
 
+    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
+    private static final String STREAM = "SENSITIVE_ACCESS";
+
     private final SensitiveAccessAuditEventRepository repository;
     private final AuditChainService auditChainService;
-    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
+    private final AuditRequestContextExtractor contextExtractor;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -38,131 +43,177 @@ public class SensitiveAccessAuditServiceImpl
             String resource,
             String action,
             String resourcePath,
-            String correlationId,
-            String ip,
-            String userAgent,
+            String ignoredCorrelationId,
+            String ignoredIp,
+            String ignoredUserAgent,
             String reasonCode,
             String reasonDetail,
             SensitiveDataClassification dataClassification,
             String eventFingerprint
     ) {
 
-        try {
-            Provenance provenance = resolveProvenance(correlationId, eventFingerprint);
+        ensureHttpContext();
 
-            String tenantIdStr = (tenantId != null) ? tenantId.toString() : null;
-            String material = String.join("|",
-                    "SENSITIVE_ACCESS",
-                    String.valueOf(actorUserId),
-                    String.valueOf(actorExternalSubjectId),
-                    String.valueOf(tenantId),
-                    String.valueOf(subjectType),
-                    String.valueOf(subjectId),
-                    String.valueOf(resource),
-                    String.valueOf(action),
-                    String.valueOf(resourcePath),
-                    String.valueOf(correlationId),
-                    String.valueOf(reasonCode),
-                    String.valueOf(dataClassification),
-                    String.valueOf(eventFingerprint)
+        if (tenantId == null) {
+            throw new IllegalStateException(
+                    "SensitiveAccessAudit requires tenantId (multi-tenant invariant)"
             );
+        }
 
+        AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
+        String correlationId = requireCorrelation(ctx);
+
+        String resolvedSubjectId =
+                (subjectId != null && !subjectId.isBlank())
+                        ? subjectId.trim()
+                        : "UNKNOWN";
+
+        String resolvedResource =
+                (resource != null && !resource.isBlank())
+                        ? resource.trim()
+                        : "UNKNOWN";
+
+        String resolvedAction =
+                (action != null && !action.isBlank())
+                        ? action.trim()
+                        : "UNKNOWN";
+
+        String resolvedPath =
+                (resourcePath != null && !resourcePath.isBlank())
+                        ? resourcePath.trim()
+                        : "UNKNOWN";
+
+        String resolvedReason =
+                (reasonCode != null && !reasonCode.isBlank())
+                        ? reasonCode.trim()
+                        : "NONE";
+
+        String resolvedClassification =
+                dataClassification != null
+                        ? dataClassification.name()
+                        : "UNSPECIFIED";
+
+        String fingerprint =
+                resolveFingerprint(
+                        eventFingerprint,
+                        STREAM,
+                        String.valueOf(actorUserId),
+                        tenantId.toString(),
+                        String.valueOf(subjectType),
+                        resolvedSubjectId,
+                        resolvedResource,
+                        resolvedAction,
+                        resolvedPath,
+                        resolvedReason,
+                        resolvedClassification,
+                        correlationId
+                );
+
+        CorrelationSource correlationSource = resolveCorrelationSource();
+
+        String material = String.join("|",
+                STREAM,
+                String.valueOf(actorUserId),
+                String.valueOf(actorExternalSubjectId),
+                tenantId.toString(),
+                String.valueOf(subjectType),
+                resolvedSubjectId,
+                resolvedResource,
+                resolvedAction,
+                resolvedPath,
+                correlationId,
+                resolvedReason,
+                resolvedClassification,
+                fingerprint
+        );
+
+        try {
+
+            /*
+             * Strict per-tenant hash partition.
+             */
             AuditChainService.ChainHash chain =
-                    auditChainService.nextHash("SENSITIVE_ACCESS", tenantIdStr, material);
+                    auditChainService.nextHash(
+                            STREAM,
+                            tenantId.toString(),
+                            material
+                    );
 
             repository.saveAndFlush(new SensitiveAccessAuditEvent(
                     actorUserId,
                     actorExternalSubjectId,
                     tenantId,
                     subjectType,
-                    subjectId,
-                    resource,
-                    action,
-                    resourcePath,
-                    provenance.correlationId,
-                    provenance.correlationSource,
-                    provenance.executionContext,
-                    provenance.result,
-                    ip,
-                    userAgent,
-                    reasonCode,
+                    resolvedSubjectId,
+                    resolvedResource,
+                    resolvedAction,
+                    resolvedPath,
+                    correlationId,
+                    correlationSource,
+                    ExecutionContext.HTTP,
+                    AuditResult.SUCCESS,
+                    ctx.ip(),
+                    ctx.userAgent(),
+                    resolvedReason,
                     reasonDetail,
                     dataClassification,
-                    eventFingerprint,
+                    fingerprint,
                     chain.chainVersion(),
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
         } catch (DataIntegrityViolationException ex) {
             log.debug(
-                    "SENSITIVE ACCESS AUDIT DEDUPLICATED. correlationId={} fingerprint={}",
+                    "SENSITIVE ACCESS AUDIT DEDUPLICATED correlationId={} fingerprint={}",
                     correlationId,
-                    eventFingerprint
+                    fingerprint
             );
         } catch (Exception ex) {
             log.error(
-                    "SENSITIVE ACCESS AUDIT FAILURE. correlationId={} subjectType={} subjectId={} resource={} action={}",
+                    "SENSITIVE ACCESS AUDIT FAILURE correlationId={} subjectType={} subjectId={} resource={} action={}",
                     correlationId,
                     subjectType,
-                    subjectId,
-                    resource,
-                    action,
+                    resolvedSubjectId,
+                    resolvedResource,
+                    resolvedAction,
                     ex
+            );
+            throw ex;
+        }
+    }
+
+    /* =========================================================
+       INTERNAL HELPERS
+       ========================================================= */
+
+    private void ensureHttpContext() {
+        if (RequestContextHolder.getRequestAttributes() == null) {
+            throw new IllegalStateException(
+                    "SensitiveAccessAudit invoked outside HTTP request context"
             );
         }
     }
 
-    private Provenance resolveProvenance(String correlationId, String eventFingerprint) {
-        // Execution context: if we are on a request thread, it's HTTP; otherwise SYSTEM.
-        ExecutionContext executionContext =
-                (RequestContextHolder.getRequestAttributes() != null)
-                        ? ExecutionContext.HTTP
-                        : ExecutionContext.SYSTEM;
-
-        // Result semantics for sensitive reads: SUCCESS (denied audits are recorded elsewhere).
-        AuditResult result = AuditResult.SUCCESS;
-
-        // Correlation source:
-        // - Prefer explicit MDC label set by RequestCorrelationIdFilter.
-        // - If missing but correlationId exists, treat as REQUEST_ID (best available truth).
-        // - If missing entirely, generate deterministically and label GENERATED.
-        String mdcSource = MDC.get("correlationSource");
-        if (correlationId != null && !correlationId.isBlank()) {
-            CorrelationSource source =
-                    "GENERATED".equalsIgnoreCase(mdcSource)
-                            ? CorrelationSource.GENERATED
-                            : CorrelationSource.REQUEST_ID;
-
-            return new Provenance(correlationId, source, executionContext, result);
+    private String requireCorrelation(AuditRequestContext ctx) {
+        String corr = ctx.correlationId();
+        if (corr == null || corr.isBlank()) {
+            throw new IllegalStateException(
+                    "Missing correlationId for SensitiveAccess audit"
+            );
         }
-
-        // No real correlation available → generate deterministic correlation id from fingerprint.
-        // This is not random and is explicitly labeled GENERATED.
-        String generated = "gen-" + shortSha256(eventFingerprint != null ? eventFingerprint : "NO_FINGERPRINT");
-        return new Provenance(generated, CorrelationSource.GENERATED, executionContext, result);
+        return corr;
     }
 
-    private static String shortSha256(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            // 12 bytes => 24 hex chars, compact but collision-resistant enough for correlation labeling.
-            StringBuilder sb = new StringBuilder(24);
-            for (int i = 0; i < 12; i++) {
-                sb.append(String.format("%02x", hash[i]));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            // Fallback should never lie: still label GENERATED.
-            return "hash_error";
-        }
+    private CorrelationSource resolveCorrelationSource() {
+        return "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+                ? CorrelationSource.GENERATED
+                : CorrelationSource.REQUEST_ID;
     }
 
-    private record Provenance(
-            String correlationId,
-            CorrelationSource correlationSource,
-            ExecutionContext executionContext,
-            AuditResult result
-    ) {
+    private String resolveFingerprint(String provided, String... parts) {
+        return (provided != null && !provided.isBlank())
+                ? provided
+                : EventFingerprint.of(List.of(parts));
     }
 }

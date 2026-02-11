@@ -2,8 +2,6 @@ package com.brutecx.docflow_backend.application.invite;
 
 import com.brutecx.docflow_backend.api.error.InviteNotFoundException;
 import com.brutecx.docflow_backend.application.mail.IMailService;
-import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
-import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.admin.*;
 import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditService;
 import com.brutecx.docflow_backend.domain.invite.Invite;
@@ -27,9 +25,9 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-
 
 @Slf4j
 @Service
@@ -44,14 +42,14 @@ public class InviteApplicationService {
     private final KeycloakAdminClient keycloakAdminClient;
     private final TenantService tenantService;
     private final IUserProvisioningService userProvisioningService;
-    private final AuditRequestContextExtractor auditContextExtractor;
     private final IAdminAuditEventService adminAuditEventService;
     private final OnboardingAuditService onboardingAuditService;
     private final UserService userService;
 
-    /**
-     * Phase 1 — Admin creates invite
-     */
+    /* =========================================================
+       CREATE + SEND
+       ========================================================= */
+
     @Transactional
     public void createAndSendInvite(
             UUID targetTenantId,
@@ -61,20 +59,18 @@ public class InviteApplicationService {
             String jobTitle,
             String department
     ) {
-        Tenant tenant = tenantService.getRequired(targetTenantId);
-        String normalizedEmail = email.toLowerCase(java.util.Locale.ROOT);
 
-        var ctx = auditContextExtractor.fromCurrentRequest();
-        UUID actorUserId = userService.getRequiredCurrentUser().getId();
-        String subjectId = userService.getRequiredCurrentUser().getExternalSubjectId();
+        Tenant tenant = tenantService.getRequired(targetTenantId);
+        String normalizedEmail = email.toLowerCase(Locale.ROOT);
+        var actor = userService.getRequiredCurrentUser();
 
         boolean success = false;
         RuntimeException failure = null;
         Invite invite = null;
 
-        User user;
         try {
-            user = userProvisioningService.provisionInvitedUser(
+
+            User user = userProvisioningService.provisionInvitedUser(
                     tenant,
                     normalizedEmail,
                     firstName,
@@ -89,14 +85,16 @@ public class InviteApplicationService {
 
             String temporaryPassword = generateTemporaryPassword();
 
-            String keycloakUserId = keycloakAdminClient.ensureInviteUserExistsWithRequiredActionsAndTempPassword(
-                    normalizedEmail,
-                    temporaryPassword
-            );
+            String keycloakUserId =
+                    keycloakAdminClient.ensureInviteUserExistsWithRequiredActionsAndTempPassword(
+                            normalizedEmail,
+                            temporaryPassword
+                    );
 
             userService.setSubjectId(tenant, normalizedEmail, keycloakUserId);
 
-            String inviteLink = frontendBaseUrl + "/invite?token=" + invite.getToken();
+            String inviteLink =
+                    frontendBaseUrl + "/invite?token=" + invite.getToken();
 
             mailService.sendInvite(
                     tenant,
@@ -110,45 +108,42 @@ public class InviteApplicationService {
             );
 
             success = true;
+
         } catch (RuntimeException ex) {
             failure = ex;
             throw ex;
+
         } finally {
+
             AdminAuditMetadata metadata =
                     new InviteAuditMetadata(
                             normalizedEmail,
                             invite != null ? invite.getId().toString() : null,
                             success ? InviteOutcome.SUCCESS : InviteOutcome.FAILURE,
-                            success ? null : (failure != null ? failure.getClass().getSimpleName() : "UNKNOWN")
+                            success
+                                    ? null
+                                    : (failure != null
+                                    ? failure.getClass().getSimpleName()
+                                    : "UNKNOWN")
                     );
 
-            String eventFingerprint = EventFingerprint.of(List.of(
-                    AdminAuditActionType.USER_INVITED.name(),
-                    tenant.getId().toString(),
-                    normalizedEmail,
-                    ctx.correlationId()
-            ));
-
             adminAuditEventService.record(
-                    actorUserId,
-                    ctx.ip(),
-                    ctx.userAgent(),
-                    ctx.correlationId(),
-                    subjectId,
-                    tenant.getId(),
                     AdminAuditActionType.USER_INVITED,
+                    tenant.getId(),
+                    actor.getExternalSubjectId(),
                     null,
-                    metadata,
-                    eventFingerprint
+                    metadata
             );
         }
     }
 
-    /**
-     * Phase 4 — Post-login consumption
-     */
+    /* =========================================================
+       CONSUME
+       ========================================================= */
+
     @Transactional
     public void consumeInviteIfPresent(HttpSession session) {
+
         if (session == null) return;
 
         Object raw = session.getAttribute(InviteSessionKeys.INVITE_TOKEN);
@@ -160,73 +155,52 @@ public class InviteApplicationService {
         session.removeAttribute(InviteSessionKeys.INVITE_TOKEN);
     }
 
-    /**
-     * Phase 2 — Invite validation
-     */
     @Transactional
     public void validateAndStoreInviteToken(String token, HttpSession session) {
+
         if (token == null || token.isBlank()) {
             throw new InviteNotFoundException("Invite token not provided");
         }
 
-        // Single source of truth for validation + audit
         validateInviteOrThrow(token);
-
         session.setAttribute(InviteSessionKeys.INVITE_TOKEN, token);
     }
 
+    /* =========================================================
+       VALIDATION
+       ========================================================= */
+
     @Transactional
     Invite validateInviteOrThrow(String token) {
+
         Invite invite = inviteRepository.findByToken(token)
                 .orElseThrow(() ->
                         new InviteNotFoundException("Invite not found for the provided token")
                 );
 
-        var ctx = auditContextExtractor.fromCurrentRequest();
-
         UUID inviteTenantId = requireInviteTenant(invite);
 
         if (invite.isExpired()) {
-            String eventFingerprint = EventFingerprint.of(List.of(
-                    "INVITE_EXPIRED",
-                    inviteTenantId.toString(),
-                    invite.getId().toString(),
-                    ctx.correlationId()
-            ));
 
             onboardingAuditService.recordFailure(
-                    null,
                     null,
                     inviteTenantId,
                     invite.getId(),
                     "INVITE_EXPIRED",
-                    ctx.correlationId(),
-                    ctx.ip(),
-                    ctx.userAgent(),
-                    eventFingerprint
+                    null
             );
 
             throw new InviteNotFoundException("Invite link invalid or expired");
         }
 
         if (invite.getStatus() == InviteStatus.ACCEPTED) {
-            String eventFingerprint = EventFingerprint.of(List.of(
-                    "INVITE_REPLAY",
-                    inviteTenantId.toString(),
-                    invite.getId().toString(),
-                    ctx.correlationId()
-            ));
 
             onboardingAuditService.recordFailure(
-                    null,
                     null,
                     inviteTenantId,
                     invite.getId(),
                     "INVITE_REPLAY",
-                    ctx.correlationId(),
-                    ctx.ip(),
-                    ctx.userAgent(),
-                    eventFingerprint
+                    null
             );
 
             throw new InviteNotFoundException("Invite link invalid or expired");
@@ -235,65 +209,48 @@ public class InviteApplicationService {
         return invite;
     }
 
+    /* =========================================================
+       ACCEPT
+       ========================================================= */
+
     @Transactional
     void acceptInviteOrThrow(Invite invite) {
-        var ctx = auditContextExtractor.fromCurrentRequest();
 
         UUID inviteTenantId = requireInviteTenant(invite);
+        var currentUser = userService.getRequiredCurrentUser();
 
         if (invite.getStatus() == InviteStatus.ACCEPTED) {
-            String eventFingerprint = EventFingerprint.of(List.of(
-                    "INVITE_REPLAY",
-                    inviteTenantId.toString(),
-                    invite.getId().toString(),
-                    ctx.correlationId()
-            ));
 
             onboardingAuditService.recordFailure(
-                    userService.getRequiredCurrentUser().getId(),
-                    userService.getRequiredCurrentUser().getExternalSubjectId(),
+                    currentUser.getId(),
                     inviteTenantId,
                     invite.getId(),
                     "INVITE_REPLAY",
-                    ctx.correlationId(),
-                    ctx.ip(),
-                    ctx.userAgent(),
-                    eventFingerprint
+                    null
             );
 
             throw new IllegalArgumentException("Invite link invalid or expired");
         }
 
-        UUID actorUserId = userService.getRequiredCurrentUser().getId();
-        String subjectId = userService.getRequiredCurrentUser().getExternalSubjectId();
-
-        String eventFingerprint = EventFingerprint.of(List.of(
-                "INVITE_ACCEPTED",
-                inviteTenantId.toString(),
-                invite.getId().toString(),
-                ctx.correlationId()
-        ));
-
         onboardingAuditService.recordOnce(
-                actorUserId,
-                subjectId,
+                currentUser.getId(),
+                currentUser.getExternalSubjectId(),
                 inviteTenantId,
                 invite.getId(),
-                ctx.correlationId(),
-                ctx.ip(),
-                ctx.userAgent(),
-                eventFingerprint
+                null
         );
 
         invite.markAccepted();
         inviteRepository.save(invite);
     }
 
-    /**
-     * Admin-only: revoke a pending invite
-     */
+    /* =========================================================
+       REVOKE
+       ========================================================= */
+
     @Transactional
     public void revokeInvite(UUID inviteId) {
+
         Invite invite = inviteRepository.findById(inviteId)
                 .orElseThrow(() ->
                         new InviteNotFoundException("Invite not found")
@@ -302,9 +259,7 @@ public class InviteApplicationService {
         UUID inviteTenantId = requireInviteTenant(invite);
 
         if (invite.getStatus() != InviteStatus.PENDING) {
-            throw new IllegalStateException(
-                    "Only PENDING invites can be revoked"
-            );
+            throw new IllegalStateException("Only PENDING invites can be revoked");
         }
 
         User user = invite.getUser();
@@ -313,7 +268,6 @@ public class InviteApplicationService {
             throw new IllegalStateException("Cannot revoke invite for ACTIVE user");
         }
 
-        // Delete Keycloak user FIRST (outside JPA cascade)
         if (user != null && user.getExternalSubjectId() != null) {
             try {
                 keycloakAdminClient.deleteUserById(user.getExternalSubjectId());
@@ -326,45 +280,31 @@ public class InviteApplicationService {
             }
         }
 
-        // invite removal cascades to user
         inviteRepository.delete(invite);
 
-        var ctx = auditContextExtractor.fromCurrentRequest();
         var actor = userService.getRequiredCurrentUser();
 
-        AdminAuditMetadata metadata =
+        adminAuditEventService.record(
+                AdminAuditActionType.INVITE_REVOKED,
+                inviteTenantId,
+                actor.getExternalSubjectId(),
+                null,
                 new InviteAuditMetadata(
                         invite.getEmail(),
                         invite.getId().toString(),
                         InviteOutcome.SUCCESS,
                         null
-                );
-
-        String eventFingerprint = EventFingerprint.of(List.of(
-                AdminAuditActionType.INVITE_REVOKED.name(),
-                invite.getId().toString(),
-                ctx.correlationId()
-        ));
-
-        adminAuditEventService.record(
-                actor.getId(),
-                ctx.ip(),
-                ctx.userAgent(),
-                ctx.correlationId(),
-                actor.getExternalSubjectId(),
-                inviteTenantId,
-                AdminAuditActionType.INVITE_REVOKED,
-                null,
-                metadata,
-                eventFingerprint
+                )
         );
     }
 
-    /**
-     * Admin-only: manual cleanup of expired invites and orphaned users.
-     */
+    /* =========================================================
+       CLEANUP
+       ========================================================= */
+
     @Transactional
     public CleanupResult cleanupExpiredInvitesAndOrphanedUsers(UUID targetTenantId) {
+
         Instant now = Instant.now();
 
         List<Invite> expiredInvites =
@@ -385,31 +325,17 @@ public class InviteApplicationService {
 
         inviteRepository.deleteAll(expiredInvites);
 
-        var ctx = auditContextExtractor.fromCurrentRequest();
         var actor = userService.getRequiredCurrentUser();
 
-        String eventFingerprint = EventFingerprint.of(List.of(
-                AdminAuditActionType.INVITE_CLEANUP.name(),
-                targetTenantId.toString(),
-                String.valueOf(expiredInvites.size()),
-                String.valueOf(deletedUsers),
-                ctx.correlationId()
-        ));
-
         adminAuditEventService.record(
-                actor.getId(),
-                ctx.ip(),
-                ctx.userAgent(),
-                ctx.correlationId(),
-                actor.getExternalSubjectId(),
-                targetTenantId,
                 AdminAuditActionType.INVITE_CLEANUP,
+                targetTenantId,
+                actor.getExternalSubjectId(),
                 null,
                 new InviteCleanupAuditMetadata(
                         expiredInvites.size(),
                         deletedUsers
-                ),
-                eventFingerprint
+                )
         );
 
         return new CleanupResult(
@@ -417,6 +343,10 @@ public class InviteApplicationService {
                 deletedUsers
         );
     }
+
+    /* =========================================================
+       UTIL
+       ========================================================= */
 
     private static UUID requireInviteTenant(Invite invite) {
         UUID tenantId = invite.getTenantId();
@@ -427,9 +357,8 @@ public class InviteApplicationService {
     }
 
     private static String generateTemporaryPassword() {
-        byte[] bytes = new byte[32]; // 256-bit entropy
+        byte[] bytes = new byte[32];
         new SecureRandom().nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 }
-

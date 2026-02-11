@@ -26,7 +26,7 @@ public class TenantBootstrap implements ApplicationRunner {
             return;
         }
 
-        Tenant tenant = new Tenant("Brutecx");
+        Tenant tenant = Tenant.bootstrapTenant("Brutecx");
         tenantRepository.save(tenant);
     }
 }

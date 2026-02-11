@@ -4,9 +4,11 @@ export interface AdminInvite {
   id: string;
   email: string;
   status: InviteStatus;
-  createdAt: string;   // ISO
-  expiresAt: string;   // ISO
+  createdAt: string;
+  expiresAt: string;
   ageSeconds: number;
+  tenantId: string;
+  tenantName: string;
 }
 
 export interface Page<T> {

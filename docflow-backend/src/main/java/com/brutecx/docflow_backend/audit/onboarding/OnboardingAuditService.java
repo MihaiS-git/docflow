@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.onboarding;
 
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -11,16 +14,21 @@ import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class OnboardingAuditService {
 
+    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
+    private static final String STREAM = "ONBOARDING";
+
     private final OnboardingAuditEventRepository repository;
     private final AuditChainService auditChainService;
-    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
+    private final AuditRequestContextExtractor contextExtractor;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordOnce(
@@ -28,39 +36,52 @@ public class OnboardingAuditService {
             String subjectId,
             UUID tenantId,
             UUID inviteId,
-            String correlationId,
-            String ip,
-            String userAgent,
             String eventFingerprint
     ) {
+        ensureHttpContext();
+
+        requireNonNull(inviteId, "inviteId");
+        requireNonNull(tenantId, "tenantId");
+
         if (repository.existsByInviteId(inviteId)) {
-            return; // HARD guarantee: no double logging
+            return; // strict idempotency guarantee
         }
 
-        if (subjectId == null) {
-            throw new IllegalStateException(
-                    "Onboarding SUCCESS requires a subjectId (post-auth)"
-            );
+        if (subjectId == null || subjectId.isBlank()) {
+            throw new IllegalStateException("Onboarding SUCCESS requires subjectId");
         }
+
+        AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
+        String correlationId = requireCorrelation(ctx);
+
+        String fingerprint =
+                resolveFingerprint(
+                        eventFingerprint,
+                        STREAM,
+                        "SUCCESS",
+                        inviteId.toString(),
+                        subjectId,
+                        tenantId.toString(),
+                        correlationId
+                );
+
+        CorrelationSource correlationSource = resolveCorrelationSource();
+
+        String material = String.join("|",
+                STREAM,
+                "SUCCESS",
+                inviteId.toString(),
+                subjectId,
+                tenantId.toString(),
+                correlationId,
+                fingerprint
+        );
+
         try {
-            CorrelationSource correlationSource =
-                    "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
-                            ? CorrelationSource.GENERATED
-                            : CorrelationSource.REQUEST_ID;
-
-            String material = String.join("|",
-                    "ONBOARDING",
-                    "SUCCESS",
-                    inviteId.toString(),
-                    subjectId,
-                    tenantId.toString(),
-                    correlationId
-            );
-
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            "ONBOARDING",
-                            correlationId,
+                            STREAM,
+                            tenantId.toString(),
                             material
                     );
 
@@ -72,60 +93,77 @@ public class OnboardingAuditService {
                     correlationId,
                     correlationSource,
                     ExecutionContext.HTTP,
-                    ip,
-                    userAgent,
+                    ctx.ip(),
+                    ctx.userAgent(),
                     AuditResult.SUCCESS,
                     OnboardingOutcome.SUCCESS,
                     "ONBOARDING_SUCCESS",
                     null,
-                    eventFingerprint,
+                    fingerprint,
                     chain.chainVersion(),
                     chain.prevHash(),
                     chain.eventHash()
             ));
         } catch (Exception ex) {
             log.error(
-                    "ONBOARDING AUDIT FAILURE (SUCCESS). correlationId={} inviteId={} subjectId={}",
-                    correlationId, inviteId, subjectId, ex
+                    "ONBOARDING AUDIT FAILURE (SUCCESS) correlationId={} inviteId={} subjectId={}",
+                    correlationId,
+                    inviteId,
+                    subjectId,
+                    ex
             );
+            throw ex;
         }
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailure(
             UUID actorUserId,
-            String subjectId,
             UUID tenantId,
             UUID inviteId,
             String failureReason,
-            String correlationId,
-            String ip,
-            String userAgent,
             String eventFingerprint
     ) {
-        if (subjectId != null) {
-            throw new IllegalStateException(
-                    "Onboarding FAILURE must not have a subjectId (pre-auth)"
-            );
-        }
+        ensureHttpContext();
+
+        requireNonNull(inviteId, "inviteId");
+        requireNonNull(tenantId, "tenantId");
+
+        AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
+        String correlationId = requireCorrelation(ctx);
+
+        String resolvedReason = (failureReason != null && !failureReason.isBlank())
+                ? failureReason
+                : "-";
+
+        String fingerprint =
+                resolveFingerprint(
+                        eventFingerprint,
+                        STREAM,
+                        "FAILURE",
+                        inviteId.toString(),
+                        tenantId.toString(),
+                        resolvedReason,
+                        correlationId
+                );
+
+        CorrelationSource correlationSource = resolveCorrelationSource();
+
+        String material = String.join("|",
+                STREAM,
+                "FAILURE",
+                inviteId.toString(),
+                tenantId.toString(),
+                resolvedReason,
+                correlationId,
+                fingerprint
+        );
+
         try {
-            CorrelationSource correlationSource =
-                    "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
-                            ? CorrelationSource.GENERATED
-                            : CorrelationSource.REQUEST_ID;
-
-            String material = String.join("|",
-                    "ONBOARDING",
-                    "FAILURE",
-                    inviteId.toString(),
-                    tenantId.toString(),
-                    failureReason != null ? failureReason : "-"
-            );
-
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            "ONBOARDING",
-                            correlationId,
+                            STREAM,
+                            tenantId.toString(),
                             material
                     );
 
@@ -137,22 +175,56 @@ public class OnboardingAuditService {
                     correlationId,
                     correlationSource,
                     ExecutionContext.HTTP,
-                    ip,
-                    userAgent,
+                    ctx.ip(),
+                    ctx.userAgent(),
                     AuditResult.FAILED,
                     OnboardingOutcome.FAILURE,
                     "ONBOARDING_FAILURE",
-                    failureReason,
-                    eventFingerprint,
+                    resolvedReason,
+                    fingerprint,
                     chain.chainVersion(),
                     chain.prevHash(),
                     chain.eventHash()
             ));
         } catch (Exception ex) {
             log.error(
-                    "ONBOARDING AUDIT FAILURE (FAILURE). correlationId={} inviteId={} reason={}",
-                    correlationId, inviteId, failureReason, ex
+                    "ONBOARDING AUDIT FAILURE (FAILURE) correlationId={} inviteId={} reason={}",
+                    correlationId,
+                    inviteId,
+                    resolvedReason,
+                    ex
             );
+            throw ex;
         }
+    }
+
+    private static void ensureHttpContext() {
+        if (RequestContextHolder.getRequestAttributes() == null) {
+            throw new IllegalStateException("OnboardingAudit invoked outside HTTP request context");
+        }
+    }
+
+    private static String requireCorrelation(AuditRequestContext ctx) {
+        String corr = ctx.correlationId();
+        if (corr == null || corr.isBlank()) {
+            throw new IllegalStateException("Missing correlationId for Onboarding audit");
+        }
+        return corr;
+    }
+
+    private static CorrelationSource resolveCorrelationSource() {
+        return "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+                ? CorrelationSource.GENERATED
+                : CorrelationSource.REQUEST_ID;
+    }
+
+    private static String resolveFingerprint(String provided, String... parts) {
+        return (provided != null && !provided.isBlank())
+                ? provided
+                : EventFingerprint.of(List.of(parts));
+    }
+
+    private static void requireNonNull(Object v, String name) {
+        if (v == null) throw new IllegalArgumentException(name + " is required");
     }
 }

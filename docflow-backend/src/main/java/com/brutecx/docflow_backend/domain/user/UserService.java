@@ -19,6 +19,10 @@ public class UserService {
 
     private final UserRepository userRepository;
 
+    public UserRepository getUserRepository() {
+        return userRepository;
+    }
+
     public User getRequiredCurrentUser() {
         log.info("Getting current user");
 

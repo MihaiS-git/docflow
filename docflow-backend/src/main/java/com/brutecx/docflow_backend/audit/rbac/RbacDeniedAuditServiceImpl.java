@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.audit.rbac;
 
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -9,118 +12,124 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-public class RbacDeniedAuditServiceImpl
-        implements IRbacDeniedAuditService {
+public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
+
+    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
+    private static final String STREAM = "RBAC_DENIED";
 
     private final RbacDeniedAuditEventRepository repository;
     private final AuditChainService auditChainService;
-    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
+    private final AuditRequestContextExtractor contextExtractor;
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(
-            String correlationId,
             String subjectId,
             String httpMethod,
             String path,
-            String ip,
-            String userAgent,
             String eventFingerprint
     ) {
+        ensureHttpContext();
+
+        AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
+        String correlationId = requireCorrelation(ctx);
+
+        String resolvedSubject = normalizeOr(subjectId, "UNKNOWN");
+        String resolvedMethod = normalizeOr(httpMethod, "UNKNOWN");
+        String resolvedPath = normalizeOr(path, "UNKNOWN");
+
+        String fingerprint =
+                (eventFingerprint != null && !eventFingerprint.isBlank())
+                        ? eventFingerprint
+                        : EventFingerprint.of(List.of(
+                        STREAM,
+                        resolvedSubject,
+                        resolvedMethod,
+                        resolvedPath,
+                        correlationId
+                ));
+
+        CorrelationSource correlationSource = resolveCorrelationSource();
+
+        String material = String.join("|",
+                STREAM,
+                resolvedSubject,
+                resolvedMethod,
+                resolvedPath,
+                correlationId,
+                fingerprint
+        );
 
         try {
-            Provenance provenance = resolveProvenance(correlationId, eventFingerprint);
-
-            String material = String.join("|",
-                    "RBAC_DENIED",
-                    provenance.executionContext.name(),
-                    provenance.correlationId,
-                    subjectId != null ? subjectId : "-",
-                    httpMethod,
-                    path,
-                    eventFingerprint
-            );
+            String partitionKey =
+                    !"UNKNOWN".equals(resolvedSubject)
+                            ? resolvedSubject
+                            : STREAM + "_GLOBAL";
 
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            "RBAC_DENIED",
-                            provenance.correlationId,
+                            STREAM,
+                            partitionKey,
                             material
                     );
 
             repository.save(new RbacDeniedAuditEvent(
-                    provenance.correlationId,
-                    provenance.correlationSource,
-                    provenance.executionContext,
-                    provenance.result,
-                    subjectId,
-                    httpMethod,
-                    path,
-                    ip,
-                    userAgent,
-                    eventFingerprint,
+                    correlationId,
+                    correlationSource,
+                    ExecutionContext.HTTP,
+                    AuditResult.DENIED,
+                    resolvedSubject,
+                    resolvedMethod,
+                    resolvedPath,
+                    ctx.ip(),
+                    ctx.userAgent(),
+                    fingerprint,
                     chain.chainVersion(),
                     chain.prevHash(),
                     chain.eventHash()
             ));
         } catch (Exception ex) {
             log.error(
-                    "RBAC AUDIT FAILURE. correlationId={} subjectId={} httpMethod={} fingerprint={}",
-                    correlationId, subjectId, httpMethod + " " + path, eventFingerprint, ex
+                    "RBAC AUDIT FAILURE correlationId={} subjectId={} method={} path={}",
+                    correlationId,
+                    resolvedSubject,
+                    resolvedMethod,
+                    resolvedPath,
+                    ex
             );
+            throw ex;
         }
     }
 
-    private Provenance resolveProvenance(String correlationId, String eventFingerprint) {
-        ExecutionContext executionContext =
-                (RequestContextHolder.getRequestAttributes() != null)
-                        ? ExecutionContext.HTTP
-                        : ExecutionContext.SYSTEM;
-
-        // This table is specifically for "denied" actions.
-        AuditResult result = AuditResult.DENIED;
-
-        String mdcSource = MDC.get("correlationSource");
-        if (correlationId != null && !correlationId.isBlank()) {
-            CorrelationSource source =
-                    "GENERATED".equalsIgnoreCase(mdcSource)
-                            ? CorrelationSource.GENERATED
-                            : CorrelationSource.REQUEST_ID;
-            return new Provenance(correlationId, source, executionContext, result);
-        }
-
-        // No real correlation available → deterministic generated id, explicitly labeled.
-        String generated = "gen-" + shortSha256(eventFingerprint != null ? eventFingerprint : "NO_FINGERPRINT");
-        return new Provenance(generated, CorrelationSource.GENERATED, executionContext, result);
-    }
-
-    private static String shortSha256(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(24);
-            for (int i = 0; i < 12; i++) {
-                sb.append(String.format("%02x", hash[i]));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return "hash_error";
+    private static void ensureHttpContext() {
+        if (RequestContextHolder.getRequestAttributes() == null) {
+            throw new IllegalStateException("RbacDeniedAudit invoked outside HTTP request context");
         }
     }
 
-    private record Provenance(
-            String correlationId,
-            CorrelationSource correlationSource,
-            ExecutionContext executionContext,
-            AuditResult result
-    ) {
+    private static String requireCorrelation(AuditRequestContext ctx) {
+        String corr = ctx.correlationId();
+        if (corr == null || corr.isBlank()) {
+            throw new IllegalStateException("Missing correlationId for RBAC audit");
+        }
+        return corr;
+    }
+
+    private static CorrelationSource resolveCorrelationSource() {
+        return "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+                ? CorrelationSource.GENERATED
+                : CorrelationSource.REQUEST_ID;
+    }
+
+    private static String normalizeOr(String v, String fallback) {
+        return (v != null && !v.isBlank()) ? v : fallback;
     }
 }

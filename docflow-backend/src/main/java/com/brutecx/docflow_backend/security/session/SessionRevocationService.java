@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.security.session;
 
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import lombok.extern.slf4j.Slf4j;
@@ -18,20 +19,19 @@ public class SessionRevocationService {
 
     private final SessionRegistry sessionRegistry;
     private final ILifecycleDeniedAuditService lifecycleDeniedAuditService;
+    private final AuditRequestContextExtractor contextExtractor;
 
     public SessionRevocationService(
             @Autowired(required = false) SessionRegistry sessionRegistry,
-            ILifecycleDeniedAuditService lifecycleDeniedAuditService
+            ILifecycleDeniedAuditService lifecycleDeniedAuditService,
+            AuditRequestContextExtractor contextExtractor
     ) {
         this.sessionRegistry = sessionRegistry;
         this.lifecycleDeniedAuditService = lifecycleDeniedAuditService;
+        this.contextExtractor = contextExtractor;
     }
 
-    /**
-     * Invalidates all active sessions for a given OIDC subject.
-     */
     public int revokeSessionsBySubject(
-            AuditRequestContext ctx,
             String targetExternalSubjectId,
             String actorExternalSubjectId
     ) {
@@ -42,6 +42,7 @@ public class SessionRevocationService {
         int revoked = 0;
 
         for (Object principal : sessionRegistry.getAllPrincipals()) {
+
             if (!(principal instanceof OidcUser oidcUser)) {
                 continue;
             }
@@ -50,6 +51,7 @@ public class SessionRevocationService {
                 continue;
             }
 
+            // prevent self-revocation through this path
             if (targetExternalSubjectId.equals(actorExternalSubjectId)) {
                 continue;
             }
@@ -64,7 +66,16 @@ public class SessionRevocationService {
         }
 
         if (revoked > 0) {
-            String eventFingerprint = EventFingerprint.of(List.of(
+
+            AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
+
+            if (ctx.correlationId() == null || ctx.correlationId().isBlank()) {
+                throw new IllegalStateException(
+                        "Missing correlationId during session revocation"
+                );
+            }
+
+            String fingerprint = EventFingerprint.of(List.of(
                     "USER_SESSION_REVOKED",
                     targetExternalSubjectId,
                     String.valueOf(revoked),
@@ -72,14 +83,11 @@ public class SessionRevocationService {
             ));
 
             lifecycleDeniedAuditService.record(
-                    ctx.correlationId(),
                     targetExternalSubjectId,
                     "USER_SESSION_REVOKED",
                     "ADMIN_ACTION",
                     "SESSION_INVALIDATION",
-                    ctx.ip(), // no HttpServletRequest available here (service layer)
-                    ctx.userAgent(), // no UA available here (service layer)
-                    eventFingerprint
+                    fingerprint
             );
         }
 

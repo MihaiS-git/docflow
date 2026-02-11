@@ -6,12 +6,14 @@ import com.brutecx.docflow_backend.domain.invite.InviteStatus;
 import java.time.Instant;
 import java.util.UUID;
 
-public record InviteAdminListItemDTO(
+public record InviteAdminViewDTO(
         UUID id,
         String email,
         InviteStatus status,
         Instant createdAt,
         Instant expiresAt,
-        long ageSeconds
+        long ageSeconds,
+        UUID tenantId,
+        String tenantName
 ) {
 }

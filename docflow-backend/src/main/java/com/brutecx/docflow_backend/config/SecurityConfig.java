@@ -139,6 +139,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
 
+                        // -------- BOOTSTRAP-SAFE IDENTITY APIs (AUTHENTICATED ONLY; NO LIFECYCLE) --------
+                        .requestMatchers(HttpMethod.GET, "/api/auth/me").access(authenticatedAuthorizationManager)
+                        .requestMatchers(HttpMethod.GET, "/api/users/me").access(authenticatedAuthorizationManager)
+
                         // -------- ADMIN APIs (LIFECYCLE + RBAC) --------
                         .requestMatchers("/api/admin/**").access(
                                 AuthorizationManagers.allOf(

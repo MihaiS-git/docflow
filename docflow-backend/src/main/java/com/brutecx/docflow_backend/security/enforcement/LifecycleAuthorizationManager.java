@@ -52,7 +52,19 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         Authentication authentication = authenticationSupplier.get();
         String uri = context.getRequest().getRequestURI();
 
+        // Bootstrap-safe endpoints must remain callable while user is not ACTIVE.
+        // These endpoints are still authenticated (by SecurityConfig).
+        if (uri.equals("/api/auth/me")
+                || uri.equals("/api/users/me")
+                || uri.equals("/api/bootstrap/activate")) {
+            return new AuthorizationDecision(true);
+        }
+
         if (uri.startsWith("/api/invites/")) {
+            return new AuthorizationDecision(true);
+        }
+
+        if ("/api/bootstrap/activate".equals(uri)) {
             return new AuthorizationDecision(true);
         }
 

@@ -3,6 +3,9 @@ package com.brutecx.docflow_backend.domain.tenant;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
 import com.brutecx.docflow_backend.audit.admin.TenantAuditMetadata;
+import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
+import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
+import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import lombok.RequiredArgsConstructor;
@@ -11,10 +14,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -23,8 +22,43 @@ import java.util.UUID;
 public class TenantService {
 
     private final TenantRepository tenantRepository;
-    private final UserService userService;
     private final IAdminAuditEventService adminAuditEventService;
+    private final ISensitiveAccessAuditService sensitiveAccessAuditService;
+    private final UserService userService;
+
+    @Transactional(readOnly = true)
+    public Page<User> listUsersByTenant(UUID tenantId, Pageable pageable) {
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new IllegalStateException("Tenant not found: " + tenantId));
+
+        Page<User> page = userService
+                .getUserRepository()
+                .findByTenantId(tenant.getId(), pageable);
+
+        User actor = userService.getRequiredCurrentUser();
+
+        sensitiveAccessAuditService.record(
+                actor.getId(),
+                actor.getExternalSubjectId(),
+                tenant.getId(),
+                SensitiveAccessSubjectType.USER,
+                tenant.getId().toString(),
+                "TENANT_USERS",
+                "LIST",
+                "/api/admin/tenants/" + tenantId + "/users",
+                null,
+                null,
+                null,
+                "ADMIN_LIST_TENANT_USERS",
+                null,
+                SensitiveDataClassification.CONFIDENTIAL,
+                null
+        );
+
+        return page;
+    }
+
 
     @Transactional(readOnly = true)
     public TenantStatus getRequiredTenantStatus(UUID tenantId) {
@@ -34,24 +68,16 @@ public class TenantService {
                 );
     }
 
-    @Transactional(readOnly = true)
-    public Tenant getSingleTenantForBootstrap() {
-        long count = tenantRepository.count();
+    @Transactional
+    public Tenant getOrCreateBootstrapTenant() {
 
-        if (count == 0) {
-            throw new IllegalStateException(
-                    "No tenant exists. Tenant bootstrap must run before admin bootstrap."
-            );
-        }
-
-        if (count > 1) {
-            throw new IllegalStateException(
-                    "Multiple tenants exist (" + count + "). " +
-                            "Admin bootstrap requires exactly one tenant."
-            );
-        }
-
-        return tenantRepository.findAll().getFirst();
+        return tenantRepository.findAll()
+                .stream()
+                .findFirst()
+                .orElseGet(() -> {
+                    Tenant tenant = new Tenant("Brutecx");
+                    return tenantRepository.save(tenant);
+                });
     }
 
     @Transactional(readOnly = true)
@@ -70,32 +96,78 @@ public class TenantService {
         return tenantRepository.findByStatus(TenantStatus.ACTIVE, pageable);
     }
 
+
+
+    /* =====================================================
+       TENANT CREATION
+       ===================================================== */
+
     @Transactional
-    public Tenant create(String name) {
-        if (tenantRepository.count() > 0) {
-            throw new IllegalStateException(
-                    "Bootstrap tenant creation is disabled once tenants exist"
+    public Tenant create(String name, String comment) {
+
+        if (name == null || name.trim().isBlank()) {
+            recordCreateFailureAudit(name);
+            throw new IllegalArgumentException("Tenant name is required");
+        }
+
+        boolean success = false;
+        RuntimeException failure = null;
+        Tenant created = null;
+
+        try {
+            created = tenantRepository.save(new Tenant(name));
+            success = true;
+            return created;
+
+        } catch (RuntimeException ex) {
+            failure = ex;
+            throw ex;
+
+        } finally {
+
+            UUID auditTenantId = success ? created.getId() : null;
+
+            AdminAuditActionType actionType =
+                    success
+                            ? AdminAuditActionType.TENANT_CREATED
+                            : AdminAuditActionType.TENANT_CREATE_FAILED;
+
+            String subjectId =
+                    success
+                            ? created.getId().toString()
+                            : "TENANT_CREATE:" + name.trim();
+
+            String failureType =
+                    success
+                            ? null
+                            : (failure != null ? failure.getClass().getSimpleName() : "UNKNOWN");
+
+            TenantAuditMetadata metadata = new TenantAuditMetadata(
+                    success ? created.getId().toString() : null,
+                    "CREATE_TENANT",
+                    success
+                            ? comment
+                            : failureType
+            );
+
+            adminAuditEventService.record(
+                    actionType,
+                    auditTenantId,
+                    subjectId,
+                    null,
+                    metadata
             );
         }
-        return tenantRepository.save(new Tenant(name));
     }
 
-    /**
-     * +     * Admin mutation: suspend tenant.
-     * +     * Since there is no controller yet, caller must provide audit context explicitly.
-     * +
-     */
-    @Transactional
-    public void suspendTenant(
-            UUID tenantId,
-            String comment,
-            String ip,
-            String userAgent,
-            String correlationId
-    ) {
-        Objects.requireNonNull(tenantId, "tenantId");
+    /* =====================================================
+       Mutations
+       ===================================================== */
 
-        User actor = userService.getRequiredCurrentUser();
+    @Transactional
+    public void suspendTenant(UUID tenantId, String comment) {
+
+        Objects.requireNonNull(tenantId, "tenantId");
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new IllegalStateException("Tenant not found: " + tenantId));
@@ -105,41 +177,29 @@ public class TenantService {
             tenantRepository.save(tenant);
 
             recordTenantAdminAudit(
-                    actor,
-                    ip,
-                    userAgent,
-                    correlationId,
                     tenant,
                     AdminAuditActionType.TENANT_SUSPENDED,
                     "SUSPEND_TENANT",
                     comment
             );
+
         } catch (TenantLifecycleViolationException ex) {
+
             recordTenantAdminAudit(
-                    actor,
-                    ip,
-                    userAgent,
-                    correlationId,
                     tenant,
                     AdminAuditActionType.TENANT_MUTATION_DENIED,
                     "SUSPEND_TENANT",
                     ex.getMessage()
             );
+
             throw ex;
         }
     }
 
     @Transactional
-    public void reactivateTenant(
-            UUID tenantId,
-            String comment,
-            String ip,
-            String userAgent,
-            String correlationId
-    ) {
-        Objects.requireNonNull(tenantId, "tenantId");
+    public void reactivateTenant(UUID tenantId, String comment) {
 
-        User actor = userService.getRequiredCurrentUser();
+        Objects.requireNonNull(tenantId, "tenantId");
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new IllegalStateException("Tenant not found: " + tenantId));
@@ -149,34 +209,25 @@ public class TenantService {
             tenantRepository.save(tenant);
 
             recordTenantAdminAudit(
-                    actor,
-                    ip,
-                    userAgent,
-                    correlationId,
                     tenant,
                     AdminAuditActionType.TENANT_UPDATED,
                     "REACTIVATE_TENANT",
                     comment
             );
+
         } catch (TenantLifecycleViolationException ex) {
+
             recordTenantAdminAudit(
-                    actor,
-                    ip,
-                    userAgent,
-                    correlationId,
                     tenant,
                     AdminAuditActionType.TENANT_MUTATION_DENIED,
                     "REACTIVATE_TENANT",
                     ex.getMessage()
             );
+
             throw ex;
         }
     }
 
-    /**
-     * Admin mutation: update selected tenant fields.
-     * Null values mean "no change" (not "clear").
-     */
     @Transactional
     public void updateTenant(
             UUID tenantId,
@@ -184,33 +235,33 @@ public class TenantService {
             String newDataRegion,
             Long newRetentionDays,
             Boolean disableBootstrap,
-            String comment,
-            String ip,
-            String userAgent,
-            String correlationId
+            String comment
     ) {
-        Objects.requireNonNull(tenantId, "tenantId");
 
-        User actor = userService.getRequiredCurrentUser();
+        Objects.requireNonNull(tenantId, "tenantId");
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new IllegalStateException("Tenant not found: " + tenantId));
 
         try {
+
             boolean changed = false;
 
             if (newName != null && !newName.isBlank() && !newName.equals(tenant.getName())) {
                 tenant.updateName(newName);
                 changed = true;
             }
+
             if (newDataRegion != null && !Objects.equals(newDataRegion, tenant.getDataRegion())) {
                 tenant.updateDataRegion(newDataRegion);
                 changed = true;
             }
+
             if (newRetentionDays != null && !Objects.equals(newRetentionDays, tenant.getRetentionDays())) {
                 tenant.updateRetentionDays(newRetentionDays);
                 changed = true;
             }
+
             if (Boolean.TRUE.equals(disableBootstrap) && tenant.isBootstrapEnabled()) {
                 tenant.disableBootstrap();
                 changed = true;
@@ -219,95 +270,63 @@ public class TenantService {
             if (changed) {
                 tenantRepository.save(tenant);
                 recordTenantAdminAudit(
-                        actor,
-                        ip,
-                        userAgent,
-                        correlationId,
                         tenant,
                         AdminAuditActionType.TENANT_UPDATED,
                         "UPDATE_TENANT",
                         comment
                 );
             }
+
         } catch (TenantLifecycleViolationException ex) {
+
             recordTenantAdminAudit(
-                    actor,
-                    ip,
-                    userAgent,
-                    correlationId,
                     tenant,
                     AdminAuditActionType.TENANT_MUTATION_DENIED,
                     "UPDATE_TENANT",
                     ex.getMessage()
             );
+
             throw ex;
         }
     }
 
     private void recordTenantAdminAudit(
-            User actor,
-            String ip,
-            String userAgent,
-            String correlationId,
             Tenant tenant,
             AdminAuditActionType actionType,
             String operation,
             String comment
     ) {
-        String subjectId = tenant.getId().toString();
+
         TenantAuditMetadata metadata = new TenantAuditMetadata(
                 tenant.getId().toString(),
                 operation,
                 comment
         );
 
-        String fingerprintMaterial = String.join("|",
-                "TENANT_ADMIN",
-                actor.getId().toString(),
+        adminAuditEventService.record(
+                actionType,
+                tenant.getId(),
                 tenant.getId().toString(),
-                actionType.name(),
-                correlationId == null ? "" : correlationId,
-                operation,
-                comment == null ? "" : comment
+                null,
+                metadata
+        );
+    }
+
+    private void recordCreateFailureAudit(String name) {
+
+        TenantAuditMetadata metadata = new TenantAuditMetadata(
+                null,
+                "CREATE_TENANT",
+                "VALIDATION_FAILED"
         );
 
         adminAuditEventService.record(
-                actor.getId(),
-                ip,
-                userAgent,
-                correlationId,
-                subjectId,
-                tenant.getId(),
-                actionType,
+                AdminAuditActionType.TENANT_CREATE_FAILED,
                 null,
-                metadata,
-                sha256Hex(fingerprintMaterial)
+                "TENANT_CREATE:" + (name == null ? "NULL" : name.trim()),
+                null,
+                metadata
         );
     }
 
-    private static String buildOperationSummary(
-            String newName,
-            String newDataRegion,
-            Long newRetentionDays,
-            Boolean disableBootstrap
-    ) {
-        StringBuilder sb = new StringBuilder();
-        if (newName != null) sb.append("name,");
-        if (newDataRegion != null) sb.append("dataRegion,");
-        if (newRetentionDays != null) sb.append("retentionDays,");
-        if (Boolean.TRUE.equals(disableBootstrap)) sb.append("bootstrapDisabled,");
-        if (sb.isEmpty()) return "none";
-        sb.setLength(sb.length() - 1); // drop trailing comma
-        return sb.toString();
-    }
-
-    private static String sha256Hex(String material) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(material.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
-        }
-    }
 }

@@ -28,7 +28,8 @@ type State = {
 
 type Action =
   | { type: "BOOTSTRAP_START" }
-  | { type: "AUTH_OK"; identity: AuthUser; localUser: LocalUser | null }
+  | { type: "BOOTSTRAP_READY"; identity: AuthUser }
+  | { type: "AUTH_OK"; identity: AuthUser; localUser: LocalUser }
   | { type: "ANON" }
   | { type: "BLOCKED"; blockedCode: string };
 
@@ -43,6 +44,14 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "BOOTSTRAP_START":
       return { ...state, status: "LOADING" };
+
+    case "BOOTSTRAP_READY":
+      return {
+        status: "BOOTSTRAP",
+        identity: action.identity,
+        localUser: null,
+        blockedCode: null,
+      };
 
     case "AUTH_OK":
       return {
@@ -92,9 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       sessionStorage.removeItem(SESSION_FLAG);
       sessionStorage.removeItem(LOGIN_INTENT_FLAG);
-    } catch {
-      // ignore
-    }
+    } catch {}
     dispatch({ type: "ANON" });
   }, []);
 
@@ -102,13 +109,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       sessionStorage.removeItem(SESSION_FLAG);
       sessionStorage.removeItem(LOGIN_INTENT_FLAG);
-    } catch {
-      // ignore
-    }
+    } catch {}
     dispatch({ type: "BLOCKED", blockedCode });
   }, []);
 
-  // Global reaction to 401/403 from apiFetch
   useEffect(() => {
     setAuthErrorHandler((event) => {
       if (event.type === "401") {
@@ -126,56 +130,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const identity = await fetchIdentity();
 
-      let localUser: LocalUser | null = null;
+      let localUser: LocalUser | undefined;
+
       try {
         localUser = await fetchLocalUser();
       } catch (e) {
-        // CRITICAL: if backend says "USER_LOCKED" etc, preserve it
         if (e instanceof ForbiddenError) {
           toBlocked(e.errorCode);
           return;
         }
-        localUser = null;
+        throw e;
       }
 
-      try {
-        sessionStorage.setItem(SESSION_FLAG, "1");
-        sessionStorage.removeItem(LOGIN_INTENT_FLAG);
-      } catch {
-        // ignore
+      // ✅ 204 → undefined → BOOTSTRAP
+      if (!localUser) {
+        dispatch({ type: "BOOTSTRAP_READY", identity });
+        return;
       }
+
+      sessionStorage.setItem(SESSION_FLAG, "1");
+      sessionStorage.removeItem(LOGIN_INTENT_FLAG);
 
       dispatch({ type: "AUTH_OK", identity, localUser });
     } catch (e) {
       if (e instanceof ForbiddenError) {
-        // already handled by emitAuthError → BLOCKED
         return;
       }
-
       toAnon();
     }
   }, [toAnon, toBlocked]);
 
   useEffect(() => {
-    let shouldTry = false;
-    try {
-      shouldTry =
-        sessionStorage.getItem(LOGIN_INTENT_FLAG) === "1" ||
-        sessionStorage.getItem(SESSION_FLAG) === "1";
-    } catch {
-      shouldTry = false;
-    }
-    if (shouldTry) {
-      void refresh();
-    }
+    void refresh();
   }, [refresh]);
 
   const login = useCallback(() => {
     try {
       sessionStorage.setItem(LOGIN_INTENT_FLAG, "1");
-    } catch {
-      // ignore
-    }
+    } catch {}
     startLogin();
   }, []);
 

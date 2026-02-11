@@ -18,7 +18,8 @@ import java.util.UUID;
         name = "identity_projection_audit_events",
         indexes = {
                 @Index(name = "idx_identity_proj_subject", columnList = "subject_id"),
-                @Index(name = "idx_identity_proj_ts", columnList = "timestamp")
+                @Index(name = "idx_identity_proj_ts", columnList = "timestamp"),
+                @Index(name = "idx_identity_proj_corr", columnList = "correlation_id")
         }
 )
 public class IdentityProjectionAuditEvent {
@@ -33,6 +34,9 @@ public class IdentityProjectionAuditEvent {
 
     @Column(nullable = false, updatable = false, name = "subject_id", length = 128)
     private String subjectId;
+
+    @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
+    private String correlationId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 32)
@@ -49,6 +53,18 @@ public class IdentityProjectionAuditEvent {
     @Column(nullable = false, updatable = false, length = 64)
     private String reasonCode;
 
+    @Column(nullable = false, updatable = false, length = 128)
+    private String eventFingerprint;
+
+    @Column(nullable = false, updatable = false)
+    private int chainVersion;
+
+    @Column(length = 128)
+    private String prevHash;
+
+    @Column(nullable = false, updatable = false, length = 128)
+    private String eventHash;
+
     @PrePersist
     void prePersist() {
         this.timestamp = Instant.now();
@@ -56,15 +72,25 @@ public class IdentityProjectionAuditEvent {
 
     public IdentityProjectionAuditEvent(
             String subjectId,
+            String correlationId,
             ExecutionContext executionContext,
             CorrelationSource correlationSource,
             AuditResult result,
-            String reasonCode
+            String reasonCode,
+            String eventFingerprint,
+            int chainVersion,
+            String prevHash,
+            String eventHash
     ) {
         this.subjectId = subjectId;
+        this.correlationId = correlationId;
         this.executionContext = executionContext;
         this.correlationSource = correlationSource;
         this.result = result;
         this.reasonCode = reasonCode;
+        this.eventFingerprint = eventFingerprint;
+        this.chainVersion = chainVersion;
+        this.prevHash = prevHash;
+        this.eventHash = eventHash;
     }
 }

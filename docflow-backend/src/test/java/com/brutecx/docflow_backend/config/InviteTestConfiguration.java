@@ -11,7 +11,7 @@ public class InviteTestConfiguration {
 
     @Bean
     public InviteApplicationService inviteApplicationService() {
-        return new InviteApplicationService(null, null, null, null, null, null, null, null, null) {
+        return new InviteApplicationService(null, null, null, null, null, null, null, null) {
             @Override
             public void createAndSendInvite(
                     UUID tenantId,

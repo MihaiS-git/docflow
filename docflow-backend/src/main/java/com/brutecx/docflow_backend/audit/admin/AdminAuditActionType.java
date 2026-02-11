@@ -4,6 +4,8 @@ public enum AdminAuditActionType {
     ROLE_ASSIGNED,
     ROLE_REVOKED,
 
+    BOOTSTRAP_ACTIVATED,
+
     USER_ACTIVATED,
     USER_LOCKED,
     USER_DISABLED,
@@ -13,6 +15,7 @@ public enum AdminAuditActionType {
     INVITE_REVOKED,
 
     TENANT_CREATED,
+    TENANT_CREATE_FAILED,
     TENANT_UPDATED,
     TENANT_SUSPENDED,
     TENANT_MUTATION_DENIED

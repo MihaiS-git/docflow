@@ -20,9 +20,10 @@ import java.util.Optional;
 /**
  * Listener for successful authentication events.
  * Handles both interactive and non-interactive authentication success events.
- * On successful authentication, it ensures the user exists in the database,
- * updates their last login information, and associates them with the current tenant.
- * Works specifically with OIDC users (e.g., from Keycloak).
+ * On successful authentication, it updates last login information for users already mapped locally.
+ * IMPORTANT:
+ * - No implicit bootstrap claim / activation / subject binding is permitted.
+ * - Bootstrap activation must happen ONLY via explicit /api/bootstrap/activate.
  */
 @Slf4j
 @Component
@@ -43,24 +44,11 @@ public class AuthenticationSuccessListener {
         String subject = oidcUser.getSubject();
         Optional<User> existing = userRepository.findByExternalSubjectId(subject);
 
-        User user;
-        if (existing.isEmpty()) {
-            if (!userRepository.existsByExternalSubjectIdIsNotNull()) {
-                userRepository.findByEmail(oidcUser.getEmail().toLowerCase())
-                        .ifPresent(u -> {
-                            u.bindExternalSubjectId(subject);
-                            u.activate();
-                            updateLastLogin(u);
-                            u = userRepository.save(u);
-
-                            log.warn("BOOTSTRAP: Activated first admin user {}", u.getEmail());
-                        });
-            }
-        } else {
-            user = existing.get();
+        // Only update last-login for users already mapped locally.
+        existing.ifPresent(user -> {
             updateLastLogin(user);
             userRepository.save(user);
-        }
+        });
     }
 
     private void updateLastLogin(User user) {

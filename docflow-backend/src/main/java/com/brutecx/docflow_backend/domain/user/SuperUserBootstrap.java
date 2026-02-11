@@ -43,21 +43,26 @@ public class SuperUserBootstrap implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (adminEmail == null || adminEmail.isBlank()) {
-            throw new IllegalStateException("Missing required property: docflow.bootstrap.admin.email");
-        }
-        if (adminFirstName == null || adminFirstName.isBlank()) {
-            throw new IllegalStateException("Missing required property: docflow.bootstrap.admin.first-name");
-        }
-        if (adminLastName == null || adminLastName.isBlank()) {
-            throw new IllegalStateException("Missing required property: docflow.bootstrap.admin.last-name");
+
+        if (adminEmail == null || adminEmail.isBlank()
+                || adminFirstName == null || adminFirstName.isBlank()
+                || adminLastName == null || adminLastName.isBlank()) {
+
+            log.warn("Bootstrap skipped — admin properties not configured");
+            return;
         }
 
-        Tenant tenant = tenantService.getSingleTenantForBootstrap();
+        // If no tenant exists → bootstrap tenant first
+        Tenant tenant = tenantService.getOrCreateBootstrapTenant();
 
-        boolean exists = userRepository.existsByTenantIdAndEmailIgnoreCase(tenant.getId(), adminEmail);
+        boolean exists =
+                userRepository.existsByTenantIdAndEmailIgnoreCase(
+                        tenant.getId(),
+                        adminEmail
+                );
+
         if (exists) {
-            log.info("Bootstrap admin already exists for tenantId={} email={}", tenant.getId(), adminEmail);
+            log.info("Bootstrap admin already exists — skipping");
             return;
         }
 
@@ -73,9 +78,10 @@ public class SuperUserBootstrap implements ApplicationRunner {
         userRepository.save(admin);
 
         log.info(
-                "Bootstrapped superuser (LOCKED, unbound) for tenantId={} email={}",
+                "Bootstrapped superuser (LOCKED) tenantId={} email={}",
                 tenant.getId(),
                 adminEmail
         );
     }
+
 }

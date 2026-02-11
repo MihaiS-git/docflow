@@ -7,8 +7,17 @@ export async function fetchIdentity(): Promise<AuthUser> {
   return apiFetch<AuthUser>("/api/auth/me");
 }
 
-export async function fetchLocalUser(): Promise<LocalUser> {
-  return apiFetch<LocalUser>("/api/users/me");
+// IMPORTANT:
+// - returns LocalUser when ACTIVE
+// - returns undefined on 204 (BOOTSTRAP)
+export async function fetchLocalUser(): Promise<LocalUser | undefined> {
+  return apiFetch<LocalUser | undefined>("/api/users/me");
+}
+
+export async function activateBootstrap(): Promise<void> {
+  return apiFetch<void>("/api/bootstrap/activate", {
+    method: "POST",
+  });
 }
 
 export function login() {

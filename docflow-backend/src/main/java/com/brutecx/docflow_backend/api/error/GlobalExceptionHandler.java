@@ -20,16 +20,45 @@ import org.springframework.web.client.RestClientException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * Global exception handler for REST controllers.
- * Catches specific exceptions and returns structured error responses.
- * Handles IllegalArgumentException with 400 Bad Request
- * and generic Exception with 500 Internal Server Error.
- * Uses ErrorResponse DTO for consistent error response format.
- */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(BootstrapActivationDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleBootstrapActivationDenied(
+            BootstrapActivationDeniedException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.FORBIDDEN.value(),
+                                HttpStatus.FORBIDDEN.getReasonPhrase(),
+                                "BOOTSTRAP_ACTIVATION_DENIED",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
+
+    @ExceptionHandler(BootstrapActivationNotAllowedException.class)
+    public ResponseEntity<ErrorResponse> handleBootstrapActivationNotAllowed(
+            BootstrapActivationNotAllowedException ex,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(
+                        ErrorResponse.of(
+                                HttpStatus.CONFLICT.value(),
+                                HttpStatus.CONFLICT.getReasonPhrase(),
+                                "BOOTSTRAP_ACTIVATION_NOT_ALLOWED",
+                                ex.getMessage(),
+                                request.getRequestURI()
+                        )
+                );
+    }
 
     @ExceptionHandler(TenantLifecycleViolationException.class)
     public ResponseEntity<ErrorResponse> handleTenantLifecycleViolation(
@@ -57,7 +86,6 @@ public class GlobalExceptionHandler {
         Map<String, Object> details = new LinkedHashMap<>();
         Map<String, String> fieldErrors = new LinkedHashMap<>();
         for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
-            // last write wins if multiple constraints fail for same field
             fieldErrors.put(fe.getField(), fe.getDefaultMessage());
         }
         details.put("fieldErrors", fieldErrors);
@@ -347,5 +375,4 @@ public class GlobalExceptionHandler {
                         )
                 );
     }
-
 }

@@ -237,45 +237,62 @@ public class KeycloakAdminClient {
         }
     }
 
-    public List<String> fetchUserRealmRoles(String userId) {
-        Objects.requireNonNull(userId, "userId");
+    public Map<String, List<String>> fetchRealmRolesForUsers(List<String> userIds) {
+
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
 
         String token = fetchAccessToken();
 
-        String url = props.baseUrl()
-                + "/admin/realms/" + props.realm()
-                + "/users/" + userId
-                + "/role-mappings/realm/composite";
+        Map<String, List<String>> result = new HashMap<>();
 
-        try {
-            String body = keycloakAdminRestClient.get()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .retrieve()
-                    .body(String.class);
+        for (String userId : userIds) {
 
-            if (body == null || body.isBlank()) {
-                return List.of();
+            if (userId == null || userId.isBlank()) {
+                continue;
             }
 
-            List<Map<String, Object>> roles = objectMapper.readValue(
-                    body,
-                    new TypeReference<List<Map<String, Object>>>() {
-                    }
-            );
+            String url = props.baseUrl()
+                    + "/admin/realms/" + props.realm()
+                    + "/users/" + userId
+                    + "/role-mappings/realm/composite";
 
-            return roles.stream()
-                    .map(r -> (String) r.get("name"))
-                    .filter(Objects::nonNull)
-                    .toList();
+            try {
 
-        } catch (Exception ex) {
-            throw new RestClientException(
-                    "Failed to fetch realm roles for user " + userId,
-                    ex
-            );
+                String body = keycloakAdminRestClient.get()
+                        .uri(url)
+                        .headers(h -> h.setBearerAuth(token))
+                        .retrieve()
+                        .body(String.class);
+
+                if (body == null || body.isBlank()) {
+                    result.put(userId, List.of());
+                    continue;
+                }
+
+                List<Map<String, Object>> roles =
+                        objectMapper.readValue(body, LIST_OF_MAP);
+
+                List<String> roleNames =
+                        roles.stream()
+                                .map(r -> (String) r.get("name"))
+                                .filter(Objects::nonNull)
+                                .toList();
+
+                result.put(userId, roleNames);
+
+            } catch (Exception ex) {
+                throw new RestClientException(
+                        "Failed to fetch realm roles for user " + userId,
+                        ex
+                );
+            }
         }
+
+        return result;
     }
+
 
     /**
      * Invite-only onboarding:

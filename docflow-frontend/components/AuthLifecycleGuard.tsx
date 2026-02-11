@@ -59,13 +59,14 @@ export default function AuthLifecycleGuard({
     return mapBlocked(ctx.blockedCode);
   }, [ctx]);
 
-  if (
-    ctx?.status === "AUTH" &&
-    ctx.localUser === null && // backend refused /users/me
-    ctx.identity
-  ) {
-    router.replace("/bootstrap/activate");
-    return null;
+  if (ctx.status === "BOOTSTRAP") {
+    if (
+      typeof window !== "undefined" &&
+      window.location.pathname !== "/bootstrap/activate"
+    ) {
+      router.replace("/bootstrap/activate");
+      return null;
+    }
   }
 
   if (blocked) {

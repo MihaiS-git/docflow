@@ -1,44 +1,40 @@
 package com.brutecx.docflow_backend.audit.identity;
 
+import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakUser;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
-/**
- * Service to enrich and ensure the projection of user identity information
- * from Keycloak into the local UserIdentityProjection repository.
- * Handles asynchronous updates and checks for data freshness.
- */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectionService {
+
+    private static final String STREAM = "IDENTITY_PROJECTION";
 
     private final UserIdentityProjectionRepository repo;
     private final KeycloakAdminClient keycloak;
     private final IdentityProjectionAuditEventRepository auditRepo;
-
-    public UserIdentityEnrichmentServiceImpl(
-            UserIdentityProjectionRepository repo,
-            KeycloakAdminClient keycloak,
-            IdentityProjectionAuditEventRepository auditRepo
-    ) {
-        this.repo = repo;
-        this.keycloak = keycloak;
-        this.auditRepo = auditRepo;
-    }
+    private final AuditChainService auditChainService;
 
     @Async
     @Transactional
+    @Override
     public void ensureProjected(String subjectId) {
+
         if (subjectId == null || "UNKNOWN".equals(subjectId)) {
             return;
         }
@@ -48,19 +44,17 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
 
             if (existingOpt.isPresent()) {
                 UserIdentityProjection existing = existingOpt.get();
-
                 if (existing.isInitialized() && existing.isFresh(Duration.ofHours(24))) {
-                    log.debug("Identity projection fresh for subjectId={}", subjectId);
                     return;
                 }
             }
 
-            UserIdentityProjection projection = existingOpt
-                    .orElseGet(() -> new UserIdentityProjection(subjectId, "KEYCLOAK"));
+            UserIdentityProjection projection =
+                    existingOpt.orElseGet(() -> new UserIdentityProjection(subjectId, "KEYCLOAK"));
 
             KeycloakUser kcUser = keycloak.fetchUser(subjectId);
             if (kcUser == null) {
-                log.warn("Identity projection failed: Keycloak user not found subjectId={}", subjectId);
+                log.warn("Identity projection skipped — Keycloak user not found subjectId={}", subjectId);
                 return;
             }
 
@@ -70,21 +64,63 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                     kcUser.displayName()
             );
 
-            auditRepo.save(new IdentityProjectionAuditEvent(
+            // Ensure projection is persisted
+            repo.save(projection);
+
+            // SYSTEM-level audit event (deterministic correlation)
+            String correlationId = "identity-" + subjectId;
+
+            String username = kcUser.username() != null ? kcUser.username() : "-";
+            String email = kcUser.email() != null ? kcUser.email() : "-";
+
+            String fingerprint = EventFingerprint.of(List.of(
+                    STREAM,
                     subjectId,
-                    ExecutionContext.SCHEDULED_JOB,
-                    CorrelationSource.ADMIN_EVENT_ID,
-                    AuditResult.SUCCESS,
-                    "IDENTITY_PROJECTED"
+                    username,
+                    email
             ));
-            log.debug("Identity projection updated subjectId={}", subjectId);
+
+            String material = String.join("|",
+                    STREAM,
+                    subjectId,
+                    username,
+                    email,
+                    fingerprint
+            );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            STREAM,
+                            subjectId,
+                            material
+                    );
+
+            IdentityProjectionAuditEvent event =
+                    new IdentityProjectionAuditEvent(
+                            subjectId,
+                            correlationId,
+                            ExecutionContext.SCHEDULED_JOB,
+                            CorrelationSource.GENERATED,
+                            AuditResult.SUCCESS,
+                            "IDENTITY_PROJECTED",
+                            fingerprint,
+                            chain.chainVersion(),
+                            chain.prevHash(),
+                            chain.eventHash()
+                    );
+
+            try {
+                auditRepo.save(event);
+            } catch (DataIntegrityViolationException ex) {
+                log.debug(
+                        "IDENTITY PROJECTION AUDIT DEDUPLICATED subjectId={} correlationId={}",
+                        subjectId,
+                        correlationId
+                );
+            }
 
         } catch (Exception ex) {
-            log.error(
-                    "IDENTITY PROJECTION FAILURE subjectId={}",
-                    subjectId,
-                    ex
-            );
+            log.error("IDENTITY PROJECTION FAILURE subjectId={}", subjectId, ex);
         }
     }
 }

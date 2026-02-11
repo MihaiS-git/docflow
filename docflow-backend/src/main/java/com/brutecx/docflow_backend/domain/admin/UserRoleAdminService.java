@@ -1,8 +1,5 @@
 package com.brutecx.docflow_backend.domain.admin;
 
-import com.brutecx.docflow_backend.audit.AuditRequestContext;
-import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
-import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
 import com.brutecx.docflow_backend.audit.admin.RoleChangeMetadata;
@@ -14,7 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -26,7 +22,6 @@ public class UserRoleAdminService {
     private final KeycloakAdminClient keycloakRoleAdminClient;
     private final IAdminAuditEventService auditEventService;
     private final UserService userService;
-    private final AuditRequestContextExtractor auditRequestContextExtractor;
 
     private static final Set<String> NON_ASSIGNABLE_ROLES = Set.of("USER");
 
@@ -36,13 +31,11 @@ public class UserRoleAdminService {
             String roleName
     ) {
         if (NON_ASSIGNABLE_ROLES.contains(roleName)) {
-            return; // idempotent no-op
+            return;
         }
 
         User actor = userService.getRequiredCurrentUser();
         User target = userService.getRequired(targetUserId);
-        AuditRequestContext ctx =
-                auditRequestContextExtractor.fromCurrentRequest();
 
         try {
             keycloakRoleAdminClient.assignRealmRole(
@@ -57,26 +50,12 @@ public class UserRoleAdminService {
             throw e;
         }
 
-        String eventFingerprint = EventFingerprint.of(List.of(
-                "ADMIN",
-                AdminAuditActionType.ROLE_ASSIGNED.name(),
-                actor.getId().toString(),
-                target.getId().toString(),
-                actor.getTenant().getId().toString(),
-                ctx.correlationId()
-        ));
-
         auditEventService.record(
-                actor.getId(),
-                ctx.ip(),
-                ctx.userAgent(),
-                ctx.correlationId(),
-                actor.getExternalSubjectId(),
-                actor.getTenant().getId(),
                 AdminAuditActionType.ROLE_ASSIGNED,
+                actor.getTenant().getId(),
+                actor.getExternalSubjectId(),
                 target.getId(),
-                new RoleChangeMetadata(roleName, null),
-                eventFingerprint
+                new RoleChangeMetadata(roleName, null)
         );
     }
 
@@ -86,13 +65,11 @@ public class UserRoleAdminService {
             String roleName
     ) {
         if (NON_ASSIGNABLE_ROLES.contains(roleName)) {
-            return; // idempotent no-op
+            return;
         }
 
         User actor = userService.getRequiredCurrentUser();
         User target = userService.getRequired(targetUserId);
-        AuditRequestContext ctx =
-                auditRequestContextExtractor.fromCurrentRequest();
 
         try {
             keycloakRoleAdminClient.revokeRealmRole(
@@ -107,26 +84,12 @@ public class UserRoleAdminService {
             throw e;
         }
 
-        String eventFingerprint = EventFingerprint.of(List.of(
-                "ADMIN",
-                AdminAuditActionType.ROLE_REVOKED.name(),
-                actor.getId().toString(),
-                target.getId().toString(),
-                actor.getTenant().getId().toString(),
-                ctx.correlationId()
-        ));
-
         auditEventService.record(
-                actor.getId(),
-                ctx.ip(),
-                ctx.userAgent(),
-                ctx.correlationId(),
-                actor.getExternalSubjectId(),
-                actor.getTenant().getId(),
                 AdminAuditActionType.ROLE_REVOKED,
+                actor.getTenant().getId(),
+                actor.getExternalSubjectId(),
                 target.getId(),
-                new RoleChangeMetadata(roleName, null),
-                eventFingerprint
+                new RoleChangeMetadata(roleName, null)
         );
     }
 }

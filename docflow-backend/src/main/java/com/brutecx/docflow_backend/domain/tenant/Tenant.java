@@ -2,7 +2,9 @@ package com.brutecx.docflow_backend.domain.tenant;
 
 import com.brutecx.docflow_backend.domain.user.User;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
@@ -12,7 +14,12 @@ import java.util.*;
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(name = "tenants")
+@Table(
+        name = "tenants",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_tenants_name", columnNames = {"name"})
+        }
+)
 public class Tenant {
 
     @Id
@@ -20,7 +27,9 @@ public class Tenant {
     @UuidGenerator
     private UUID id;
 
-    @NotNull
+    @NotBlank
+    @Size(max = 128)
+    @Column(nullable = false, length = 128)
     private String name;
 
     @NotNull
@@ -36,19 +45,46 @@ public class Tenant {
     @Column(name = "data_region", length = 512)
     private String dataRegion;
 
-    @Column(name = "retention_days", length = 512)
+    @Column(name = "retention_days")
     private Long retentionDays;
 
-    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY, cascade = CascadeType.PERSIST, orphanRemoval = true)
+    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY,
+            cascade = CascadeType.PERSIST, orphanRemoval = true)
     private final List<User> users = new ArrayList<>();
 
+    /**
+     * TRUE only for system bootstrap tenant.
+     */
     @Column(name = "bootstrap_enabled", nullable = false)
-    private Boolean bootstrapEnabled = true;
+    private Boolean bootstrapEnabled;
 
+    /* =====================================================
+       Constructors / factories
+       ===================================================== */
+
+    /**
+     * Normal tenant creation (admin/UI).
+     * Bootstrap is ALWAYS disabled.
+     */
     public Tenant(String name) {
-        this.name = Objects.requireNonNull(name);
-        this.status = TenantStatus.ACTIVE;
+        this(name, false);
     }
+
+    /**
+     * Explicit bootstrap tenant factory.
+     * Only TenantBootstrap is allowed to call this.
+     */
+    public static Tenant bootstrapTenant(String name) {
+        return new Tenant(name, true);
+    }
+
+    private Tenant(String name, boolean bootstrapEnabled) {
+        this.name = canonicalize(name);
+        this.status = TenantStatus.ACTIVE;
+        this.bootstrapEnabled = bootstrapEnabled;
+    }
+
+    /* ===================================================== */
 
     @PrePersist
     protected void onCreate() {
@@ -61,48 +97,20 @@ public class Tenant {
         updatedAt = Instant.now();
     }
 
-    public void addUser(User user) {
-        Objects.requireNonNull(user);
-        user.assignToTenant(this);
-        users.add(user);
-    }
-
-    public List<User> getUsers() {
-        return Collections.unmodifiableList(users);
-    }
-
-    public boolean isBootstrapEnabled() {
-        return bootstrapEnabled;
-    }
-
-    public void rename(String name) {
-        this.name = Objects.requireNonNull(name);
-    }
-
-    public void disableBootstrap() {
-        requireActive("DISABLE_BOOTSTRAP");
-        this.bootstrapEnabled = false;
-    }
-
-    public void suspend() {
-        if (this.status == TenantStatus.SUSPENDED) {
-            throw new TenantLifecycleViolationException("Tenant is already SUSPENDED");
+    private static String canonicalize(String name) {
+        Objects.requireNonNull(name, "name");
+        String normalized = name.trim().replaceAll("\\s+", " ");
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("Tenant name is required");
         }
-        this.status = TenantStatus.SUSPENDED;
+        return normalized;
     }
 
-    public void reactivate() {
-        if (this.status != TenantStatus.SUSPENDED) {
-            throw new TenantLifecycleViolationException(
-                    "Tenant is not SUSPENDED; cannot reactivate"
-            );
-        }
-        this.status = TenantStatus.ACTIVE;
-    }
+    /* ===================================================== */
 
     public void updateName(String name) {
         requireActive("UPDATE_NAME");
-        this.name = Objects.requireNonNull(name);
+        this.name = canonicalize(name);
     }
 
     public void updateDataRegion(String dataRegion) {
@@ -115,10 +123,40 @@ public class Tenant {
         this.retentionDays = retentionDays;
     }
 
-    private void requireActive(String operation) {
-        if (this.status == TenantStatus.SUSPENDED) {
-            throw new TenantLifecycleViolationException("Tenant is SUSPENDED; operation denied: " + operation);
-        }
+    public void addUser(User user) {
+        Objects.requireNonNull(user);
+        user.assignToTenant(this);
+        users.add(user);
     }
 
+    public boolean isBootstrapEnabled() {
+        return Boolean.TRUE.equals(bootstrapEnabled);
+    }
+
+    public void disableBootstrap() {
+        requireActive("DISABLE_BOOTSTRAP");
+        this.bootstrapEnabled = false;
+    }
+
+    public void suspend() {
+        if (status == TenantStatus.SUSPENDED) {
+            throw new TenantLifecycleViolationException("Tenant already suspended");
+        }
+        status = TenantStatus.SUSPENDED;
+    }
+
+    public void reactivate() {
+        if (status != TenantStatus.SUSPENDED) {
+            throw new TenantLifecycleViolationException("Tenant not suspended");
+        }
+        status = TenantStatus.ACTIVE;
+    }
+
+    private void requireActive(String op) {
+        if (status == TenantStatus.SUSPENDED) {
+            throw new TenantLifecycleViolationException(
+                    "Tenant suspended; operation denied: " + op
+            );
+        }
+    }
 }

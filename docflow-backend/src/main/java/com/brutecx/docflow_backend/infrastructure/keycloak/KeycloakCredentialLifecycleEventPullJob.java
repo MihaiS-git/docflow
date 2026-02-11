@@ -15,7 +15,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
 @Slf4j
 @Component
@@ -28,6 +27,7 @@ import java.util.UUID;
 public class KeycloakCredentialLifecycleEventPullJob {
 
     private static final String CHECKPOINT_ID = "KEYCLOAK_CREDENTIAL_EVENTS";
+    private static final String STREAM = "CREDENTIAL";
 
     private final KeycloakAdminClient keycloak;
     private final KeycloakEventCheckpointRepository checkpointRepo;
@@ -50,9 +50,8 @@ public class KeycloakCredentialLifecycleEventPullJob {
                 keycloak.fetchEvents(since);
 
         for (var e : events) {
-            CredentialLifecycleEventType type =
-                    mapEventType(e);
 
+            CredentialLifecycleEventType type = mapEventType(e);
             if (type == CredentialLifecycleEventType.UNKNOWN) {
                 continue;
             }
@@ -62,8 +61,19 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             ? e.sessionId()
                             : "-";
 
+            String correlationId;
+            CorrelationSource correlationSource;
+
+            if (!"-".equals(sessionId)) {
+                correlationId = sessionId;
+                correlationSource = CorrelationSource.SESSION_ID;
+            } else {
+                correlationId = CHECKPOINT_ID + ":" + e.time();
+                correlationSource = CorrelationSource.PULL_RUN;
+            }
+
             String fingerprint = EventFingerprint.of(List.of(
-                    "CREDENTIAL",
+                    STREAM,
                     type.name(),
                     e.userId(),
                     e.clientId(),
@@ -71,29 +81,23 @@ public class KeycloakCredentialLifecycleEventPullJob {
                     String.valueOf(e.time())
             ));
 
-            String correlationId;
-            CorrelationSource correlationSource;
-
-            if (e.sessionId() != null && !e.sessionId().isBlank()) {
-                correlationId = e.sessionId();
-                correlationSource = CorrelationSource.SESSION_ID;
-            } else {
-                correlationId = CHECKPOINT_ID + ":" + e.time();
-                correlationSource = CorrelationSource.PULL_RUN;
-            }
-
             String material = String.join("|",
-                    "CREDENTIAL",
+                    STREAM,
                     type.name(),
                     e.userId(),
                     e.clientId(),
-                    String.valueOf(e.time())
+                    sessionId,
+                    String.valueOf(e.time()),
+                    fingerprint
             );
+
+            // Stable partition per userId (not per session)
+            String partitionKey = e.userId() != null ? e.userId() : "GLOBAL";
 
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            "CREDENTIAL",
-                            correlationId,
+                            STREAM,
+                            partitionKey,
                             material
                     );
 
@@ -102,7 +106,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             Instant.ofEpochMilli(e.time()),
                             e.userId(),
                             e.clientId(),
-                            e.sessionId(), // nullable is fine here
+                            e.sessionId(),
                             e.ipAddress() != null ? e.ipAddress() : "UNKNOWN",
                             type,
                             extractRequiredAction(e),
@@ -122,7 +126,12 @@ public class KeycloakCredentialLifecycleEventPullJob {
                 repository.save(entity);
                 maxTime = Math.max(maxTime, e.time());
             } catch (DataIntegrityViolationException ex) {
-                // deduplicated
+                log.debug(
+                        "CREDENTIAL AUDIT DEDUPLICATED userId={} type={} correlationId={}",
+                        e.userId(),
+                        type,
+                        correlationId
+                );
             }
         }
 
@@ -140,32 +149,29 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             ))
             );
         }
-
     }
 
     private CredentialLifecycleEventType mapEventType(
             KeycloakAdminClient.KeycloakAdminEvent e
     ) {
-
         if ("UPDATE_PASSWORD".equalsIgnoreCase(e.type())) {
             return CredentialLifecycleEventType.PASSWORD_CHANGED;
         }
-
         if ("UPDATE_TOTP".equalsIgnoreCase(e.type())) {
             return CredentialLifecycleEventType.MFA_ENROLLED;
         }
-
         if ("REMOVE_TOTP".equalsIgnoreCase(e.type())) {
             return CredentialLifecycleEventType.MFA_REMOVED;
         }
-
         return CredentialLifecycleEventType.UNKNOWN;
     }
 
     private String extractRequiredAction(
             KeycloakAdminClient.KeycloakAdminEvent e
     ) {
-        if (e.details() == null) return null;
+        if (e.details() == null) {
+            return null;
+        }
         return e.details().get("required_action");
     }
 }
