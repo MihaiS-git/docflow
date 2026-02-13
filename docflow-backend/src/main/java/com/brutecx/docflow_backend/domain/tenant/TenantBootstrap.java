@@ -8,8 +8,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Optional;
-
 @Component
 @RequiredArgsConstructor
 @Order(0)
@@ -18,7 +16,6 @@ public class TenantBootstrap implements ApplicationRunner {
 
     private final TenantRepository tenantRepository;
 
-
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
@@ -26,7 +23,7 @@ public class TenantBootstrap implements ApplicationRunner {
             return;
         }
 
-        Tenant tenant = Tenant.bootstrapTenant("Brutecx");
-        tenantRepository.save(tenant);
+        Tenant root = Tenant.bootstrapTenant("Company");
+        tenantRepository.save(root);
     }
 }

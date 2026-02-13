@@ -50,22 +50,15 @@ public class BootstrapActivationService {
             );
         }
 
-        Tenant tenant = tenantRepository.findAll()
-                .stream()
-                .findFirst()
-                .orElseThrow(() ->
-                        new IllegalStateException("No tenant exists for bootstrap activation")
-                );
+        Tenant tenant = tenantRepository.findFirstByTenantType(com.brutecx.docflow_backend.domain.tenant.TenantType.ROOT)
+                .orElseThrow(() -> new IllegalStateException("No ROOT tenant exists for bootstrap activation"));
 
         if (!tenant.isBootstrapEnabled()) {
             throw new BootstrapActivationNotAllowedException("Bootstrap is already disabled");
         }
 
         boolean anyActive =
-                userRepository.existsByTenantIdAndStatus(
-                        tenant.getId(),
-                        UserStatus.ACTIVE
-                );
+                userRepository.findAll().stream().anyMatch(u -> u.getStatus() == UserStatus.ACTIVE);
 
         if (anyActive) {
             throw new BootstrapActivationNotAllowedException(
@@ -73,10 +66,7 @@ public class BootstrapActivationService {
             );
         }
 
-        User admin = userRepository.findByTenantIdAndEmailIgnoreCase(
-                        tenant.getId(),
-                        expectedEmail
-                )
+        User admin = userRepository.findByEmailIgnoreCase(expectedEmail)
                 .orElseThrow(() ->
                         new BootstrapActivationNotAllowedException(
                                 "Bootstrap admin local user row is missing; SuperUserBootstrap must run first"

@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.config;
 
 import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
+import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 
@@ -11,7 +12,7 @@ public class InviteTestConfiguration {
 
     @Bean
     public InviteApplicationService inviteApplicationService() {
-        return new InviteApplicationService(null, null, null, null, null, null, null, null) {
+        return new InviteApplicationService(null, null, null, null, null, null, null, null, null) {
             @Override
             public void createAndSendInvite(
                     UUID tenantId,
@@ -19,7 +20,8 @@ public class InviteTestConfiguration {
                     String firstName,
                     String lastName,
                     String jobTitle,
-                    String department
+                    String department,
+                    TenantRole tenantRole
             ) {
                 // no-op
             }

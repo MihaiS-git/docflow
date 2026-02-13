@@ -9,6 +9,7 @@ import com.brutecx.docflow_backend.audit.admin.UserStateChangeReason;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
+import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
 import com.brutecx.docflow_backend.security.AuthRoleExtractor;
 import com.brutecx.docflow_backend.security.session.SessionRevocationService;
@@ -38,12 +39,11 @@ public class AdminUserService {
     private final KeycloakAdminClient keycloakAdminClient;
     private final AuthRoleExtractor authRoleExtractor;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
+    private final TenantService tenantService;
 
     /**
      * Platform admin user listing.
-     *
-     * Tenant is now an OPTIONAL filter (currently global view),
-     * status/email are composable filters via Specification.
+     * Tenant filter is now membership-based (UserSpecifications handles it).
      */
     @Transactional(readOnly = true)
     public Page<AdminUserResponseDTO> listUsers(
@@ -54,9 +54,8 @@ public class AdminUserService {
     ) {
 
         User actor = userService.getRequiredCurrentUser();
-        UUID actorTenantId = actor.getTenant().getId();
+        UUID rootTenantId = tenantService.getRootTenant().getId();
 
-        // ---- Build Specification ----
         Specification<User> spec = Specification.allOf(
                 UserSpecifications.tenant(tenantId),
                 UserSpecifications.status(status),
@@ -65,7 +64,6 @@ public class AdminUserService {
 
         Page<User> page = userRepository.findAll(spec, pageable);
 
-        // ---- Fetch Keycloak roles ----
         List<String> subjectIds = page.stream()
                 .map(User::getExternalSubjectId)
                 .filter(Objects::nonNull)
@@ -78,9 +76,9 @@ public class AdminUserService {
         sensitiveAccessAuditService.record(
                 actor.getId(),
                 actor.getExternalSubjectId(),
-                actorTenantId,
+                rootTenantId,
                 SensitiveAccessSubjectType.USER,
-                actorTenantId.toString(),
+                rootTenantId.toString(),
                 "USER_LIST",
                 "READ",
                 "/api/admin/users",
@@ -93,7 +91,6 @@ public class AdminUserService {
                 null
         );
 
-        // ---- Map DTO ----
         return page.map(user -> {
 
             List<String> roles =
@@ -137,7 +134,7 @@ public class AdminUserService {
         try {
             adminAuditEventService.record(
                     AdminAuditActionType.USER_LOCKED,
-                    actor.getTenant().getId(),
+                    tenantService.getRootTenant().getId(),
                     actor.getExternalSubjectId(),
                     target.getId(),
                     new UserStateChangeMetadata(
@@ -147,10 +144,9 @@ public class AdminUserService {
             );
         } catch (Exception e) {
             log.error(
-                    "AUDIT FAILURE for USER_LOCKED actorId={} targetUserId={} tenantId={}",
+                    "AUDIT FAILURE for USER_LOCKED actorId={} targetUserId={}",
                     actor.getId(),
                     target.getId(),
-                    actor.getTenant().getId(),
                     e
             );
             throw e;
@@ -180,7 +176,7 @@ public class AdminUserService {
 
         adminAuditEventService.record(
                 AdminAuditActionType.USER_DISABLED,
-                actor.getTenant().getId(),
+                tenantService.getRootTenant().getId(),
                 actor.getExternalSubjectId(),
                 target.getId(),
                 new UserStateChangeMetadata(
@@ -203,7 +199,7 @@ public class AdminUserService {
 
         adminAuditEventService.record(
                 AdminAuditActionType.USER_ACTIVATED,
-                actor.getTenant().getId(),
+                tenantService.getRootTenant().getId(),
                 actor.getExternalSubjectId(),
                 target.getId(),
                 new UserStateChangeMetadata(

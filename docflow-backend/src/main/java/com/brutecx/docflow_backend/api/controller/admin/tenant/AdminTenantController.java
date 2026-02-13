@@ -1,8 +1,6 @@
 package com.brutecx.docflow_backend.api.controller.admin.tenant;
 
 import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO;
-import com.brutecx.docflow_backend.api.dto.user.UserResponseDTO;
-import com.brutecx.docflow_backend.api.dto.user.UserResponseMapper;
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import lombok.RequiredArgsConstructor;
@@ -48,29 +46,6 @@ public class AdminTenantController {
                         .map(this::toDto)
         );
     }
-
-    @GetMapping("/{tenantId}/users")
-    public ResponseEntity<Page<UserResponseDTO>> listTenantUsers(
-            @PathVariable UUID tenantId,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "createdAt") String sort,
-            @RequestParam(defaultValue = "DESC") Sort.Direction direction
-    ) {
-
-        Pageable pageable = PageRequest.of(
-                page,
-                Math.min(size, MAX_PAGE_SIZE),
-                Sort.by(direction, sort)
-        );
-
-        Page<UserResponseDTO> result =
-                tenantService.listUsersByTenant(tenantId, pageable)
-                        .map(UserResponseMapper::toDto);
-
-        return ResponseEntity.ok(result);
-    }
-
 
     @GetMapping("/active")
     public ResponseEntity<Page<TenantListItemDTO>> listActive(
@@ -140,7 +115,7 @@ public class AdminTenantController {
         return ResponseEntity.noContent().build();
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/{tenantId}/reactivate")
     public ResponseEntity<Void> reactivate(
             @PathVariable UUID tenantId,

@@ -1,6 +1,5 @@
 package com.brutecx.docflow_backend.domain.user;
 
-import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
@@ -17,7 +16,7 @@ import java.util.UUID;
 @Table(
         name = "users",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_users_tenant_email", columnNames = {"tenant_id", "email"}),
+                @UniqueConstraint(name = "uk_users_email", columnNames = {"email"}),
                 @UniqueConstraint(name = "uk_users_external_subject", columnNames = {"external_subject_id"})
         }
 )
@@ -31,12 +30,8 @@ public class User {
     @Column(name = "external_subject_id", length = 128)
     private String externalSubjectId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "tenant_id", nullable = false)
-    private Tenant tenant;
-
     @NotNull
-    @Column(nullable = false)
+    @Column(nullable = false, length = 320)
     private String email;
 
     @NotNull
@@ -110,23 +105,11 @@ public class User {
         if (displayName == null) {
             displayName = (firstName + " " + lastName).trim();
         }
-
-        if (tenant == null) {
-            throw new IllegalStateException("User must belong to a tenant");
-        }
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = Instant.now();
-    }
-
-    public void assignToTenant(Tenant tenant) {
-        Objects.requireNonNull(tenant, "tenant");
-        if (this.tenant != null && !this.tenant.equals(tenant)) {
-            throw new IllegalStateException("User already assigned to a tenant");
-        }
-        this.tenant = tenant;
     }
 
     // bind Keycloak subject exactly once
@@ -155,5 +138,4 @@ public class User {
     public void activate() {
         this.status = UserStatus.ACTIVE;
     }
-
 }

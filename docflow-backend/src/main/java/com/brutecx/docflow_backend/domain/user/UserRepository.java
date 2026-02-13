@@ -13,27 +13,19 @@ import java.util.UUID;
 public interface UserRepository
         extends JpaRepository<User, UUID>,
         JpaSpecificationExecutor<User> {
+
     Optional<User> findByExternalSubjectId(String externalSubjectId);
 
-    Optional<User> findByTenantIdAndEmailIgnoreCase(UUID tenantId, String email);
-
-    Optional<User> findByEmail(String email);
+    Optional<User> findByEmailIgnoreCase(String email);
 
     default User getRequired(UUID userId) {
         return findById(userId)
-                .orElseThrow(() ->
-                        new UserNotFoundException(userId));
+                .orElseThrow(() -> new UserNotFoundException(userId));
     }
 
-    boolean existsByTenantIdAndEmailIgnoreCase(UUID id, String normalizedEmail);
-
+    boolean existsByEmailIgnoreCase(String normalizedEmail);
 
     List<User> findByStatusAndIdIn(UserStatus userStatus, List<UUID> userIds);
 
-    boolean existsByTenantIdAndStatus(UUID tenantId, UserStatus status);
-
-    Page<User> findByTenantId(UUID tenantId, Pageable pageable);
-
+    Page<User> findAllByIdIn(List<UUID> ids, Pageable pageable);
 }
-
-

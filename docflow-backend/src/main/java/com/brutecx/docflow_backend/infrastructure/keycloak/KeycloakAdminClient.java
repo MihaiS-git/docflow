@@ -304,13 +304,24 @@ public class KeycloakAdminClient {
             String email,
             String temporaryPassword
     ) {
-        String userId = ensureInviteUserExists(email);
+        EnsureUserResult r = ensureInviteUserExists(email);
+        String userId = r.userId();
         setTemporaryPassword(userId, temporaryPassword);
 
         updateRequiredActions(userId, List.of(
                 ACTION_UPDATE_PASSWORD,
                 ACTION_VERIFY_EMAIL
         ));
+
+        // New invited user must have global USER role.
+        if (r.createdNew()) {
+            try {
+                assignRealmRole(userId, "USER");
+            } catch (Exception ex) {
+                // Fail hard: role must be present.
+                throw ex;
+            }
+        }
 
         return userId;
     }
@@ -342,12 +353,15 @@ public class KeycloakAdminClient {
         }
     }
 
-    private String ensureInviteUserExists(String email) {
+    private EnsureUserResult ensureInviteUserExists(String email) {
         String userId = findUserIdByEmailOrUsername(email);
         if (userId != null) {
-            return userId;
+            return new EnsureUserResult(userId, false);
         }
-        return createUserInviteOnly(email);
+        return new EnsureUserResult(createUserInviteOnly(email), true);
+    }
+
+    private record EnsureUserResult(String userId, boolean createdNew) {
     }
 
     private String findUserIdByEmailOrUsername(String email) {

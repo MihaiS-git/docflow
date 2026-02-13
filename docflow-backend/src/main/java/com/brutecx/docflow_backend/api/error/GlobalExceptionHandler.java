@@ -24,22 +24,20 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(LastManagerViolationException.class)
+    public ResponseEntity<ErrorResponse> handleLastManagerViolation(
+            LastManagerViolationException ex,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.CONFLICT, ErrorCode.LAST_MANAGER_VIOLATION, ex.getMessage(), request);
+    }
+
     @ExceptionHandler(BootstrapActivationDeniedException.class)
     public ResponseEntity<ErrorResponse> handleBootstrapActivationDenied(
             BootstrapActivationDeniedException ex,
             HttpServletRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.FORBIDDEN)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.FORBIDDEN.value(),
-                                HttpStatus.FORBIDDEN.getReasonPhrase(),
-                                "BOOTSTRAP_ACTIVATION_DENIED",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
+        return build(HttpStatus.FORBIDDEN, ErrorCode.BOOTSTRAP_ACTIVATION_DENIED, ex.getMessage(), request);
     }
 
     @ExceptionHandler(BootstrapActivationNotAllowedException.class)
@@ -47,17 +45,7 @@ public class GlobalExceptionHandler {
             BootstrapActivationNotAllowedException ex,
             HttpServletRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.CONFLICT.value(),
-                                HttpStatus.CONFLICT.getReasonPhrase(),
-                                "BOOTSTRAP_ACTIVATION_NOT_ALLOWED",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
+        return build(HttpStatus.CONFLICT, ErrorCode.BOOTSTRAP_ACTIVATION_NOT_ALLOWED, ex.getMessage(), request);
     }
 
     @ExceptionHandler(TenantLifecycleViolationException.class)
@@ -65,17 +53,7 @@ public class GlobalExceptionHandler {
             TenantLifecycleViolationException ex,
             HttpServletRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.CONFLICT.value(),
-                                HttpStatus.CONFLICT.getReasonPhrase(),
-                                "TENANT_LIFECYCLE_VIOLATION",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
+        return build(HttpStatus.CONFLICT, ErrorCode.TENANT_LIFECYCLE_VIOLATION, ex.getMessage(), request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -83,33 +61,20 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException ex,
             HttpServletRequest request
     ) {
-        Map<String, Object> details = new LinkedHashMap<>();
         Map<String, String> fieldErrors = new LinkedHashMap<>();
         for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
             fieldErrors.put(fe.getField(), fe.getDefaultMessage());
         }
-        details.put("fieldErrors", fieldErrors);
 
-        log.warn(
-                "Validation failed correlationId={} method={} path={} errors={}",
-                org.slf4j.MDC.get(RequestCorrelationIdFilter.MDC_KEY),
-                request.getMethod(),
-                request.getRequestURI(),
-                fieldErrors
+        Map<String, Object> details = Map.of("fieldErrors", fieldErrors);
+
+        return build(
+                HttpStatus.BAD_REQUEST,
+                ErrorCode.VALIDATION_FAILED,
+                "Request validation failed",
+                request,
+                details
         );
-
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.BAD_REQUEST.value(),
-                                HttpStatus.BAD_REQUEST.getReasonPhrase(),
-                                "VALIDATION_FAILED",
-                                "Request validation failed",
-                                request.getRequestURI(),
-                                details
-                        )
-                );
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -117,58 +82,33 @@ public class GlobalExceptionHandler {
             ConstraintViolationException ex,
             HttpServletRequest request
     ) {
-        Map<String, Object> details = new LinkedHashMap<>();
         Map<String, String> violations = new LinkedHashMap<>();
         for (ConstraintViolation<?> v : ex.getConstraintViolations()) {
             violations.put(String.valueOf(v.getPropertyPath()), v.getMessage());
         }
-        details.put("violations", violations);
 
-        log.warn(
-                "Constraint violation correlationId={} method={} path={} violations={}",
-                org.slf4j.MDC.get(RequestCorrelationIdFilter.MDC_KEY),
-                request.getMethod(),
-                request.getRequestURI(),
-                violations
+        Map<String, Object> details = Map.of("violations", violations);
+
+        return build(
+                HttpStatus.BAD_REQUEST,
+                ErrorCode.CONSTRAINT_VIOLATION,
+                "Request constraint violation",
+                request,
+                details
         );
-
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.BAD_REQUEST.value(),
-                                HttpStatus.BAD_REQUEST.getReasonPhrase(),
-                                "CONSTRAINT_VIOLATION",
-                                "Request constraint violation",
-                                request.getRequestURI(),
-                                details
-                        )
-                );
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(
+    public ResponseEntity<ErrorResponse> handleMalformedJson(
             HttpMessageNotReadableException ex,
             HttpServletRequest request
     ) {
-        log.warn(
-                "Malformed JSON correlationId={} method={} path={}",
-                org.slf4j.MDC.get(RequestCorrelationIdFilter.MDC_KEY),
-                request.getMethod(),
-                request.getRequestURI()
+        return build(
+                HttpStatus.BAD_REQUEST,
+                ErrorCode.MALFORMED_JSON,
+                "Malformed JSON request body",
+                request
         );
-
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.BAD_REQUEST.value(),
-                                HttpStatus.BAD_REQUEST.getReasonPhrase(),
-                                "MALFORMED_JSON",
-                                "Malformed JSON request body",
-                                request.getRequestURI()
-                        )
-                );
     }
 
     @ExceptionHandler(UserAlreadyExistsException.class)
@@ -176,17 +116,7 @@ public class GlobalExceptionHandler {
             UserAlreadyExistsException ex,
             HttpServletRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.CONFLICT.value(),
-                                HttpStatus.CONFLICT.getReasonPhrase(),
-                                "USER_ALREADY_EXISTS",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
+        return build(HttpStatus.CONFLICT, ErrorCode.USER_ALREADY_EXISTS, ex.getMessage(), request);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -194,17 +124,12 @@ public class GlobalExceptionHandler {
             DataIntegrityViolationException ex,
             HttpServletRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.CONFLICT.value(),
-                                HttpStatus.CONFLICT.getReasonPhrase(),
-                                "DATA_INTEGRITY_VIOLATION",
-                                "Request could not be completed due to a data integrity constraint.",
-                                request.getRequestURI()
-                        )
-                );
+        return build(
+                HttpStatus.CONFLICT,
+                ErrorCode.DATA_INTEGRITY_VIOLATION,
+                "Request could not be completed due to a data integrity constraint.",
+                request
+        );
     }
 
     @ExceptionHandler(RestClientException.class)
@@ -212,35 +137,7 @@ public class GlobalExceptionHandler {
             RestClientException ex,
             HttpServletRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.BAD_GATEWAY)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.BAD_GATEWAY.value(),
-                                HttpStatus.BAD_GATEWAY.getReasonPhrase(),
-                                "UPSTREAM_SERVICE_ERROR",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
-    }
-
-    @ExceptionHandler(InviteDeliveryException.class)
-    public ResponseEntity<ErrorResponse> handleInviteDelivery(
-            InviteDeliveryException ex,
-            HttpServletRequest request
-    ) {
-        return ResponseEntity
-                .status(ex.getStatus())
-                .body(
-                        ErrorResponse.of(
-                                ex.getStatus().value(),
-                                "Bad Request",
-                                "INVITE_DELIVERY_FAILED",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
+        return build(HttpStatus.BAD_GATEWAY, ErrorCode.UPSTREAM_SERVICE_ERROR, ex.getMessage(), request);
     }
 
     @ExceptionHandler(SelfActionForbiddenException.class)
@@ -248,89 +145,7 @@ public class GlobalExceptionHandler {
             SelfActionForbiddenException ex,
             HttpServletRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.FORBIDDEN)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.FORBIDDEN.value(),
-                                HttpStatus.FORBIDDEN.getReasonPhrase(),
-                                "SELF_ACTION_FORBIDDEN",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
-    }
-
-    @ExceptionHandler(LifecycleAccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleLifecycleAccessDenied(
-            LifecycleAccessDeniedException ex,
-            HttpServletRequest request
-    ) {
-        return ResponseEntity
-                .status(HttpStatus.FORBIDDEN)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.FORBIDDEN.value(),
-                                HttpStatus.FORBIDDEN.getReasonPhrase(),
-                                "LIFECYCLE_ACCESS_DENIED",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
-    }
-
-    @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleUserNotFound(
-            UserNotFoundException ex,
-            HttpServletRequest request
-    ) {
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.NOT_FOUND.value(),
-                                HttpStatus.NOT_FOUND.getReasonPhrase(),
-                                "USER_NOT_FOUND",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
-    }
-
-    @ExceptionHandler(UserNotFoundLocallyException.class)
-    public ResponseEntity<ErrorResponse> handleUserNotFoundLocally(
-            UserNotFoundLocallyException ex,
-            HttpServletRequest request
-    ) {
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.NOT_FOUND.value(),
-                                HttpStatus.NOT_FOUND.getReasonPhrase(),
-                                "USER_NOT_FOUND_LOCALLY",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
-    }
-
-    @ExceptionHandler(InviteNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleInviteNotFound(
-            InviteNotFoundException ex,
-            HttpServletRequest request
-    ) {
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.NOT_FOUND.value(),
-                                HttpStatus.NOT_FOUND.getReasonPhrase(),
-                                "INVITE_NOT_FOUND",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
+        return build(HttpStatus.FORBIDDEN, ErrorCode.SELF_ACTION_FORBIDDEN, ex.getMessage(), request);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -338,17 +153,7 @@ public class GlobalExceptionHandler {
             IllegalArgumentException ex,
             HttpServletRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(
-                        ErrorResponse.of(
-                                HttpStatus.BAD_REQUEST.value(),
-                                HttpStatus.BAD_REQUEST.getReasonPhrase(),
-                                "INVALID_ARGUMENT",
-                                ex.getMessage(),
-                                request.getRequestURI()
-                        )
-                );
+        return build(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_ARGUMENT, ex.getMessage(), request);
     }
 
     @ExceptionHandler(Exception.class)
@@ -363,15 +168,53 @@ public class GlobalExceptionHandler {
                 request.getRequestURI(),
                 ex
         );
+
+        return build(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred",
+                request
+        );
+    }
+
+    /* ============================= */
+
+    private ResponseEntity<ErrorResponse> build(
+            HttpStatus status,
+            ErrorCode errorCode,
+            String message,
+            HttpServletRequest request
+    ) {
         return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .status(status)
                 .body(
                         ErrorResponse.of(
-                                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                                HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(),
-                                "INTERNAL_SERVER_ERROR",
-                                "An unexpected error occurred",
+                                status.value(),
+                                status.getReasonPhrase(),
+                                errorCode,
+                                message,
                                 request.getRequestURI()
+                        )
+                );
+    }
+
+    private ResponseEntity<ErrorResponse> build(
+            HttpStatus status,
+            ErrorCode errorCode,
+            String message,
+            HttpServletRequest request,
+            Map<String, Object> details
+    ) {
+        return ResponseEntity
+                .status(status)
+                .body(
+                        ErrorResponse.of(
+                                status.value(),
+                                status.getReasonPhrase(),
+                                errorCode,
+                                message,
+                                request.getRequestURI(),
+                                details
                         )
                 );
     }

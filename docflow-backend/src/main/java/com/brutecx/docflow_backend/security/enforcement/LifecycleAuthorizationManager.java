@@ -1,7 +1,6 @@
 package com.brutecx.docflow_backend.security.enforcement;
 
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
-import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.tenant.TenantStatus;
 import com.brutecx.docflow_backend.domain.user.User;
@@ -16,18 +15,11 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
-
-/**
- * Authorization manager that enforces tenant and user lifecycle status checks.
- * Throws LifecycleAccessDeniedException if access is denied due to lifecycle status.
- * Applies only to authenticated human users (OidcUser).
- * Checks:
- * 1. Tenant must not be SUSPENDED.
- * 2. User must be ACTIVE.
- * If not authenticated or not a human user, allows access to let other mechanisms decide.
- */
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -36,6 +28,9 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
 
     private final UserRepository userRepository;
     private final TenantService tenantService;
+
+    private static final Pattern TENANT_PATH =
+            Pattern.compile("^/api/tenants/([0-9a-fA-F\\-]{36})(?:/|$)");
 
     @Override
     public AuthorizationDecision check(
@@ -52,8 +47,6 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         Authentication authentication = authenticationSupplier.get();
         String uri = context.getRequest().getRequestURI();
 
-        // Bootstrap-safe endpoints must remain callable while user is not ACTIVE.
-        // These endpoints are still authenticated (by SecurityConfig).
         if (uri.equals("/api/auth/me")
                 || uri.equals("/api/users/me")
                 || uri.equals("/api/bootstrap/activate")) {
@@ -61,10 +54,6 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         }
 
         if (uri.startsWith("/api/invites/")) {
-            return new AuthorizationDecision(true);
-        }
-
-        if ("/api/bootstrap/activate".equals(uri)) {
             return new AuthorizationDecision(true);
         }
 
@@ -86,7 +75,7 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
                         )
                 );
 
-        UUID tenantId = user.getTenant().getId();
+        UUID tenantId = resolveTenantIdForLifecycle(uri, tenantService);
         TenantStatus tenantStatus = tenantService.getRequiredTenantStatus(tenantId);
 
         if (tenantStatus == TenantStatus.SUSPENDED) {
@@ -114,4 +103,22 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         return new AuthorizationDecision(true);
     }
 
+    private static UUID resolveTenantIdForLifecycle(String uri, TenantService tenantService) {
+        Optional<UUID> pathTenant = extractTenantId(uri);
+        if (pathTenant.isPresent()) {
+            return pathTenant.get();
+        }
+        return tenantService.getRootTenant().getId();
+    }
+
+    private static Optional<UUID> extractTenantId(String uri) {
+        if (uri == null || uri.isBlank()) return Optional.empty();
+        Matcher m = TENANT_PATH.matcher(uri);
+        if (!m.find()) return Optional.empty();
+        try {
+            return Optional.of(UUID.fromString(m.group(1)));
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
+    }
 }

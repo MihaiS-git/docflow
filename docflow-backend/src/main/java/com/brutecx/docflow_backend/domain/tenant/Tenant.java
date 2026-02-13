@@ -1,6 +1,5 @@
 package com.brutecx.docflow_backend.domain.tenant;
 
-import com.brutecx.docflow_backend.domain.user.User;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -9,7 +8,8 @@ import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
-import java.util.*;
+import java.util.Objects;
+import java.util.UUID;
 
 @Entity
 @Getter
@@ -37,6 +37,15 @@ public class Tenant {
     private TenantStatus status;
 
     @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tenant_type", nullable = false, length = 32)
+    private TenantType tenantType;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_tenant_id")
+    private Tenant parentTenant;
+
+    @NotNull
     private Instant createdAt;
 
     @NotNull
@@ -47,10 +56,6 @@ public class Tenant {
 
     @Column(name = "retention_days")
     private Long retentionDays;
-
-    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY,
-            cascade = CascadeType.PERSIST, orphanRemoval = true)
-    private final List<User> users = new ArrayList<>();
 
     /**
      * TRUE only for system bootstrap tenant.
@@ -65,9 +70,10 @@ public class Tenant {
     /**
      * Normal tenant creation (admin/UI).
      * Bootstrap is ALWAYS disabled.
+     * Default type = DEPARTMENT.
      */
     public Tenant(String name) {
-        this(name, false);
+        this(name, TenantType.DEPARTMENT, null, false);
     }
 
     /**
@@ -75,12 +81,14 @@ public class Tenant {
      * Only TenantBootstrap is allowed to call this.
      */
     public static Tenant bootstrapTenant(String name) {
-        return new Tenant(name, true);
+        return new Tenant(name, TenantType.ROOT, null, true);
     }
 
-    private Tenant(String name, boolean bootstrapEnabled) {
+    private Tenant(String name, TenantType type, Tenant parentTenant, boolean bootstrapEnabled) {
         this.name = canonicalize(name);
         this.status = TenantStatus.ACTIVE;
+        this.tenantType = Objects.requireNonNull(type, "type");
+        this.parentTenant = parentTenant;
         this.bootstrapEnabled = bootstrapEnabled;
     }
 
@@ -123,12 +131,6 @@ public class Tenant {
         this.retentionDays = retentionDays;
     }
 
-    public void addUser(User user) {
-        Objects.requireNonNull(user);
-        user.assignToTenant(this);
-        users.add(user);
-    }
-
     public boolean isBootstrapEnabled() {
         return Boolean.TRUE.equals(bootstrapEnabled);
     }
@@ -136,6 +138,10 @@ public class Tenant {
     public void disableBootstrap() {
         requireActive("DISABLE_BOOTSTRAP");
         this.bootstrapEnabled = false;
+    }
+
+    public boolean isRoot() {
+        return tenantType == TenantType.ROOT;
     }
 
     public void suspend() {

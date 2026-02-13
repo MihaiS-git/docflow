@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.handler;
 
+import com.brutecx.docflow_backend.api.error.ErrorCode;
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.unauth.IUnauthenticatedAccessAuditService;
@@ -36,7 +37,6 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
         String uri = request.getRequestURI();
         String httpMethod = request.getMethod();
 
-        // fingerprint must NOT depend on correlation presence (service will require correlation from ctx)
         String fingerprint = EventFingerprint.of(List.of(
                 "UNAUTH",
                 httpMethod != null ? httpMethod : "UNKNOWN",
@@ -50,7 +50,6 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
                     fingerprint
             );
         } catch (Exception e) {
-            // do not break auth flow
             String corr = MDC.get("correlationId");
             log.error(
                     "UNAUTH AUDIT FAILURE correlationId={} method={} uri={}",
@@ -64,7 +63,7 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
         ErrorResponse body = ErrorResponse.of(
                 HttpStatus.UNAUTHORIZED.value(),
                 HttpStatus.UNAUTHORIZED.getReasonPhrase(),
-                "UNAUTHORIZED",
+                ErrorCode.UNAUTHORIZED,
                 "Authentication required",
                 uri
         );

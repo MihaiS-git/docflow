@@ -5,9 +5,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
+import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakOidcUserService;
 import com.brutecx.docflow_backend.security.enforcement.AuthenticatedAuthorizationManager;
 import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationManager;
+import com.brutecx.docflow_backend.security.enforcement.TenantAuthorizationManagerFactory;
 import com.brutecx.docflow_backend.security.handler.ApiAuthenticationEntryPoint;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
 import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
@@ -23,6 +25,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.authorization.AuthorityAuthorizationManager;
 import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.core.session.SessionRegistry;
@@ -52,6 +55,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Slf4j
 @Configuration
 @Profile({"dev", "prod"})
+@EnableMethodSecurity
 public class SecurityConfig {
 
     @Value("${docflow.security.keycloak-logout-uri}")
@@ -83,7 +87,8 @@ public class SecurityConfig {
             KeycloakOidcUserService keycloakOidcUserService,
             InviteApplicationService inviteApplicationService,
             ApiAuthenticationEntryPoint apiAuthenticationEntryPoint,
-            AuthenticatedAuthorizationManager authenticatedAuthorizationManager
+            AuthenticatedAuthorizationManager authenticatedAuthorizationManager,
+            TenantAuthorizationManagerFactory tenantAuthorizationManagerFactory
     ) throws Exception {
 
         http
@@ -159,11 +164,21 @@ public class SecurityConfig {
                                 )
                         )
 
-                        // -------- REVIEW APIs --------
-                        .requestMatchers("/api/review/**").access(
+                        // -------- TENANT INVITE APIs (MANAGER REQUIRED) --------
+                        .requestMatchers("/api/tenants/*/invites/**").access(
                                 AuthorizationManagers.allOf(
+                                        authenticatedAuthorizationManager,
                                         lifecycleAuthorizationManager,
-                                        AuthorityAuthorizationManager.hasAnyRole("REVIEWER", "ADMIN")
+                                        tenantAuthorizationManagerFactory.atLeast(TenantRole.MANAGER)
+                                )
+                        )
+
+                        // -------- TENANT APIs (Contextual RBAC) --------
+                        .requestMatchers("/api/tenants/**").access(
+                                AuthorizationManagers.allOf(
+                                        authenticatedAuthorizationManager,
+                                        lifecycleAuthorizationManager,
+                                        tenantAuthorizationManagerFactory.atLeast(TenantRole.MEMBER)
                                 )
                         )
 

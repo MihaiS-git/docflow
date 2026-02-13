@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.handler;
 
+import com.brutecx.docflow_backend.api.error.ErrorCode;
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -48,8 +49,6 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                 ex.getClass().getSimpleName()
         );
 
-        String errorCode = "ACCESS_DENIED";
-
         String correlationId = MDC.get("correlationId");
 
         String subjectId = null;
@@ -60,13 +59,21 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
         String httpMethod = request.getMethod();
         String uri = request.getRequestURI();
 
+        ErrorCode errorCodeEnum = ErrorCode.INTERNAL_SERVER_ERROR;
+
         if (ex instanceof LifecycleAccessDeniedException lifecycleEx) {
 
-            errorCode = lifecycleEx.getErrorCode();
+            String lifecycleCode = lifecycleEx.getErrorCode();
+
+            try {
+                errorCodeEnum = ErrorCode.valueOf(lifecycleCode);
+            } catch (IllegalArgumentException ignored) {
+                errorCodeEnum = ErrorCode.INTERNAL_SERVER_ERROR;
+            }
 
             String fingerprint = EventFingerprint.of(List.of(
                     "LIFECYCLE_DENIED",
-                    errorCode,
+                    lifecycleCode,
                     uri,
                     correlationId
             ));
@@ -74,7 +81,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
             try {
                 lifecycleDeniedAuditService.record(
                         subjectId,
-                        errorCode,
+                        lifecycleCode,
                         httpMethod,
                         uri,
                         fingerprint
@@ -84,7 +91,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                     log.warn(
                             "Lifecycle audit deduped. correlationId={} reasonCode={} uri={}",
                             correlationId,
-                            errorCode,
+                            lifecycleCode,
                             uri
                     );
                 }
@@ -93,7 +100,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                         "LIFECYCLE AUDIT FAILURE → correlationId={} subjectId={} reasonCode={} method={} uri={}",
                         correlationId,
                         subjectId,
-                        errorCode,
+                        lifecycleCode,
                         httpMethod,
                         uri,
                         auditEx
@@ -101,6 +108,8 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
             }
 
         } else {
+
+            errorCodeEnum = ErrorCode.INVALID_ARGUMENT;
 
             String fingerprint = EventFingerprint.of(List.of(
                     "RBAC_DENIED",
@@ -138,7 +147,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
         ErrorResponse body = ErrorResponse.of(
                 HttpStatus.FORBIDDEN.value(),
                 HttpStatus.FORBIDDEN.getReasonPhrase(),
-                errorCode,
+                errorCodeEnum,
                 ex.getMessage(),
                 uri
         );

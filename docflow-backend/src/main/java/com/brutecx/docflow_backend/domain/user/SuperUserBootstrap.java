@@ -12,15 +12,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Bootstraps the initial superuser at application startup.
- * Invariants:
- * - Invite-only forever (no auto-registration on login).
- * - externalSubjectId is NULL at bootstrap time.
- * - User is created in LOCKED state.
- * - Identity binding + activation happen ONLY via an explicit bootstrap-claim flow.
- * - Tenant already exists (bootstrapped separately).
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -52,14 +43,10 @@ public class SuperUserBootstrap implements ApplicationRunner {
             return;
         }
 
-        // If no tenant exists → bootstrap tenant first
+        // Ensure ROOT tenant exists
         Tenant tenant = tenantService.getOrCreateBootstrapTenant();
 
-        boolean exists =
-                userRepository.existsByTenantIdAndEmailIgnoreCase(
-                        tenant.getId(),
-                        adminEmail
-                );
+        boolean exists = userRepository.existsByEmailIgnoreCase(adminEmail);
 
         if (exists) {
             log.info("Bootstrap admin already exists — skipping");
@@ -74,14 +61,12 @@ public class SuperUserBootstrap implements ApplicationRunner {
                 "Admin"
         );
 
-        tenant.addUser(admin);
         userRepository.save(admin);
 
         log.info(
-                "Bootstrapped superuser (LOCKED) tenantId={} email={}",
+                "Bootstrapped superuser (LOCKED) rootTenantId={} email={}",
                 tenant.getId(),
                 adminEmail
         );
     }
-
 }

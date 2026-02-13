@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.domain.admin;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
 import com.brutecx.docflow_backend.audit.admin.RoleChangeMetadata;
+import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
@@ -22,6 +23,7 @@ public class UserRoleAdminService {
     private final KeycloakAdminClient keycloakRoleAdminClient;
     private final IAdminAuditEventService auditEventService;
     private final UserService userService;
+    private final TenantService tenantService;
 
     private static final Set<String> NON_ASSIGNABLE_ROLES = Set.of("USER");
 
@@ -52,7 +54,7 @@ public class UserRoleAdminService {
 
         auditEventService.record(
                 AdminAuditActionType.ROLE_ASSIGNED,
-                actor.getTenant().getId(),
+                tenantService.getRootTenant().getId(),
                 actor.getExternalSubjectId(),
                 target.getId(),
                 new RoleChangeMetadata(roleName, null)
@@ -86,7 +88,7 @@ public class UserRoleAdminService {
 
         auditEventService.record(
                 AdminAuditActionType.ROLE_REVOKED,
-                actor.getTenant().getId(),
+                tenantService.getRootTenant().getId(),
                 actor.getExternalSubjectId(),
                 target.getId(),
                 new RoleChangeMetadata(roleName, null)

@@ -1,6 +1,5 @@
 package com.brutecx.docflow_backend.domain.user;
 
-import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -40,7 +39,7 @@ public class UserService {
             throw new IllegalStateException("Authenticated principal is not an OIDC user");
         }
 
-        String externalSubjectId = oidcUser.getSubject(); // CHANGED: correct OIDC subject
+        String externalSubjectId = oidcUser.getSubject();
         log.info("External subject id (OIDC sub): {}", externalSubjectId);
 
         return userRepository.findByExternalSubjectId(externalSubjectId)
@@ -55,15 +54,14 @@ public class UserService {
         return userRepository.getRequired(userId);
     }
 
-    public void setSubjectId(Tenant tenant, String normalizedEmail, String keycloakUserId) {
-        userRepository.findByTenantIdAndEmailIgnoreCase(tenant.getId(), normalizedEmail)
+    public void setSubjectId(String normalizedEmail, String keycloakUserId) {
+        userRepository.findByEmailIgnoreCase(normalizedEmail)
                 .ifPresentOrElse(user -> {
                     user.bindExternalSubjectId(keycloakUserId);
                     userRepository.save(user);
                 }, () -> {
                     log.error(
-                            "INVITE: Local user row missing for tenantId={} email={} after Keycloak provisioning userId={}",
-                            tenant.getId(),
+                            "INVITE: Local user row missing for email={} after Keycloak provisioning userId={}",
                             normalizedEmail,
                             keycloakUserId
                     );
@@ -86,21 +84,16 @@ public class UserService {
         String subject = oidcUser.getSubject();
 
         return userRepository.findByExternalSubjectId(subject)
-                .map(user -> {
-                    return switch (user.getStatus()) {
-                        case ACTIVE -> new CurrentUserResult(CurrentUserState.ACTIVE, user);
-                        case LOCKED -> new CurrentUserResult(CurrentUserState.LOCKED, null);
-                        case DISABLED -> new CurrentUserResult(CurrentUserState.DISABLED, null);
-                    };
+                .map(user -> switch (user.getStatus()) {
+                    case ACTIVE -> new CurrentUserResult(CurrentUserState.ACTIVE, user);
+                    case LOCKED -> new CurrentUserResult(CurrentUserState.LOCKED, null);
+                    case DISABLED -> new CurrentUserResult(CurrentUserState.DISABLED, null);
                 })
-                .orElseGet(() ->
-                        new CurrentUserResult(CurrentUserState.BOOTSTRAP, null)
-                );
+                .orElseGet(() -> new CurrentUserResult(CurrentUserState.BOOTSTRAP, null));
     }
 
     /**
      * Deletes invited users that were never activated.
-     * <p>
      * Safety guarantees:
      * - only LOCKED users
      * - only users without externalSubjectId
@@ -121,16 +114,13 @@ public class UserService {
         int deleted = 0;
 
         for (User user : users) {
-            // HARD GUARD: never delete users already bound to IdP
             if (user.getExternalSubjectId() != null) {
                 continue;
             }
-
             userRepository.delete(user);
             deleted++;
         }
 
         return deleted;
     }
-
 }

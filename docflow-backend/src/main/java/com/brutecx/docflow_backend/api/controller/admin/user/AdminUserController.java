@@ -58,8 +58,7 @@ public class AdminUserController {
     public ResponseEntity<List<String>> listAssignableRoles() {
         return ResponseEntity.ok(List.of(
                 "ADMIN",
-                "AUDITOR",
-                "REVIEWER"
+                "AUDITOR"
         ));
     }
 

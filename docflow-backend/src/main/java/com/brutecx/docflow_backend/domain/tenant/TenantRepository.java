@@ -16,4 +16,7 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID> {
 
     Page<Tenant> findByStatus(TenantStatus status, Pageable pageable);
 
+    Optional<Tenant> findFirstByTenantType(TenantType tenantType);
+
+    Optional<Tenant> findByTenantType(TenantType type);
 }

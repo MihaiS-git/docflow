@@ -8,7 +8,9 @@ import com.brutecx.docflow_backend.domain.invite.Invite;
 import com.brutecx.docflow_backend.domain.invite.InviteRepository;
 import com.brutecx.docflow_backend.domain.invite.InviteStatus;
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
+import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
+import com.brutecx.docflow_backend.domain.tenant.UserTenantMembershipRepository;
 import com.brutecx.docflow_backend.domain.user.IUserProvisioningService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
@@ -45,6 +47,7 @@ public class InviteApplicationService {
     private final IAdminAuditEventService adminAuditEventService;
     private final OnboardingAuditService onboardingAuditService;
     private final UserService userService;
+    private final UserTenantMembershipRepository membershipRepository;
 
     /* =========================================================
        CREATE + SEND
@@ -57,8 +60,14 @@ public class InviteApplicationService {
             String firstName,
             String lastName,
             String jobTitle,
-            String department
+            String department,
+            TenantRole tenantRole
     ) {
+        if (tenantRole != null && targetTenantId == null) {
+            throw new IllegalArgumentException(
+                    "tenantRole cannot be provided without targetTenantId"
+            );
+        }
 
         Tenant tenant = tenantService.getRequired(targetTenantId);
         String normalizedEmail = email.toLowerCase(Locale.ROOT);
@@ -79,7 +88,12 @@ public class InviteApplicationService {
                     department
             );
 
-            invite = Invite.create(normalizedEmail, tenant.getId());
+            // Apply requested tenant role (default MEMBER).
+            TenantRole effectiveRole = (tenantRole != null) ? tenantRole : TenantRole.MEMBER;
+            membershipRepository.findByUserIdAndTenantId(user.getId(), tenant.getId())
+                    .ifPresent(m -> m.changeRole(effectiveRole));
+
+            invite = Invite.create(normalizedEmail, tenant.getId(), effectiveRole);
             invite.linkUser(user);
             inviteRepository.save(invite);
 
@@ -91,7 +105,7 @@ public class InviteApplicationService {
                             temporaryPassword
                     );
 
-            userService.setSubjectId(tenant, normalizedEmail, keycloakUserId);
+            userService.setSubjectId(normalizedEmail, keycloakUserId);
 
             String inviteLink =
                     frontendBaseUrl + "/invite?token=" + invite.getToken();
@@ -248,8 +262,14 @@ public class InviteApplicationService {
        REVOKE
        ========================================================= */
 
+    /**
+     * Tenant-scoped revoke with hard boundary enforcement.
+     * Intended for /api/tenants/{tenantId}/invites/{inviteId}/revoke.
+     */
     @Transactional
-    public void revokeInvite(UUID inviteId) {
+    public void revokeInviteInTenant(UUID inviteId, UUID tenantId) {
+        Objects.requireNonNull(inviteId, "inviteId");
+        Objects.requireNonNull(tenantId, "tenantId");
 
         Invite invite = inviteRepository.findById(inviteId)
                 .orElseThrow(() ->
@@ -257,6 +277,10 @@ public class InviteApplicationService {
                 );
 
         UUID inviteTenantId = requireInviteTenant(invite);
+
+        if (!inviteTenantId.equals(tenantId)) {
+            throw new IllegalArgumentException("Invite does not belong to tenant");
+        }
 
         if (invite.getStatus() != InviteStatus.PENDING) {
             throw new IllegalStateException("Only PENDING invites can be revoked");
