@@ -19,11 +19,10 @@ import java.util.UUID;
 @Table(
         name = "admin_audit_events",
         indexes = {
-                @Index(name = "idx_admin_audit_timestamp", columnList = "timestamp"),
-                @Index(name = "idx_admin_audit_actor_user_id", columnList = "actor_user_id"),
-                @Index(name = "idx_admin_audit_tenant_id", columnList = "tenant_id"),
-                @Index(name = "idx_admin_audit_correlation_id", columnList = "correlation_id"),
-                @Index(name = "idx_admin_audit_subject_id", columnList = "subject_id")
+                @Index(name = "idx_admin_audit_ts_id", columnList = "timestamp,id"),
+                @Index(name = "idx_admin_audit_tenant_ts_id", columnList = "tenant_id,timestamp,id"),
+                @Index(name = "idx_admin_audit_actor", columnList = "actor_user_id"),
+                @Index(name = "idx_admin_audit_correlation", columnList = "correlation_id")
         }
 )
 @Getter
@@ -45,34 +44,34 @@ public class AdminAuditEvent {
     private UUID actorUserId;
 
     @NotNull
-    @Column(nullable = false, updatable = false, length = 128)
+    @Column(nullable = false, updatable = false)
     private String ip;
 
     @NotNull
-    @Column(nullable = false, updatable = false, name = "user_agent", length = 512)
+    @Column(nullable = false, updatable = false, name = "user_agent")
     private String userAgent;
 
     @NotNull
-    @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
+    @Column(nullable = false, updatable = false, name = "correlation_id")
     private String correlationId;
 
     @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "correlation_source", nullable = false, updatable = false, length = 32)
+    @Column(nullable = false, updatable = false, name = "correlation_source")
     private CorrelationSource correlationSource;
 
     @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "execution_context", nullable = false, updatable = false, length = 32)
+    @Column(nullable = false, updatable = false, name = "execution_context")
     private ExecutionContext executionContext;
 
     @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "result", nullable = false, updatable = false, length = 16)
+    @Column(nullable = false, updatable = false)
     private AuditResult result;
 
     @NotNull
-    @Column(nullable = false, updatable = false, name = "subject_id", length = 128)
+    @Column(nullable = false, updatable = false, name = "subject_id")
     private String subjectId;
 
     @NotNull
@@ -80,8 +79,8 @@ public class AdminAuditEvent {
     private UUID tenantId;
 
     @NotNull
-    @Column(nullable = false, updatable = false, name = "action_type", length = 64)
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false, name = "action_type")
     private AdminAuditActionType actionType;
 
     @Column(updatable = false, name = "target_user_id")
@@ -92,16 +91,19 @@ public class AdminAuditEvent {
     private AdminAuditMetadata metadata;
 
     @NotNull
-    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
+    @Column(nullable = false, updatable = false, unique = true)
     private String eventFingerprint;
 
-    @Column(nullable = false, updatable = false, name = "chain_version")
+    @NotNull
+    @Column(nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(nullable = false, updatable = false, name = "prev_event_hash", length = 128)
+    @NotNull
+    @Column(nullable = false, updatable = false)
     private String prevEventHash;
 
-    @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
+    @NotNull
+    @Column(nullable = false, updatable = false)
     private String eventHash;
 
     public AdminAuditEvent(
@@ -142,6 +144,8 @@ public class AdminAuditEvent {
 
     @PrePersist
     private void prePersist() {
-        this.timestamp = Instant.now();
+        if (this.timestamp == null) {
+            this.timestamp = Instant.now();
+        }
     }
 }

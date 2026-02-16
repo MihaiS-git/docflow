@@ -8,11 +8,14 @@ import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 
 import java.time.Instant;
+import java.util.UUID;
 
 public record AuthenticationAuditDTO(
+        UUID id,
         Instant timestamp,
         AuthenticationEventSource source,
         String username,
+        String subjectId,
         AuthenticationResult result,
         String idp,
         String ip,
@@ -26,9 +29,11 @@ public record AuthenticationAuditDTO(
 
     public static AuthenticationAuditDTO from(AuthenticationEvent event) {
         return new AuthenticationAuditDTO(
+                event.getId(),
                 event.getTimestamp(),
                 event.getSource(),
                 event.getUsername(),
+                event.getSubjectId(),
                 event.getResult(),
                 event.getIdp(),
                 event.getIp(),

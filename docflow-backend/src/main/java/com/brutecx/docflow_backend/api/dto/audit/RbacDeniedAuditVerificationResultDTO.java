@@ -4,19 +4,15 @@ import java.util.UUID;
 
 public record RbacDeniedAuditVerificationResultDTO(
         boolean success,
-        long verifiedCount,
-        UUID failedEventId,
-        String message
+        long verified,
+        UUID failingEventId,
+        String reason
 ) {
-    public static RbacDeniedAuditVerificationResultDTO success(long verifiedCount) {
-        return new RbacDeniedAuditVerificationResultDTO(true, verifiedCount, null, null);
+    public static RbacDeniedAuditVerificationResultDTO success(long verified) {
+        return new RbacDeniedAuditVerificationResultDTO(true, verified, null, null);
     }
 
-    public static RbacDeniedAuditVerificationResultDTO failure(
-            long verifiedCount,
-            UUID failedEventId,
-            String message
-    ) {
-        return new RbacDeniedAuditVerificationResultDTO(false, verifiedCount, failedEventId, message);
+    public static RbacDeniedAuditVerificationResultDTO failure(long verified, UUID failingEventId, String reason) {
+        return new RbacDeniedAuditVerificationResultDTO(false, verified, failingEventId, reason);
     }
 }

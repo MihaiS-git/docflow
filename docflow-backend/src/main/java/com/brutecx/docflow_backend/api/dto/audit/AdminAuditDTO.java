@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record AdminAuditDTO(
+        UUID id,
         Instant timestamp,
         UUID actorUserId,
         String subjectId,
@@ -24,11 +25,14 @@ public record AdminAuditDTO(
         CorrelationSource correlationSource,
         ExecutionContext executionContext,
         AuditResult result,
-        String eventFingerprint
+        String eventFingerprint,
+        int chainVersion,
+        String prevEventHash,
+        String eventHash
 ) {
-
     public static AdminAuditDTO from(AdminAuditEvent event) {
         return new AdminAuditDTO(
+                event.getId(),
                 event.getTimestamp(),
                 event.getActorUserId(),
                 event.getSubjectId(),
@@ -42,7 +46,10 @@ public record AdminAuditDTO(
                 event.getCorrelationSource(),
                 event.getExecutionContext(),
                 event.getResult(),
-                event.getEventFingerprint()
+                event.getEventFingerprint(),
+                event.getChainVersion(),
+                event.getPrevEventHash(),
+                event.getEventHash()
         );
     }
 }

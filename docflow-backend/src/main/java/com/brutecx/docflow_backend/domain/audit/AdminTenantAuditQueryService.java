@@ -1,15 +1,20 @@
 package com.brutecx.docflow_backend.domain.audit;
 
+import com.brutecx.docflow_backend.api.dto.audit.AdminAuditDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AdminAuditForensicDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
+import com.brutecx.docflow_backend.audit.admin.AdminAuditCanonicalMaterialBuilder;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditEvent;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditEventRepository;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
-import com.brutecx.docflow_backend.audit.AuditRequestContext;
-import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -46,12 +52,15 @@ public class AdminTenantAuditQueryService {
     private final AuditRequestContextExtractor auditRequestContextExtractor;
     private final UserService userService;
 
-    /* =========================
-       QUERY (Cursor + Offset)
-       ========================= */
+    private final AdminAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final AuditChainService auditChainService;
+
+    /* =====================================================
+       CURSOR QUERY – timestamp DESC, id DESC
+       ===================================================== */
 
     @Transactional(readOnly = true)
-    public Page<AdminAuditEvent> query(
+    public Page<AdminAuditDTO> query(
             UUID tenantId,
             Instant from,
             Instant to,
@@ -59,13 +68,33 @@ public class AdminTenantAuditQueryService {
             UUID actorUserId,
             Instant cursorTimestamp,
             UUID cursorId,
-            int page,
-            int size,
-            Sort.Direction direction
+            int size
     ) {
 
-        int safeSize = Math.min(size, MAX_PAGE_SIZE);
-        Sort.Direction safeDirection = direction != null ? direction : Sort.Direction.DESC;
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required");
+        }
+
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new IllegalArgumentException("'from' must be <= 'to'");
+        }
+
+        boolean hasCursorTs = cursorTimestamp != null;
+        boolean hasCursorId = cursorId != null;
+        if (hasCursorTs ^ hasCursorId) {
+            throw new IllegalArgumentException("cursorTimestamp and cursorId must be provided together");
+        }
+
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+
+        Pageable pageable = PageRequest.of(
+                0,
+                safeSize,
+                Sort.by(
+                        Sort.Order.desc("timestamp"),
+                        Sort.Order.desc("id")
+                )
+        );
 
         Specification<AdminAuditEvent> spec = Specification.allOf(
                 AdminAuditSpecifications.hasTenantId(tenantId),
@@ -78,48 +107,44 @@ public class AdminTenantAuditQueryService {
                 actorUserId != null
                         ? AdminAuditSpecifications.hasActorUserId(actorUserId)
                         : null,
-                (cursorTimestamp != null && cursorId != null)
-                        ? AdminAuditSpecifications.cursorAfter(
-                        cursorTimestamp,
-                        cursorId,
-                        safeDirection == Sort.Direction.ASC
-                )
+                hasCursorTs
+                        ? AdminAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false)
                         : null
         );
 
-        Pageable pageable = PageRequest.of(
-                page,
-                safeSize,
-                Sort.by(
-                        new Sort.Order(safeDirection, "timestamp"),
-                        new Sort.Order(safeDirection, "id")
-                )
-        );
+        Page<AdminAuditEvent> page = repository.findAll(spec, pageable);
 
-        Page<AdminAuditEvent> result = repository.findAll(spec, pageable);
+        recordSensitiveAccessTenantScoped(tenantId);
 
-        recordSensitiveAccess(tenantId);
-
-        return result;
+        return page.map(AdminAuditDTO::from);
     }
 
-    /* =========================
-       EXPORT
-       ========================= */
+    /* =====================================================
+       FORENSIC EXPORT (ASC, JSONL-friendly)
+       - Uses cursor batching internally (timestamp ASC, id ASC)
+       - Emits AdminAuditForensicDTO
+       ===================================================== */
 
     @Transactional(readOnly = true)
-    public void export(
+    public void exportForensic(
             UUID tenantId,
             Instant from,
             Instant to,
-            Consumer<AdminAuditEvent> consumer
+            Consumer<AdminAuditForensicDTO> consumer
     ) {
 
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required");
+        }
         if (from == null || to == null) {
             throw new IllegalArgumentException("from and to are required for export");
         }
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("'from' must be <= 'to'");
+        }
+        Objects.requireNonNull(consumer, "consumer is required");
 
-        int exported = 0;
+        long exported = 0;
         Instant cursorTimestamp = null;
         UUID cursorId = null;
 
@@ -130,7 +155,7 @@ public class AdminTenantAuditQueryService {
                     (root, query, cb) -> root.get("actionType").in(TENANT_ACTIONS),
                     AdminAuditSpecifications.timestampFrom(from),
                     AdminAuditSpecifications.timestampTo(to),
-                    (cursorTimestamp != null && cursorId != null)
+                    cursorTimestamp != null
                             ? AdminAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
                             : null
             );
@@ -138,20 +163,23 @@ public class AdminTenantAuditQueryService {
             Pageable pageable = PageRequest.of(
                     0,
                     EXPORT_BATCH_SIZE,
-                    Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
+                    Sort.by(
+                            Sort.Order.asc("timestamp"),
+                            Sort.Order.asc("id")
+                    )
             );
 
             Page<AdminAuditEvent> page = repository.findAll(spec, pageable);
-
-            if (page.isEmpty()) break;
+            if (page.isEmpty()) {
+                break;
+            }
 
             for (AdminAuditEvent event : page.getContent()) {
-
-                consumer.accept(event);
+                consumer.accept(AdminAuditForensicDTO.from(event, AdminAuditCanonicalMaterialBuilder.STREAM));
                 exported++;
 
                 if (exported >= EXPORT_MAX_ROWS) {
-                    recordSensitiveAccess(tenantId);
+                    recordSensitiveAccessTenantScoped(tenantId);
                     return;
                 }
 
@@ -160,12 +188,14 @@ public class AdminTenantAuditQueryService {
             }
         }
 
-        recordSensitiveAccess(tenantId);
+        recordSensitiveAccessTenantScoped(tenantId);
     }
 
-    /* =========================
-       VERIFY
-       ========================= */
+    /* =====================================================
+       VERIFY – timestamp ASC, id ASC
+       - continuity check: prevEventHash must match previous eventHash
+       - recompute HMAC using canonical material builder (single source of truth)
+       ===================================================== */
 
     @Transactional(readOnly = true)
     public AdminAuditVerificationResultDTO verify(
@@ -174,14 +204,22 @@ public class AdminTenantAuditQueryService {
             Instant to
     ) {
 
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required");
+        }
         if (from == null || to == null) {
-            throw new IllegalArgumentException("from and to are required for verification");
+            throw new IllegalArgumentException("from and to are required");
+        }
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("'from' must be <= 'to'");
         }
 
         long verified = 0;
         Instant cursorTimestamp = null;
         UUID cursorId = null;
-        String previousHash = null;
+        String previousEventHash = null;
+
+        AuditPartition partition = AuditPartition.tenant(AdminAuditCanonicalMaterialBuilder.STREAM, tenantId.toString());
 
         while (true) {
 
@@ -190,7 +228,7 @@ public class AdminTenantAuditQueryService {
                     (root, query, cb) -> root.get("actionType").in(TENANT_ACTIONS),
                     AdminAuditSpecifications.timestampFrom(from),
                     AdminAuditSpecifications.timestampTo(to),
-                    (cursorTimestamp != null && cursorId != null)
+                    cursorTimestamp != null
                             ? AdminAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
                             : null
             );
@@ -198,46 +236,57 @@ public class AdminTenantAuditQueryService {
             Pageable pageable = PageRequest.of(
                     0,
                     VERIFY_BATCH_SIZE,
-                    Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
+                    Sort.by(
+                            Sort.Order.asc("timestamp"),
+                            Sort.Order.asc("id")
+                    )
             );
 
             Page<AdminAuditEvent> page = repository.findAll(spec, pageable);
-
-            if (page.isEmpty()) break;
+            if (page.isEmpty()) {
+                break;
+            }
 
             for (AdminAuditEvent event : page.getContent()) {
 
-                if (previousHash != null &&
-                        !event.getPrevEventHash().equals(previousHash)) {
+                if (previousEventHash != null &&
+                        !Objects.equals(previousEventHash, normalizeHash(event.getPrevEventHash()))) {
 
-                    recordSensitiveAccess(tenantId);
+                    recordSensitiveAccessTenantScoped(tenantId);
+
                     return AdminAuditVerificationResultDTO.failure(
                             verified,
                             event.getId(),
-                            "Chain continuity mismatch"
+                            "Chain continuity mismatch (prevEventHash)"
                     );
                 }
 
-                String recomputed = EventFingerprint.of(List.of(
-                        event.getActorUserId().toString(),
-                        event.getTenantId().toString(),
-                        event.getActionType().name(),
-                        event.getResult().name(),
-                        event.getCorrelationId(),
-                        event.getEventFingerprint()
-                ));
+                if (event.getChainVersion() > 0 && !"-".equals(event.getEventHash())) {
 
-                if (!event.getEventHash().equals(recomputed)) {
-
-                    recordSensitiveAccess(tenantId);
-                    return AdminAuditVerificationResultDTO.failure(
-                            verified,
-                            event.getId(),
-                            "Event hash mismatch"
+                    String material = canonicalMaterialBuilder.buildCanonicalMaterial(
+                            canonicalMaterialBuilder.fromEvent(event)
                     );
+
+                    String expected = auditChainService.computeEventHash(
+                            partition,
+                            event.getChainVersion(),
+                            normalizeHash(event.getPrevEventHash()),
+                            material
+                    );
+
+                    if (!Objects.equals(expected, event.getEventHash())) {
+
+                        recordSensitiveAccessTenantScoped(tenantId);
+
+                        return AdminAuditVerificationResultDTO.failure(
+                                verified,
+                                event.getId(),
+                                "Event hash mismatch (recomputed != stored)"
+                        );
+                    }
                 }
 
-                previousHash = event.getEventHash();
+                previousEventHash = normalizeHash(event.getEventHash());
                 verified++;
 
                 cursorTimestamp = event.getTimestamp();
@@ -245,15 +294,15 @@ public class AdminTenantAuditQueryService {
             }
         }
 
-        recordSensitiveAccess(tenantId);
+        recordSensitiveAccessTenantScoped(tenantId);
         return AdminAuditVerificationResultDTO.success(verified);
     }
 
-    /* =========================
-       Sensitive Read Logging
-       ========================= */
+    /* =====================================================
+       SENSITIVE READ AUDIT (tenant-scoped)
+       ===================================================== */
 
-    private void recordSensitiveAccess(UUID tenantId) {
+    private void recordSensitiveAccessTenantScoped(UUID tenantId) {
 
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = auditRequestContextExtractor.fromCurrentRequest();
@@ -261,7 +310,8 @@ public class AdminTenantAuditQueryService {
         String fingerprint = EventFingerprint.of(List.of(
                 "SENSITIVE_ACCESS",
                 "AUDIT_READ",
-                "ADMIN_TENANT_ACTIONS",
+                AdminAuditCanonicalMaterialBuilder.STREAM,
+                "SCOPE_TENANT",
                 actor.getId().toString(),
                 tenantId.toString(),
                 ctx.correlationId()
@@ -272,7 +322,7 @@ public class AdminTenantAuditQueryService {
                 actor.getExternalSubjectId(),
                 tenantId,
                 SensitiveAccessSubjectType.AUDIT_STREAM,
-                "ADMIN_TENANT_ACTIONS",
+                AdminAuditCanonicalMaterialBuilder.STREAM,
                 "AUDIT",
                 "READ",
                 null,
@@ -280,9 +330,13 @@ public class AdminTenantAuditQueryService {
                 ctx.ip(),
                 ctx.userAgent(),
                 "AUDIT_READ",
-                "Read tenant admin audit stream",
+                "Read admin audit stream (tenant-scoped tenant actions)",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );
+    }
+
+    private static String normalizeHash(String v) {
+        return (v == null || v.isBlank()) ? "-" : v;
     }
 }

@@ -24,6 +24,19 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(LifecycleAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleLifecycleAccessDenied(
+            LifecycleAccessDeniedException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.FORBIDDEN,
+                ErrorCode.ACCOUNT_LOCKED,
+                ex.getMessage(),
+                request
+        );
+    }
+
     @ExceptionHandler(LastManagerViolationException.class)
     public ResponseEntity<ErrorResponse> handleLastManagerViolation(
             LastManagerViolationException ex,

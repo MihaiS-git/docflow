@@ -6,6 +6,8 @@ import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,10 +24,12 @@ import java.util.List;
 public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditService {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-    private static final String STREAM = "LIFECYCLE_DENIED";
+    private static final String STREAM = LifecycleDeniedCanonicalMaterialBuilder.STREAM;
 
     private final LifecycleDeniedAuditEventRepository repository;
     private final AuditRequestContextExtractor contextExtractor;
+    private final LifecycleDeniedCanonicalMaterialBuilder canonicalBuilder;
+    private final AuditChainService auditChainService;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -36,6 +40,7 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
             String path,
             String eventFingerprint
     ) {
+
         ensureHttpContext();
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
@@ -60,7 +65,46 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
+        LifecycleDeniedCanonicalInput input =
+                new LifecycleDeniedCanonicalInput(
+                        null,
+                        correlationId,
+                        correlationSource,
+                        ExecutionContext.HTTP,
+                        AuditResult.DENIED,
+                        resolvedSubject,
+                        resolvedReason,
+                        resolvedMethod,
+                        resolvedPath,
+                        ctx.ip(),
+                        ctx.userAgent(),
+                        fingerprint
+                );
+
+        String canonicalMaterial =
+                canonicalBuilder.buildCanonicalMaterial(input);
+
+        /*
+         * Partition rule:
+         * LifecycleDenied → SUBJECT or GLOBAL
+         */
+
+        AuditPartition partition;
+
+        if (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank()) {
+            partition = AuditPartition.subject(STREAM, resolvedSubject.trim());
+        } else {
+            partition = AuditPartition.global(STREAM);
+        }
+
+        AuditChainService.ChainHash chain =
+                auditChainService.nextHash(
+                        partition,
+                        canonicalMaterial
+                );
+
         try {
+
             repository.save(new LifecycleDeniedAuditEvent(
                     correlationId,
                     correlationSource,
@@ -72,11 +116,16 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                     resolvedPath,
                     ctx.ip(),
                     ctx.userAgent(),
-                    fingerprint
+                    fingerprint,
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
             ));
+
         } catch (Exception ex) {
+
             log.error(
-                    "LIFECYCLE AUDIT FAILURE correlationId={} subjectId={} reasonCode={} method={} path={}",
+                    "LIFECYCLE_DENIED_AUDIT_WRITE_FAILED correlationId={} subjectId={} reasonCode={} method={} path={}",
                     correlationId,
                     resolvedSubject,
                     resolvedReason,
@@ -84,6 +133,7 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                     resolvedPath,
                     ex
             );
+
             throw ex;
         }
     }

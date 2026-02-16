@@ -35,6 +35,10 @@ public class UnauthenticatedAccessAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
+    @NotNull
+    @Column(name = "timestamp", nullable = false, updatable = false)
+    private Instant timestamp;
+
     @Column(name = "correlation_id", updatable = false, length = 128)
     private String correlationId;
 
@@ -68,10 +72,6 @@ public class UnauthenticatedAccessAuditEvent {
     private String userAgent;
 
     @NotNull
-    @Column(name = "timestamp", nullable = false, updatable = false)
-    private Instant timestamp;
-
-    @NotNull
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
@@ -87,6 +87,7 @@ public class UnauthenticatedAccessAuditEvent {
     private String eventHash;
 
     public UnauthenticatedAccessAuditEvent(
+            Instant timestamp,
             String correlationId,
             CorrelationSource correlationSource,
             ExecutionContext executionContext,
@@ -100,6 +101,7 @@ public class UnauthenticatedAccessAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
+        this.timestamp = timestamp;
         this.correlationId = correlationId;
         this.correlationSource = correlationSource;
         this.executionContext = executionContext;
@@ -116,6 +118,8 @@ public class UnauthenticatedAccessAuditEvent {
 
     @PrePersist
     void prePersist() {
-        this.timestamp = Instant.now();
+        if (this.timestamp == null) {
+            this.timestamp = Instant.now();
+        }
     }
 }

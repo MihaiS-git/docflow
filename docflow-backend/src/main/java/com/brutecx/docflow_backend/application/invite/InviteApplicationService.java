@@ -246,7 +246,7 @@ public class InviteApplicationService {
             throw new IllegalArgumentException("Invite link invalid or expired");
         }
 
-        onboardingAuditService.recordOnce(
+        onboardingAuditService.recordSuccess(
                 currentUser.getId(),
                 currentUser.getExternalSubjectId(),
                 inviteTenantId,

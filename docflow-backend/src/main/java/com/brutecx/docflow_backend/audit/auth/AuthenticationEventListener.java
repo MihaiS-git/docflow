@@ -8,6 +8,7 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +24,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -31,12 +31,14 @@ import java.util.List;
 public class AuthenticationEventListener {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-    private static final String STREAM = "AUTH";
+
+    private static final String STREAM = AuthenticationCanonicalMaterialBuilder.STREAM;
 
     private final AuthenticationEventRepository repository;
     private final IUserIdentityProjectionService identityProjectionService;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
+    private final AuthenticationCanonicalMaterialBuilder canonicalMaterialBuilder;
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
@@ -79,47 +81,69 @@ public class AuthenticationEventListener {
                         ? AuditResult.FAILED
                         : AuditResult.SUCCESS;
 
-        List<String> fp = new ArrayList<>();
-        fp.add(STREAM);
-        fp.add(result.name());
-        fp.add(username);
-        fp.add(subjectId);
-        fp.add(ctx.ip());
-        fp.add(String.valueOf(eventTime.toEpochMilli()));
-        fp.add(correlationId);
-
-        String fingerprint = EventFingerprint.of(fp);
-
-        String partitionKey =
-                !"UNKNOWN".equals(subjectId)
-                        ? subjectId
-                        : STREAM + "_GLOBAL";
-
-        String material = String.join("|",
+        String fingerprint = EventFingerprint.of(List.of(
                 STREAM,
                 result.name(),
                 username,
                 subjectId,
                 ctx.ip(),
+                String.valueOf(eventTime.toEpochMilli()),
+                correlationId
+        ));
+
+        AuthenticationCanonicalInput input = new AuthenticationCanonicalInput(
+                eventTime.toEpochMilli(),
+                AuthenticationEventSource.SPRING_SECURITY,
+                username,
+                subjectId,
+                result,
+                "KEYCLOAK",
+                ctx.ip(),
+                ctx.userAgent(),
                 correlationId,
+                correlationSource,
+                ExecutionContext.AUTH_FLOW,
+                auditResult,
                 fingerprint
         );
 
-        AuthenticationEvent entity = buildEntity(
-                result,
-                username,
-                eventTime,
-                ctx,
-                correlationId,
-                correlationSource,
-                auditResult,
-                fingerprint,
-                partitionKey,
-                material
-        );
+        String canonicalMaterial = canonicalMaterialBuilder.buildCanonicalMaterial(input);
+
+        /*
+         * Partition rule:
+         * Authentication → SUBJECT
+         */
+
+        AuditPartition partition =
+                AuditPartition.subject(STREAM, subjectId);
 
         try {
-            repository.save(entity);
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            partition,
+                            canonicalMaterial
+                    );
+
+            repository.save(new AuthenticationEvent(
+                    input.source(),
+                    Instant.ofEpochMilli(input.timestampEpochMs()),
+                    input.username(),
+                    input.subjectId(),
+                    input.result(),
+                    input.idp(),
+                    input.ip(),
+                    input.userAgent(),
+                    input.correlationId(),
+                    input.correlationSource(),
+                    input.executionContext(),
+                    input.auditResult(),
+                    input.eventFingerprint(),
+                    chain.chainVersion(),
+                    chain.prevHash(),
+                    chain.eventHash()
+            ));
+
         } catch (DataIntegrityViolationException ex) {
             log.debug(
                     "AUTH AUDIT DEDUPLICATED result={} username={} correlationId={}",
@@ -137,44 +161,6 @@ public class AuthenticationEventListener {
             );
             throw ex;
         }
-    }
-
-    private AuthenticationEvent buildEntity(
-            AuthenticationResult result,
-            String username,
-            Instant eventTime,
-            AuditRequestContext ctx,
-            String correlationId,
-            CorrelationSource correlationSource,
-            AuditResult auditResult,
-            String fingerprint,
-            String partitionKey,
-            String material
-    ) {
-        AuditChainService.ChainHash chain =
-                auditChainService.nextHash(
-                        STREAM,
-                        partitionKey,
-                        material
-                );
-
-        return new AuthenticationEvent(
-                AuthenticationEventSource.SPRING_SECURITY,
-                eventTime,
-                username,
-                result,
-                "KEYCLOAK",
-                ctx.ip(),
-                ctx.userAgent(),
-                correlationId,
-                correlationSource,
-                ExecutionContext.AUTH_FLOW,
-                auditResult,
-                fingerprint,
-                chain.chainVersion(),
-                chain.prevHash(),
-                chain.eventHash()
-        );
     }
 
     private static void ensureHttpContext() {

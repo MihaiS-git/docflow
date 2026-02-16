@@ -22,12 +22,6 @@ import java.util.UUID;
                 @Index(name = "idx_onboarding_tenant_id", columnList = "tenant_id"),
                 @Index(name = "idx_onboarding_timestamp", columnList = "timestamp"),
                 @Index(name = "idx_onboarding_correlation_id", columnList = "correlation_id")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_onboarding_invite_once",
-                        columnNames = {"invite_id"}
-                )
         }
 )
 @Getter
@@ -78,8 +72,9 @@ public class OnboardingAuditEvent {
     @Column(name = "result", nullable = false, updatable = false, length = 16)
     private AuditResult result;
 
-    @Column(nullable = false, updatable = false, length = 32)
+    @NotNull
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false, length = 32)
     private OnboardingOutcome outcome;
 
     @NotNull

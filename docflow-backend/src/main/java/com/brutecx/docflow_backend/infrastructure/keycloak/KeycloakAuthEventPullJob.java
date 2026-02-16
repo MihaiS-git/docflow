@@ -1,14 +1,12 @@
 package com.brutecx.docflow_backend.infrastructure.keycloak;
 
 import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.auth.AuthenticationEvent;
-import com.brutecx.docflow_backend.audit.auth.AuthenticationEventRepository;
-import com.brutecx.docflow_backend.audit.auth.AuthenticationEventSource;
-import com.brutecx.docflow_backend.audit.auth.AuthenticationResult;
+import com.brutecx.docflow_backend.audit.auth.*;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -19,16 +17,7 @@ import org.springframework.web.client.HttpClientErrorException;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
-/**
- * Scheduled job to pull authentication failure events from Keycloak admin API
- * and persist them into the local authentication event repository.
- * Only LOGIN_ERROR events are processed and stored.
- * The job maintains a checkpoint to avoid reprocessing events.
- * Handles duplicates gracefully and logs relevant information for auditing.
- * The job is enabled via configuration property.
- */
 @Component
 @ConditionalOnProperty(
         prefix = "docflow.security.keycloak.admin",
@@ -44,17 +33,20 @@ public class KeycloakAuthEventPullJob {
     private final KeycloakEventCheckpointRepository checkpointRepo;
     private final AuthenticationEventRepository authEventRepo;
     private final AuditChainService auditChainService;
+    private final AuthenticationCanonicalMaterialBuilder canonicalMaterialBuilder;
 
     public KeycloakAuthEventPullJob(
             KeycloakAdminClient keycloak,
             KeycloakEventCheckpointRepository checkpointRepo,
             AuthenticationEventRepository authEventRepo,
-            AuditChainService auditChainService
+            AuditChainService auditChainService,
+            AuthenticationCanonicalMaterialBuilder canonicalMaterialBuilder
     ) {
         this.keycloak = keycloak;
         this.checkpointRepo = checkpointRepo;
         this.authEventRepo = authEventRepo;
         this.auditChainService = auditChainService;
+        this.canonicalMaterialBuilder = canonicalMaterialBuilder;
     }
 
     @Scheduled(
@@ -62,22 +54,21 @@ public class KeycloakAuthEventPullJob {
             fixedDelayString = "${docflow.security.keycloak.admin.poll-fixed-delay-ms}"
     )
     public void pull() {
+
         long since = checkpointRepo.findById(CHECKPOINT_ID)
                 .map(KeycloakEventCheckpoint::getLastEventTimeMs)
                 .orElse(0L);
+
         long maxPersistedTime = since;
         int duplicates = 0;
 
-        List<KeycloakAdminClient.KeycloakAdminEvent> events;
+        final List<KeycloakAdminClient.KeycloakAdminEvent> events;
         try {
             events = keycloak.fetchEvents(since);
         } catch (HttpClientErrorException.Forbidden ex) {
-            // Admin client temporarily unauthorized (token expired / role missing).
-            // This MUST NOT affect user login.
             log.warn("Keycloak admin events poll forbidden (403). Skipping this cycle.");
             return;
         } catch (Exception ex) {
-            // Any other failure must also be isolated
             log.error("Failed to poll Keycloak admin events", ex);
             return;
         }
@@ -86,20 +77,31 @@ public class KeycloakAuthEventPullJob {
             return;
         }
 
-        // persist only failures coming from Keycloak
         for (KeycloakAdminClient.KeycloakAdminEvent e : events) {
+
             if (!"LOGIN_ERROR".equalsIgnoreCase(e.type())) {
                 continue;
             }
 
-            String fingerprint = EventFingerprint.of(List.of(
-                    e.type(),
-                    String.valueOf(e.time()),
-                    e.clientId() != null ? e.clientId() : "-",
-                    e.userId() != null ? e.userId() : "-",
-                    e.ipAddress() != null ? e.ipAddress() : "-",
-                    e.sessionId() != null ? e.sessionId() : "-"
-            ));
+            long eventMs = e.time();
+            Instant eventTime = Instant.ofEpochMilli(eventMs);
+
+            String subjectId =
+                    (e.userId() != null && !e.userId().isBlank())
+                            ? e.userId()
+                            : "UNKNOWN";
+
+            String username = subjectId;
+
+            String ip = (e.ipAddress() != null && !e.ipAddress().isBlank())
+                    ? e.ipAddress()
+                    : "UNKNOWN";
+
+            String userAgent = "N/A";
+            if (e.details() != null) {
+                String ua = e.details().get("user_agent");
+                if (ua != null && !ua.isBlank()) userAgent = ua;
+            }
 
             String correlationId;
             CorrelationSource correlationSource;
@@ -108,49 +110,69 @@ public class KeycloakAuthEventPullJob {
                 correlationId = e.sessionId();
                 correlationSource = CorrelationSource.SESSION_ID;
             } else {
-                correlationId = CHECKPOINT_ID + ":" + e.time();
+                correlationId = CHECKPOINT_ID + ":" + eventMs;
                 correlationSource = CorrelationSource.PULL_RUN;
             }
 
-            String username = (e.userId() != null && !e.userId().isBlank())
-                    ? e.userId()
-                    : "UNKNOWN";
+            String fingerprint = EventFingerprint.of(List.of(
+                    AuthenticationCanonicalMaterialBuilder.STREAM,
+                    "KEYCLOAK_ADMIN",
+                    AuthenticationResult.FAILURE.name(),
+                    subjectId,
+                    String.valueOf(eventMs),
+                    ip,
+                    correlationId
+            ));
 
-            String userAgent = "N/A";
-            if (e.details() != null) {
-                String ua = e.details().get("user_agent");
-                if (ua != null && !ua.isBlank()) userAgent = ua;
-
-            }
-
-            String material = String.join("|",
-                    "AUTH",
-                    "KEYCLOAK",
-                    username,
-                    correlationId,
-                    fingerprint
-            );
-
-            AuditChainService.ChainHash chain =
-                    auditChainService.nextHash(
-                            "AUTH",
-                            username,
-                            material
-                    );
-
-            AuthenticationEvent entity = new AuthenticationEvent(
+            AuthenticationCanonicalInput input = new AuthenticationCanonicalInput(
+                    eventMs,
                     AuthenticationEventSource.KEYCLOAK_ADMIN_EVENTS,
-                    Instant.ofEpochMilli(e.time()),
                     username,
+                    subjectId,
                     AuthenticationResult.FAILURE,
                     "KEYCLOAK",
-                    e.ipAddress() != null ? e.ipAddress() : "UNKNOWN",
+                    ip,
                     userAgent,
                     correlationId,
                     correlationSource,
                     ExecutionContext.ADMIN_API,
                     AuditResult.FAILED,
-                    fingerprint,
+                    fingerprint
+            );
+
+            String canonicalMaterial =
+                    canonicalMaterialBuilder.buildCanonicalMaterial(input);
+
+            /*
+             * Authentication → SUBJECT partition (per final rules)
+             */
+
+            AuditPartition partition =
+                    AuditPartition.subject(
+                            AuthenticationCanonicalMaterialBuilder.STREAM,
+                            subjectId
+                    );
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            partition,
+                            canonicalMaterial
+                    );
+
+            AuthenticationEvent entity = new AuthenticationEvent(
+                    input.source(),
+                    eventTime,
+                    input.username(),
+                    input.subjectId(),
+                    input.result(),
+                    input.idp(),
+                    input.ip(),
+                    input.userAgent(),
+                    input.correlationId(),
+                    input.correlationSource(),
+                    input.executionContext(),
+                    input.auditResult(),
+                    input.eventFingerprint(),
                     chain.chainVersion(),
                     chain.prevHash(),
                     chain.eventHash()
@@ -158,22 +180,10 @@ public class KeycloakAuthEventPullJob {
 
             try {
                 authEventRepo.save(entity);
-                maxPersistedTime = Math.max(maxPersistedTime, e.time());
+                maxPersistedTime = Math.max(maxPersistedTime, eventMs);
             } catch (DataIntegrityViolationException ex) {
-                // duplicate event → safe to ignore
                 duplicates++;
-                continue;
             }
-
-            log.info(
-                    "auth_event result={} username={} idp={} ip={} ua={} correlationId={}",
-                    AuthenticationResult.FAILURE,
-                    username,
-                    "KEYCLOAK",
-                    entity.getIp(),
-                    entity.getUserAgent(),
-                    correlationId
-            );
         }
 
         if (duplicates > 0) {
@@ -181,6 +191,7 @@ public class KeycloakAuthEventPullJob {
         }
 
         if (maxPersistedTime > since) {
+
             long nextCheckpointTime = maxPersistedTime + 1;
 
             KeycloakEventCheckpoint cp =

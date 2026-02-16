@@ -7,6 +7,7 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,20 +18,21 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class SensitiveAccessAuditServiceImpl
-        implements ISensitiveAccessAuditService {
+public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditService {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-    private static final String STREAM = "SENSITIVE_ACCESS";
+    private static final String STREAM = SensitiveAccessCanonicalMaterialBuilder.STREAM;
 
     private final SensitiveAccessAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
+    private final SensitiveAccessCanonicalMaterialBuilder canonicalMaterialBuilder;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -55,47 +57,27 @@ public class SensitiveAccessAuditServiceImpl
         ensureHttpContext();
 
         if (tenantId == null) {
-            throw new IllegalStateException(
-                    "SensitiveAccessAudit requires tenantId (multi-tenant invariant)"
-            );
+            throw new IllegalStateException("SensitiveAccessAudit requires tenantId");
         }
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
         String correlationId = requireCorrelation(ctx);
 
-        String resolvedSubjectId =
-                (subjectId != null && !subjectId.isBlank())
-                        ? subjectId.trim()
-                        : "UNKNOWN";
+        String resolvedSubjectId = normalizeOr(subjectId, "UNKNOWN");
+        String resolvedResource = normalizeOr(resource, "UNKNOWN");
+        String resolvedAction = normalizeOr(action, "UNKNOWN");
+        String resolvedPath = normalizeOr(resourcePath, "UNKNOWN");
+        String resolvedReason = normalizeOr(reasonCode, "NONE");
 
-        String resolvedResource =
-                (resource != null && !resource.isBlank())
-                        ? resource.trim()
-                        : "UNKNOWN";
-
-        String resolvedAction =
-                (action != null && !action.isBlank())
-                        ? action.trim()
-                        : "UNKNOWN";
-
-        String resolvedPath =
-                (resourcePath != null && !resourcePath.isBlank())
-                        ? resourcePath.trim()
-                        : "UNKNOWN";
-
-        String resolvedReason =
-                (reasonCode != null && !reasonCode.isBlank())
-                        ? reasonCode.trim()
-                        : "NONE";
-
-        String resolvedClassification =
+        SensitiveDataClassification classification =
                 dataClassification != null
-                        ? dataClassification.name()
-                        : "UNSPECIFIED";
+                        ? dataClassification
+                        : SensitiveDataClassification.INTERNAL;
 
         String fingerprint =
-                resolveFingerprint(
-                        eventFingerprint,
+                (eventFingerprint != null && !eventFingerprint.isBlank())
+                        ? eventFingerprint
+                        : EventFingerprint.of(List.of(
                         STREAM,
                         String.valueOf(actorUserId),
                         tenantId.toString(),
@@ -105,38 +87,47 @@ public class SensitiveAccessAuditServiceImpl
                         resolvedAction,
                         resolvedPath,
                         resolvedReason,
-                        resolvedClassification,
+                        classification.name(),
                         correlationId
-                );
+                ));
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        String material = String.join("|",
-                STREAM,
-                String.valueOf(actorUserId),
-                String.valueOf(actorExternalSubjectId),
-                tenantId.toString(),
-                String.valueOf(subjectType),
-                resolvedSubjectId,
-                resolvedResource,
-                resolvedAction,
-                resolvedPath,
-                correlationId,
-                resolvedReason,
-                resolvedClassification,
-                fingerprint
-        );
+        SensitiveAccessCanonicalInput input =
+                new SensitiveAccessCanonicalInput(
+                        Instant.now(),
+                        actorUserId,
+                        actorExternalSubjectId,
+                        tenantId,
+                        subjectType,
+                        resolvedSubjectId,
+                        resolvedResource,
+                        resolvedAction,
+                        resolvedPath,
+                        correlationId,
+                        correlationSource,
+                        ExecutionContext.HTTP,
+                        AuditResult.SUCCESS,
+                        ctx.ip(),
+                        ctx.userAgent(),
+                        resolvedReason,
+                        reasonDetail,
+                        classification,
+                        fingerprint
+                );
+
+        String canonicalMaterial =
+                canonicalMaterialBuilder.buildCanonicalMaterial(input);
 
         try {
 
-            /*
-             * Strict per-tenant hash partition.
-             */
+            AuditPartition partition =
+                    AuditPartition.tenant(STREAM, tenantId.toString());
+
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            STREAM,
-                            tenantId.toString(),
-                            material
+                            partition,
+                            canonicalMaterial
                     );
 
             repository.saveAndFlush(new SensitiveAccessAuditEvent(
@@ -156,7 +147,7 @@ public class SensitiveAccessAuditServiceImpl
                     ctx.userAgent(),
                     resolvedReason,
                     reasonDetail,
-                    dataClassification,
+                    classification,
                     fingerprint,
                     chain.chainVersion(),
                     chain.prevHash(),
@@ -165,42 +156,30 @@ public class SensitiveAccessAuditServiceImpl
 
         } catch (DataIntegrityViolationException ex) {
             log.debug(
-                    "SENSITIVE ACCESS AUDIT DEDUPLICATED correlationId={} fingerprint={}",
+                    "SensitiveAccessAudit deduplicated correlationId={} fingerprint={}",
                     correlationId,
                     fingerprint
             );
         } catch (Exception ex) {
             log.error(
-                    "SENSITIVE ACCESS AUDIT FAILURE correlationId={} subjectType={} subjectId={} resource={} action={}",
+                    "SensitiveAccessAudit failure correlationId={}",
                     correlationId,
-                    subjectType,
-                    resolvedSubjectId,
-                    resolvedResource,
-                    resolvedAction,
                     ex
             );
             throw ex;
         }
     }
 
-    /* =========================================================
-       INTERNAL HELPERS
-       ========================================================= */
-
     private void ensureHttpContext() {
         if (RequestContextHolder.getRequestAttributes() == null) {
-            throw new IllegalStateException(
-                    "SensitiveAccessAudit invoked outside HTTP request context"
-            );
+            throw new IllegalStateException("SensitiveAccessAudit invoked outside HTTP request context");
         }
     }
 
     private String requireCorrelation(AuditRequestContext ctx) {
         String corr = ctx.correlationId();
         if (corr == null || corr.isBlank()) {
-            throw new IllegalStateException(
-                    "Missing correlationId for SensitiveAccess audit"
-            );
+            throw new IllegalStateException("Missing correlationId");
         }
         return corr;
     }
@@ -211,9 +190,7 @@ public class SensitiveAccessAuditServiceImpl
                 : CorrelationSource.REQUEST_ID;
     }
 
-    private String resolveFingerprint(String provided, String... parts) {
-        return (provided != null && !provided.isBlank())
-                ? provided
-                : EventFingerprint.of(List.of(parts));
+    private static String normalizeOr(String v, String fallback) {
+        return (v != null && !v.isBlank()) ? v.trim() : fallback;
     }
 }

@@ -28,32 +28,31 @@ public final class RbacDeniedAuditSpecifications {
     }
 
     /**
-     * Cursor filter for deterministic ordering (timestamp + id).
-     * When ascending=true -> fetch rows strictly after (ts,id).
-     * When ascending=false -> fetch rows strictly before (ts,id).
+     * Cursor predicate for stable pagination using (timestamp, id) as a composite cursor.
+     * For DESC (newest first):
+     *   - "next page" means strictly older than cursor: (ts < cursorTs) OR (ts == cursorTs AND id < cursorId)
+     * For ASC (oldest first):
+     *   - "next page" means strictly newer than cursor: (ts > cursorTs) OR (ts == cursorTs AND id > cursorId)
      */
     public static Specification<RbacDeniedAuditEvent> cursorAfter(
-            Instant cursorTimestamp,
+            Instant cursorTs,
             UUID cursorId,
             boolean ascending
     ) {
         return (root, query, cb) -> {
+            var ts = root.get("timestamp").as(Instant.class);
+            var id = root.get("id").as(UUID.class);
+
             if (ascending) {
                 return cb.or(
-                        cb.greaterThan(root.get("timestamp"), cursorTimestamp),
-                        cb.and(
-                                cb.equal(root.get("timestamp"), cursorTimestamp),
-                                cb.greaterThan(root.get("id"), cursorId)
-                        )
+                        cb.greaterThan(ts, cursorTs),
+                        cb.and(cb.equal(ts, cursorTs), cb.greaterThan(id, cursorId))
                 );
             }
 
             return cb.or(
-                    cb.lessThan(root.get("timestamp"), cursorTimestamp),
-                    cb.and(
-                            cb.equal(root.get("timestamp"), cursorTimestamp),
-                            cb.lessThan(root.get("id"), cursorId)
-                    )
+                    cb.lessThan(ts, cursorTs),
+                    cb.and(cb.equal(ts, cursorTs), cb.lessThan(id, cursorId))
             );
         };
     }

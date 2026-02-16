@@ -7,6 +7,7 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,14 +26,18 @@ import java.util.UUID;
 public class OnboardingAuditService {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-    private static final String STREAM = "ONBOARDING";
 
     private final OnboardingAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
+    private final OnboardingCanonicalMaterialBuilder canonicalBuilder;
+
+    /* =========================================================
+       SUCCESS
+       ========================================================= */
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void recordOnce(
+    public void recordSuccess(
             UUID actorUserId,
             String subjectId,
             UUID tenantId,
@@ -39,13 +45,8 @@ public class OnboardingAuditService {
             String eventFingerprint
     ) {
         ensureHttpContext();
-
         requireNonNull(inviteId, "inviteId");
         requireNonNull(tenantId, "tenantId");
-
-        if (repository.existsByInviteId(inviteId)) {
-            return; // strict idempotency guarantee
-        }
 
         if (subjectId == null || subjectId.isBlank()) {
             throw new IllegalStateException("Onboarding SUCCESS requires subjectId");
@@ -54,35 +55,46 @@ public class OnboardingAuditService {
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
         String correlationId = requireCorrelation(ctx);
 
-        String fingerprint =
-                resolveFingerprint(
-                        eventFingerprint,
-                        STREAM,
-                        "SUCCESS",
-                        inviteId.toString(),
-                        subjectId,
-                        tenantId.toString(),
-                        correlationId
-                );
-
-        CorrelationSource correlationSource = resolveCorrelationSource();
-
-        String material = String.join("|",
-                STREAM,
+        String fingerprint = resolveFingerprint(
+                eventFingerprint,
+                OnboardingCanonicalMaterialBuilder.STREAM,
                 "SUCCESS",
                 inviteId.toString(),
                 subjectId,
                 tenantId.toString(),
-                correlationId,
-                fingerprint
+                correlationId
         );
 
+        CorrelationSource correlationSource = resolveCorrelationSource();
+
+        OnboardingCanonicalInput input =
+                new OnboardingCanonicalInput(
+                        Instant.now(),
+                        actorUserId,
+                        subjectId,
+                        tenantId,
+                        inviteId,
+                        AuditResult.SUCCESS,
+                        OnboardingOutcome.SUCCESS,
+                        "ONBOARDING_SUCCESS",
+                        null,
+                        correlationId,
+                        fingerprint
+                );
+
+        String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
+
         try {
+            AuditPartition partition =
+                    AuditPartition.tenant(
+                            canonicalBuilder.stream(),
+                            tenantId.toString()
+                    );
+
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            STREAM,
-                            tenantId.toString(),
-                            material
+                            partition,
+                            canonicalMaterial
                     );
 
             repository.save(new OnboardingAuditEvent(
@@ -104,6 +116,7 @@ public class OnboardingAuditService {
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
         } catch (Exception ex) {
             log.error(
                     "ONBOARDING AUDIT FAILURE (SUCCESS) correlationId={} inviteId={} subjectId={}",
@@ -116,6 +129,10 @@ public class OnboardingAuditService {
         }
     }
 
+    /* =========================================================
+       FAILURE
+       ========================================================= */
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailure(
             UUID actorUserId,
@@ -125,46 +142,57 @@ public class OnboardingAuditService {
             String eventFingerprint
     ) {
         ensureHttpContext();
-
         requireNonNull(inviteId, "inviteId");
         requireNonNull(tenantId, "tenantId");
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
         String correlationId = requireCorrelation(ctx);
 
-        String resolvedReason = (failureReason != null && !failureReason.isBlank())
-                ? failureReason
-                : "-";
+        String resolvedReason =
+                (failureReason != null && !failureReason.isBlank())
+                        ? failureReason
+                        : "-";
 
-        String fingerprint =
-                resolveFingerprint(
-                        eventFingerprint,
-                        STREAM,
-                        "FAILURE",
-                        inviteId.toString(),
-                        tenantId.toString(),
-                        resolvedReason,
-                        correlationId
-                );
-
-        CorrelationSource correlationSource = resolveCorrelationSource();
-
-        String material = String.join("|",
-                STREAM,
+        String fingerprint = resolveFingerprint(
+                eventFingerprint,
+                OnboardingCanonicalMaterialBuilder.STREAM,
                 "FAILURE",
                 inviteId.toString(),
                 tenantId.toString(),
                 resolvedReason,
-                correlationId,
-                fingerprint
+                correlationId
         );
 
+        CorrelationSource correlationSource = resolveCorrelationSource();
+
+        OnboardingCanonicalInput input =
+                new OnboardingCanonicalInput(
+                        Instant.now(),
+                        actorUserId,
+                        null,
+                        tenantId,
+                        inviteId,
+                        AuditResult.FAILED,
+                        OnboardingOutcome.FAILURE,
+                        "ONBOARDING_FAILURE",
+                        resolvedReason,
+                        correlationId,
+                        fingerprint
+                );
+
+        String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
+
         try {
+            AuditPartition partition =
+                    AuditPartition.tenant(
+                            canonicalBuilder.stream(),
+                            tenantId.toString()
+                    );
+
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            STREAM,
-                            tenantId.toString(),
-                            material
+                            partition,
+                            canonicalMaterial
                     );
 
             repository.save(new OnboardingAuditEvent(
@@ -186,6 +214,7 @@ public class OnboardingAuditService {
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
         } catch (Exception ex) {
             log.error(
                     "ONBOARDING AUDIT FAILURE (FAILURE) correlationId={} inviteId={} reason={}",
@@ -197,6 +226,10 @@ public class OnboardingAuditService {
             throw ex;
         }
     }
+
+    /* =========================================================
+       INTERNALS
+       ========================================================= */
 
     private static void ensureHttpContext() {
         if (RequestContextHolder.getRequestAttributes() == null) {
@@ -225,6 +258,8 @@ public class OnboardingAuditService {
     }
 
     private static void requireNonNull(Object v, String name) {
-        if (v == null) throw new IllegalArgumentException(name + " is required");
+        if (v == null) {
+            throw new IllegalArgumentException(name + " is required");
+        }
     }
 }

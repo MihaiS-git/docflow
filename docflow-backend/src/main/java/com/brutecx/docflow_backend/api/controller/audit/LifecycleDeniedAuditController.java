@@ -1,13 +1,15 @@
+// src/main/java/com/brutecx/docflow_backend/api/controller/audit/LifecycleDeniedAuditController.java
 package com.brutecx.docflow_backend.api.controller.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditDTO;
+import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditCursorPageDTO;
+import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditVerificationResultDTO;
 import com.brutecx.docflow_backend.domain.audit.LifecycleDeniedAuditQueryService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -16,18 +18,14 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/audit/lifecycle-denied")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@Validated
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
 public class LifecycleDeniedAuditController {
 
     private final LifecycleDeniedAuditQueryService queryService;
 
-    /* =====================================================
-       QUERY
-       ===================================================== */
-
     @GetMapping
-    public ResponseEntity<Page<LifecycleDeniedAuditDTO>> query(
-
+    public ResponseEntity<LifecycleDeniedAuditCursorPageDTO> query(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
@@ -42,8 +40,6 @@ public class LifecycleDeniedAuditController {
             @RequestParam(required = false)
             String subjectId,
 
-            /* ===== Cursor pagination (PRIMARY) ===== */
-
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant cursorTimestamp,
@@ -51,23 +47,9 @@ public class LifecycleDeniedAuditController {
             @RequestParam(required = false)
             UUID cursorId,
 
-            /* ===== Offset pagination (UI convenience) ===== */
-
-            @RequestParam(defaultValue = "0")
-            int page,
-
             @RequestParam(defaultValue = "20")
-            int size,
-
-            /* ===== Sorting ===== */
-
-            @RequestParam(defaultValue = "timestamp")
-            String sort,
-
-            @RequestParam(defaultValue = "DESC")
-            Sort.Direction direction
+            int size
     ) {
-
         return ResponseEntity.ok(
                 queryService.query(
                         from,
@@ -76,21 +58,27 @@ public class LifecycleDeniedAuditController {
                         subjectId,
                         cursorTimestamp,
                         cursorId,
-                        page,
-                        size,
-                        sort,
-                        direction
+                        size
                 )
         );
     }
 
-    /* =====================================================
-       EXPORT (CSV)
-       ===================================================== */
+    @GetMapping("/verify")
+    public ResponseEntity<LifecycleDeniedAuditVerificationResultDTO> verify(
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant from,
 
-    @GetMapping(value = "/export/csv", produces = "text/csv")
-    public ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> exportCsv(
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant to
+    ) {
+        return ResponseEntity.ok(queryService.verify(from, to));
+    }
 
+    @GetMapping(value = "/export", produces = "application/x-ndjson")
+    public void exportJsonl(
+            HttpServletResponse response,
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
@@ -105,62 +93,10 @@ public class LifecycleDeniedAuditController {
             @RequestParam(required = false)
             String subjectId
     ) {
+        response.setHeader(HttpHeaders.CONTENT_TYPE, "application/x-ndjson");
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"lifecycle-denied-export.jsonl\"");
+        response.setCharacterEncoding("UTF-8");
 
-        var body = (org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody) outputStream -> {
-
-            var writer = new java.io.PrintWriter(outputStream);
-
-            writer.println("timestamp,subjectId,reasonCode,httpMethod,path,ip,userAgent,correlationId,eventFingerprint");
-
-            queryService.export(
-                    from,
-                    to,
-                    correlationId,
-                    subjectId,
-                    e -> writer.println(String.join(",",
-                            e.getTimestamp().toString(),
-                            safe(e.getSubjectId()),
-                            safe(e.getReasonCode()),
-                            safe(e.getHttpMethod()),
-                            safe(e.getPath()),
-                            safe(e.getIp()),
-                            safe(e.getUserAgent()),
-                            safe(e.getCorrelationId()),
-                            safe(e.getEventFingerprint())
-                    ))
-            );
-
-            writer.flush();
-        };
-
-        return ResponseEntity.ok(body);
-    }
-
-    /* =====================================================
-       VERIFY
-       ===================================================== */
-
-    @GetMapping("/verify")
-    public ResponseEntity<Long> verify(
-
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to
-    ) {
-
-        return ResponseEntity.ok(
-                queryService.verify(from, to)
-        );
-    }
-
-    private static String safe(String v) {
-        if (v == null) return "";
-        return v.replace("\n", " ")
-                .replace("\r", " ")
-                .replace(",", " ");
+        queryService.streamForensicExportJsonl(response, from, to, correlationId, subjectId);
     }
 }

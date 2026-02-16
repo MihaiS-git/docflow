@@ -81,18 +81,25 @@ public class RbacDeniedAuditEvent {
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
-    @NotNull
+    /* =========================
+       GOLD: tamper-evident chain fields
+       ========================= */
+
     @Column(name = "chain_version", nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(name = "prev_event_hash", updatable = false, length = 64)
+    @Column(name = "prev_event_hash", updatable = false, length = 128)
     private String prevEventHash;
 
-    @NotNull
-    @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
 
+    /**
+     * GOLD constructor: caller provides chain fields from AuditChainService.nextHash(...).
+     * Timestamp should be fixed by the writer BEFORE hashing.
+     */
     public RbacDeniedAuditEvent(
+            Instant timestamp,
             String correlationId,
             CorrelationSource correlationSource,
             ExecutionContext executionContext,
@@ -107,6 +114,7 @@ public class RbacDeniedAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
+        this.timestamp = timestamp;
         this.correlationId = correlationId;
         this.correlationSource = correlationSource;
         this.executionContext = executionContext;
@@ -124,6 +132,14 @@ public class RbacDeniedAuditEvent {
 
     @PrePersist
     protected void onCreate() {
-        this.timestamp = Instant.now();
+        if (this.timestamp == null) {
+            this.timestamp = Instant.now();
+        }
+        if (this.prevEventHash == null) {
+            this.prevEventHash = "-";
+        }
+        if (this.eventHash == null) {
+            this.eventHash = "-";
+        }
     }
 }

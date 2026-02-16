@@ -17,13 +17,10 @@ import java.util.UUID;
 @Table(
         name = "authentication_events",
         indexes = {
-                @Index(name = "idx_auth_events_timestamp", columnList = "timestamp"),
-                @Index(name = "idx_auth_events_username", columnList = "username"),
-                @Index(name = "idx_auth_events_correlation_id", columnList = "correlation_id"),
-                @Index(
-                        name = "idx_auth_events_username_timestamp",
-                        columnList = "username, timestamp"
-                )
+                @Index(name = "idx_auth_events_ts_id", columnList = "timestamp,id"),
+                @Index(name = "idx_auth_events_username_ts_id", columnList = "username,timestamp,id"),
+                @Index(name = "idx_auth_events_subject_ts_id", columnList = "subject_id,timestamp,id"),
+                @Index(name = "idx_auth_events_correlation_id", columnList = "correlation_id")
         },
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_auth_events_event_fingerprint", columnNames = {"event_fingerprint"})
@@ -52,6 +49,9 @@ public class AuthenticationEvent {
     @Column(nullable = false, updatable = false, length = 128)
     private String username;
 
+    @Column(name = "subject_id", nullable = false, updatable = false, length = 128)
+    private String subjectId;
+
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 32)
@@ -69,7 +69,7 @@ public class AuthenticationEvent {
     @Column(name = "user_agent", nullable = false, updatable = false, length = 512)
     private String userAgent;
 
-    @Column(name = "correlation_id", nullable = true, updatable = false, length = 128)
+    @Column(name = "correlation_id", updatable = false, length = 128)
     private String correlationId;
 
     @NotNull
@@ -91,19 +91,20 @@ public class AuthenticationEvent {
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
-    @Column(nullable = false, updatable = false, name = "chain_version")
+    @Column(name = "chain_version", nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(nullable = false, updatable = false, name = "prev_event_hash", length = 128)
+    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 128)
     private String prevEventHash;
 
-    @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
 
     public AuthenticationEvent(
             AuthenticationEventSource source,
             Instant timestamp,
             String username,
+            String subjectId,
             AuthenticationResult result,
             String idp,
             String ip,
@@ -120,6 +121,7 @@ public class AuthenticationEvent {
         this.source = source;
         this.timestamp = timestamp;
         this.username = username;
+        this.subjectId = subjectId;
         this.result = result;
         this.idp = idp;
         this.ip = ip;
@@ -138,6 +140,9 @@ public class AuthenticationEvent {
     private void prePersist() {
         if (this.timestamp == null) {
             this.timestamp = Instant.now();
+        }
+        if (this.subjectId == null || this.subjectId.isBlank()) {
+            this.subjectId = "UNKNOWN";
         }
     }
 }

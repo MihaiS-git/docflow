@@ -7,6 +7,7 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -23,11 +25,12 @@ import java.util.List;
 public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-    private static final String STREAM = "RBAC_DENIED";
+    private static final String STREAM = RbacDeniedCanonicalMaterialBuilder.STREAM;
 
     private final RbacDeniedAuditEventRepository repository;
-    private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
+    private final RbacDeniedCanonicalMaterialBuilder canonicalBuilder;
+    private final AuditChainService auditChainService;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -37,6 +40,7 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
             String path,
             String eventFingerprint
     ) {
+
         ensureHttpContext();
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
@@ -59,29 +63,49 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        String material = String.join("|",
-                STREAM,
-                resolvedSubject,
-                resolvedMethod,
-                resolvedPath,
-                correlationId,
-                fingerprint
-        );
+        Instant eventTimestamp = Instant.now();
+
+        RbacDeniedCanonicalInput input =
+                new RbacDeniedCanonicalInput(
+                        eventTimestamp,
+                        correlationId,
+                        correlationSource,
+                        ExecutionContext.HTTP,
+                        AuditResult.DENIED,
+                        resolvedSubject,
+                        resolvedMethod,
+                        resolvedPath,
+                        ctx.ip(),
+                        ctx.userAgent(),
+                        fingerprint
+                );
+
+        String canonicalMaterial =
+                canonicalBuilder.buildCanonicalMaterial(input);
+
+        /*
+         * Partition rules:
+         * RbacDenied → SUBJECT or GLOBAL
+         */
+
+        AuditPartition partition;
+
+        if (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank()) {
+            partition = AuditPartition.subject(STREAM, resolvedSubject.trim());
+        } else {
+            partition = AuditPartition.global(STREAM);
+        }
+
+        AuditChainService.ChainHash chain =
+                auditChainService.nextHash(
+                        partition,
+                        canonicalMaterial
+                );
 
         try {
-            String partitionKey =
-                    !"UNKNOWN".equals(resolvedSubject)
-                            ? resolvedSubject
-                            : STREAM + "_GLOBAL";
-
-            AuditChainService.ChainHash chain =
-                    auditChainService.nextHash(
-                            STREAM,
-                            partitionKey,
-                            material
-                    );
 
             repository.save(new RbacDeniedAuditEvent(
+                    eventTimestamp,
                     correlationId,
                     correlationSource,
                     ExecutionContext.HTTP,
@@ -96,15 +120,18 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
         } catch (Exception ex) {
+
             log.error(
-                    "RBAC AUDIT FAILURE correlationId={} subjectId={} method={} path={}",
+                    "RBAC_DENIED_AUDIT_WRITE_FAILED correlationId={} subjectId={} method={} path={}",
                     correlationId,
                     resolvedSubject,
                     resolvedMethod,
                     resolvedPath,
                     ex
             );
+
             throw ex;
         }
     }
@@ -118,7 +145,7 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
     private static String requireCorrelation(AuditRequestContext ctx) {
         String corr = ctx.correlationId();
         if (corr == null || corr.isBlank()) {
-            throw new IllegalStateException("Missing correlationId for RBAC audit");
+            throw new IllegalStateException("Missing correlationId for RBAC denied audit");
         }
         return corr;
     }

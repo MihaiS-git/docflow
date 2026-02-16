@@ -1,9 +1,5 @@
 package com.brutecx.docflow_backend.config;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
-
 import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
 import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakOidcUserService;
@@ -46,12 +42,11 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-/**
- * Security configuration for the application.
- * Configures OAuth2 login with PKCE, session management,
- * CORS, CSRF protection, and authorization rules.
- * Applies to "dev" and "prod" profiles.
- */
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
+
 @Slf4j
 @Configuration
 @Profile({"dev", "prod"})
@@ -97,10 +92,12 @@ public class SecurityConfig {
 
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        // IMPORTANT for SPA: accept raw XSRF-TOKEN cookie value in X-XSRF-TOKEN header
-                        // (disable Spring Security's default XOR-masked token expectation)
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                        .ignoringRequestMatchers("/api/auth/logout", "/api/csrf", "/api/invites/validate")
+                        .ignoringRequestMatchers(
+                                "/api/auth/logout",
+                                "/api/csrf",
+                                "/api/invites/validate"
+                        )
                 )
 
                 .cors(Customizer.withDefaults())
@@ -121,8 +118,6 @@ public class SecurityConfig {
                                     csp.policyDirectives("default-src 'self'; frame-ancestors 'self'")
                             );
 
-                    // NOTE: If TLS is later terminated exclusively at NGINX,
-                    // HSTS must be moved to NGINX and removed from Spring.
                     if ("prod".equals(activeProfile)) {
                         headers.httpStrictTransportSecurity(hsts ->
                                 hsts.includeSubDomains(true).maxAgeInSeconds(31536000)
@@ -132,63 +127,58 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
-                        // -------- public / infra --------
+                        // -------- PUBLIC --------
                         .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/prometheus",
                                 "/login/**",
                                 "/oauth2/**"
                         ).permitAll()
-                        // -------- AUTH APIs --------
+
+                        // -------- AUTH --------
                         .requestMatchers(HttpMethod.POST, "/api/invites/validate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
 
-                        // -------- BOOTSTRAP-SAFE IDENTITY APIs (AUTHENTICATED ONLY; NO LIFECYCLE) --------
-                        .requestMatchers(HttpMethod.GET, "/api/auth/me").access(authenticatedAuthorizationManager)
-                        .requestMatchers(HttpMethod.GET, "/api/users/me").access(authenticatedAuthorizationManager)
+                        // -------- SAFE IDENTITY --------
+                        .requestMatchers(HttpMethod.GET, "/api/auth/me")
+                        .access(authenticatedAuthorizationManager)
 
-                        // -------- ADMIN APIs (LIFECYCLE + RBAC) --------
-                        .requestMatchers("/api/admin/**").access(
-                                AuthorizationManagers.allOf(
-                                        lifecycleAuthorizationManager,
-                                        AuthorityAuthorizationManager.hasRole("ADMIN")
-                                )
-                        )
+                        .requestMatchers(HttpMethod.GET, "/api/users/me")
+                        .access(authenticatedAuthorizationManager)
 
-                        // -------- AUDIT APIs --------
-                        .requestMatchers("/api/audit/**").access(
-                                AuthorizationManagers.allOf(
-                                        lifecycleAuthorizationManager,
-                                        AuthorityAuthorizationManager.hasAnyRole("AUDITOR", "ADMIN")
-                                )
-                        )
+                        // -------- ADMIN --------
+                        .requestMatchers("/api/admin/**")
+                        .access(AuthorizationManagers.allOf(
+                                lifecycleAuthorizationManager,
+                                AuthorityAuthorizationManager.hasRole("ADMIN")
+                        ))
 
-                        // -------- TENANT INVITE APIs (MANAGER REQUIRED) --------
-                        .requestMatchers("/api/tenants/*/invites/**").access(
-                                AuthorizationManagers.allOf(
-                                        authenticatedAuthorizationManager,
-                                        lifecycleAuthorizationManager,
-                                        tenantAuthorizationManagerFactory.atLeast(TenantRole.MANAGER)
-                                )
-                        )
+                        // -------- AUDIT --------
+                        .requestMatchers("/api/audit/**")
+                        .access(AuthorizationManagers.allOf(
+                                lifecycleAuthorizationManager,
+                                AuthorityAuthorizationManager.hasAnyRole("AUDITOR", "ADMIN")
+                        ))
 
-                        // -------- TENANT APIs (Contextual RBAC) --------
-                        .requestMatchers("/api/tenants/**").access(
-                                AuthorizationManagers.allOf(
-                                        authenticatedAuthorizationManager,
-                                        lifecycleAuthorizationManager,
-                                        tenantAuthorizationManagerFactory.atLeast(TenantRole.MEMBER)
-                                )
-                        )
+                        // -------- TENANT INVITES (MANAGER) --------
+                        .requestMatchers("/api/tenants/*/invites/**")
+                        .access(AuthorizationManagers.allOf(
+                                authenticatedAuthorizationManager,
+                                lifecycleAuthorizationManager,
+                                tenantAuthorizationManagerFactory.atLeast(TenantRole.MANAGER)
+                        ))
 
-                        // -------- ALL OTHER API CALLS --------
-                        .requestMatchers("/api/**").access(
-                                AuthorizationManagers.allOf(
-                                        authenticatedAuthorizationManager,
-                                        lifecycleAuthorizationManager
-                                )
-                        )
+                        // -------- TENANT DATA (MANDATORY SCOPE) --------
+                        .requestMatchers("/api/tenants/**")
+                        .access(AuthorizationManagers.allOf(
+                                authenticatedAuthorizationManager,
+                                lifecycleAuthorizationManager,
+                                tenantAuthorizationManagerFactory.atLeast(TenantRole.MEMBER)
+                        ))
+
+                        // -------- HARD DENY FALLBACK --------
+                        .requestMatchers("/api/**").denyAll()
 
                         .anyRequest().authenticated()
                 )
@@ -209,26 +199,25 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
 
                 .oauth2Login(oauth2 -> oauth2
-                        .authorizationEndpoint(authz -> authz
-                                .authorizationRequestResolver(pkceAuthorizationRequestResolver)
+                        .authorizationEndpoint(authz ->
+                                authz.authorizationRequestResolver(pkceAuthorizationRequestResolver)
                         )
-                        .redirectionEndpoint(redirection -> redirection
-                                .baseUri("/login/oauth2/code/*")
+                        .redirectionEndpoint(redirection ->
+                                redirection.baseUri("/login/oauth2/code/*")
                         )
                         .userInfoEndpoint(userInfo ->
                                 userInfo.oidcUserService(keycloakOidcUserService)
                         )
                         .successHandler((req, res, auth) -> {
-                            if (auth.getPrincipal() instanceof OidcUser oidcUser) {
+                            if (auth.getPrincipal() instanceof OidcUser) {
                                 inviteApplicationService.consumeInviteIfPresent(
                                         req.getSession(false)
                                 );
                             }
                             res.sendRedirect(frontendBaseUrl);
                         })
-
                         .failureHandler((req, res, ex) -> {
-                            log.error("OAuth2 failure handler invoked", ex);
+                            log.error("OAuth2 failure", ex);
                             res.sendRedirect(frontendBaseUrl);
                         })
                 )
@@ -241,11 +230,16 @@ public class SecurityConfig {
 
                                 String redirect =
                                         keycloakLogoutUri +
-                                                "?id_token_hint=" + URLEncoder.encode(
-                                                oidcUser.getIdToken().getTokenValue(), StandardCharsets.UTF_8
-                                        ) +
+                                                "?id_token_hint=" +
+                                                URLEncoder.encode(
+                                                        oidcUser.getIdToken().getTokenValue(),
+                                                        StandardCharsets.UTF_8
+                                                ) +
                                                 "&post_logout_redirect_uri=" +
-                                                URLEncoder.encode(postLogoutRedirectUri, StandardCharsets.UTF_8);
+                                                URLEncoder.encode(
+                                                        postLogoutRedirectUri,
+                                                        StandardCharsets.UTF_8
+                                                );
 
                                 res.sendRedirect(redirect);
                                 return;
@@ -270,7 +264,10 @@ public class SecurityConfig {
                         "/oauth2/authorization"
                 );
 
-        resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
+        resolver.setAuthorizationRequestCustomizer(
+                OAuth2AuthorizationRequestCustomizers.withPkce()
+        );
+
         return resolver;
     }
 
@@ -279,6 +276,7 @@ public class SecurityConfig {
             @Value("${docflow.security.allowed-origins:}") String allowedOriginsCsv
     ) {
         CorsConfiguration config = new CorsConfiguration();
+
         if (allowedOriginsCsv != null && !allowedOriginsCsv.isBlank()) {
             List<String> origins = Arrays.stream(allowedOriginsCsv.split(","))
                     .map(String::trim)
@@ -286,6 +284,7 @@ public class SecurityConfig {
                     .toList();
             config.setAllowedOrigins(origins);
         }
+
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-XSRF-TOKEN"));
         config.setAllowCredentials(true);

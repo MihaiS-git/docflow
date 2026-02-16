@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.enforcement;
 
+import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import com.brutecx.docflow_backend.domain.tenant.MembershipStatus;
 import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import com.brutecx.docflow_backend.domain.tenant.UserTenantMembership;
@@ -22,12 +23,13 @@ import static org.mockito.Mockito.*;
 class TenantAuthorizationManagerTest {
 
     @Test
-    void denies_when_membership_missing() {
+    void denies_when_membership_missing_and_audits_with_tenant_enriched_reason() {
         UserRepository userRepository = mock(UserRepository.class);
         UserTenantMembershipRepository membershipRepository = mock(UserTenantMembershipRepository.class);
+        ILifecycleDeniedAuditService deniedAudit = mock(ILifecycleDeniedAuditService.class);
 
         TenantAuthorizationManager mgr =
-                new TenantAuthorizationManager(TenantRole.MEMBER, userRepository, membershipRepository);
+                new TenantAuthorizationManager(TenantRole.MEMBER, userRepository, membershipRepository, deniedAudit);
 
         UUID tenantId = UUID.randomUUID();
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/tenants/" + tenantId + "/docs");
@@ -47,15 +49,24 @@ class TenantAuthorizationManagerTest {
         AuthorizationDecision decision = mgr.check(() -> auth, new RequestAuthorizationContext(req));
         assertThat(decision).isNotNull();
         assertThat(decision.isGranted()).isFalse();
+
+        verify(deniedAudit).record(
+                eq("sub-1"),
+                eq("TENANT_MEMBERSHIP_MISSING:" + tenantId),
+                eq("GET"),
+                eq("/api/tenants/" + tenantId + "/docs"),
+                any()
+        );
     }
 
     @Test
     void denies_when_membership_inactive() {
         UserRepository userRepository = mock(UserRepository.class);
         UserTenantMembershipRepository membershipRepository = mock(UserTenantMembershipRepository.class);
+        ILifecycleDeniedAuditService deniedAudit = mock(ILifecycleDeniedAuditService.class);
 
         TenantAuthorizationManager mgr =
-                new TenantAuthorizationManager(TenantRole.MEMBER, userRepository, membershipRepository);
+                new TenantAuthorizationManager(TenantRole.MEMBER, userRepository, membershipRepository, deniedAudit);
 
         UUID tenantId = UUID.randomUUID();
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/tenants/" + tenantId + "/docs");
@@ -77,15 +88,24 @@ class TenantAuthorizationManagerTest {
         AuthorizationDecision decision = mgr.check(() -> auth, new RequestAuthorizationContext(req));
         assertThat(decision).isNotNull();
         assertThat(decision.isGranted()).isFalse();
+
+        verify(deniedAudit).record(
+                eq("sub-1"),
+                eq("TENANT_MEMBERSHIP_NOT_ACTIVE:" + tenantId),
+                eq("GET"),
+                eq("/api/tenants/" + tenantId + "/docs"),
+                any()
+        );
     }
 
     @Test
     void denies_when_role_insufficient() {
         UserRepository userRepository = mock(UserRepository.class);
         UserTenantMembershipRepository membershipRepository = mock(UserTenantMembershipRepository.class);
+        ILifecycleDeniedAuditService deniedAudit = mock(ILifecycleDeniedAuditService.class);
 
         TenantAuthorizationManager mgr =
-                new TenantAuthorizationManager(TenantRole.MANAGER, userRepository, membershipRepository);
+                new TenantAuthorizationManager(TenantRole.MANAGER, userRepository, membershipRepository, deniedAudit);
 
         UUID tenantId = UUID.randomUUID();
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/tenants/" + tenantId + "/docs");
@@ -108,15 +128,24 @@ class TenantAuthorizationManagerTest {
         AuthorizationDecision decision = mgr.check(() -> auth, new RequestAuthorizationContext(req));
         assertThat(decision).isNotNull();
         assertThat(decision.isGranted()).isFalse();
+
+        verify(deniedAudit).record(
+                eq("sub-1"),
+                eq("TENANT_ROLE_INSUFFICIENT:" + tenantId),
+                eq("GET"),
+                eq("/api/tenants/" + tenantId + "/docs"),
+                any()
+        );
     }
 
     @Test
     void allows_when_role_sufficient() {
         UserRepository userRepository = mock(UserRepository.class);
         UserTenantMembershipRepository membershipRepository = mock(UserTenantMembershipRepository.class);
+        ILifecycleDeniedAuditService deniedAudit = mock(ILifecycleDeniedAuditService.class);
 
         TenantAuthorizationManager mgr =
-                new TenantAuthorizationManager(TenantRole.REVIEWER, userRepository, membershipRepository);
+                new TenantAuthorizationManager(TenantRole.REVIEWER, userRepository, membershipRepository, deniedAudit);
 
         UUID tenantId = UUID.randomUUID();
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/tenants/" + tenantId + "/docs");
@@ -139,5 +168,7 @@ class TenantAuthorizationManagerTest {
         AuthorizationDecision decision = mgr.check(() -> auth, new RequestAuthorizationContext(req));
         assertThat(decision).isNotNull();
         assertThat(decision.isGranted()).isTrue();
+
+        verifyNoInteractions(deniedAudit);
     }
 }

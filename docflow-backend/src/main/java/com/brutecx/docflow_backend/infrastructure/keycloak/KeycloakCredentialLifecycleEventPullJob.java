@@ -6,6 +6,7 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,12 +28,12 @@ import java.util.List;
 public class KeycloakCredentialLifecycleEventPullJob {
 
     private static final String CHECKPOINT_ID = "KEYCLOAK_CREDENTIAL_EVENTS";
-    private static final String STREAM = "CREDENTIAL";
 
     private final KeycloakAdminClient keycloak;
     private final KeycloakEventCheckpointRepository checkpointRepo;
     private final CredentialLifecycleAuditEventRepository repository;
     private final AuditChainService auditChainService;
+    private final CredentialLifecycleCanonicalMaterialBuilder canonicalBuilder;
 
     @Scheduled(
             initialDelayString = "${docflow.security.keycloak.admin.initial-delay-ms:30000}",
@@ -73,7 +74,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
             }
 
             String fingerprint = EventFingerprint.of(List.of(
-                    STREAM,
+                    "CREDENTIAL",
                     type.name(),
                     e.userId(),
                     e.clientId(),
@@ -81,32 +82,12 @@ public class KeycloakCredentialLifecycleEventPullJob {
                     String.valueOf(e.time())
             ));
 
-            String material = String.join("|",
-                    STREAM,
-                    type.name(),
-                    e.userId(),
-                    e.clientId(),
-                    sessionId,
-                    String.valueOf(e.time()),
-                    fingerprint
-            );
-
-            // Stable partition per userId (not per session)
-            String partitionKey = e.userId() != null ? e.userId() : "GLOBAL";
-
-            AuditChainService.ChainHash chain =
-                    auditChainService.nextHash(
-                            STREAM,
-                            partitionKey,
-                            material
-                    );
-
-            CredentialLifecycleAuditEvent entity =
-                    new CredentialLifecycleAuditEvent(
+            CredentialLifecycleCanonicalInput input =
+                    new CredentialLifecycleCanonicalInput(
                             Instant.ofEpochMilli(e.time()),
                             e.userId(),
                             e.clientId(),
-                            e.sessionId(),
+                            sessionId,
                             e.ipAddress() != null ? e.ipAddress() : "UNKNOWN",
                             type,
                             extractRequiredAction(e),
@@ -116,7 +97,43 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             AuditResult.SUCCESS,
                             "CREDENTIAL_" + type.name(),
                             null,
-                            fingerprint,
+                            fingerprint
+                    );
+
+            String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
+
+            /*
+             * Partition rule:
+             * Credential lifecycle → SUBJECT (userId) or GLOBAL fallback
+             */
+
+            AuditPartition partition =
+                    (e.userId() != null && !e.userId().isBlank())
+                            ? AuditPartition.subject(canonicalBuilder.stream(), e.userId())
+                            : AuditPartition.global(canonicalBuilder.stream());
+
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            partition,
+                            canonicalMaterial
+                    );
+
+            CredentialLifecycleAuditEvent entity =
+                    new CredentialLifecycleAuditEvent(
+                            input.timestamp(),
+                            input.subjectExternalId(),
+                            input.clientId(),
+                            input.sessionId(),
+                            input.ip(),
+                            input.eventType(),
+                            input.requiredAction(),
+                            input.correlationId(),
+                            input.correlationSource(),
+                            input.executionContext(),
+                            input.result(),
+                            input.reasonCode(),
+                            input.reasonDetail(),
+                            input.eventFingerprint(),
                             chain.chainVersion(),
                             chain.prevHash(),
                             chain.eventHash()
@@ -125,13 +142,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
             try {
                 repository.save(entity);
                 maxTime = Math.max(maxTime, e.time());
-            } catch (DataIntegrityViolationException ex) {
-                log.debug(
-                        "CREDENTIAL AUDIT DEDUPLICATED userId={} type={} correlationId={}",
-                        e.userId(),
-                        type,
-                        correlationId
-                );
+            } catch (DataIntegrityViolationException ignored) {
             }
         }
 

@@ -11,44 +11,87 @@ import java.util.Optional;
 public class AuditChainService {
 
     private final AuditChainStateRepository stateRepository;
-    private final String secret;
+    private final AuditChainSecretProvider secretProvider;
     private final boolean enabled;
 
     public AuditChainService(
             AuditChainStateRepository stateRepository,
-            @Value("${docflow.audit.chain.secret:}") String secret,
+            AuditChainSecretProvider secretProvider,
             @Value("${docflow.audit.chain.enabled:true}") boolean enabled
     ) {
         this.stateRepository = stateRepository;
-        this.secret = secret;
+        this.secretProvider = secretProvider;
         this.enabled = enabled;
     }
 
-    public record ChainHash(String prevHash, String eventHash, int chainVersion) {}
+    public record ChainHash(String prevHash, String eventHash, int chainVersion) {
+    }
+
+    public boolean isEnabledAndConfigured() {
+        String secret = secretProvider.getResolvedSecretOrEmpty();
+        return enabled && secret != null && !secret.isBlank();
+    }
+
+    /**
+     * Pure hash computation used by verification (NO state read/write).
+     * Must stay consistent with writer logic.
+     */
+    public String computeEventHash(
+            AuditPartition partition,
+            int chainVersion,
+            String prevHash,
+            String eventMaterial
+    ) {
+        if (!isEnabledAndConfigured()) {
+            return "-";
+        }
+
+        if (chainVersion <= 0) {
+            return "-";
+        }
+
+        String material = "v" + chainVersion
+                + "|" + partition.stream()
+                + "|" + partition.partitionValue()
+                + "|" + prevHash
+                + "|" + eventMaterial;
+
+        String secret = secretProvider.getResolvedSecretOrEmpty();
+        return AuditChainHasher.hmacSha256Hex(secret, material);
+    }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public ChainHash nextHash(String stream, String tenantIdOrNull, String eventMaterial) {
-        if (!enabled || secret == null || secret.isBlank()) {
+    public ChainHash nextHash(AuditPartition partition, String eventMaterial) {
+
+        if (!isEnabledAndConfigured()) {
             return new ChainHash("-", "-", 0);
         }
 
-        String tenantNorm = (tenantIdOrNull == null || tenantIdOrNull.isBlank()) ? "NULL" : tenantIdOrNull;
-        String stateKey = stream + "|" + tenantNorm;
+        String stateKey = partition.toStateKey();
 
         Optional<AuditChainState> lockedOpt = stateRepository.findForUpdate(stateKey);
 
         String prev = lockedOpt.map(AuditChainState::getLastEventHash).orElse("-");
         int version = 1;
 
-        String material = "v" + version + "|" + stream + "|" + tenantNorm + "|" + prev + "|" + eventMaterial;
-        String eventHash = AuditChainHasher.hmacSha256Hex(secret, material);
+        String eventHash = computeEventHash(partition, version, prev, eventMaterial);
 
         AuditChainState state = lockedOpt.orElseGet(() ->
-                new AuditChainState(stateKey, stream, "NULL".equals(tenantNorm) ? null : tenantNorm, prev)
+                new AuditChainState(
+                        stateKey,
+                        partition.stream(),
+                        partition.partitionValue(),
+                        prev
+                )
         );
+
         state.updateLastHash(eventHash);
         stateRepository.save(state);
 
         return new ChainHash(prev, eventHash, version);
+    }
+
+    private static String normalizeTenant(String tenantIdOrNull) {
+        return (tenantIdOrNull == null || tenantIdOrNull.isBlank()) ? "NULL" : tenantIdOrNull;
     }
 }

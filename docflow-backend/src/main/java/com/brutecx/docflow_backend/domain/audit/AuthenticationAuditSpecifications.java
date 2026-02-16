@@ -32,6 +32,11 @@ public final class AuthenticationAuditSpecifications {
                 cb.equal(root.get("username"), username);
     }
 
+    public static Specification<AuthenticationEvent> hasSubjectId(String subjectId) {
+        return (root, query, cb) ->
+                cb.equal(root.get("subjectId"), subjectId);
+    }
+
     public static Specification<AuthenticationEvent> hasResult(AuthenticationResult result) {
         return (root, query, cb) ->
                 cb.equal(root.get("result"), result);
@@ -69,4 +74,3 @@ public final class AuthenticationAuditSpecifications {
         };
     }
 }
-

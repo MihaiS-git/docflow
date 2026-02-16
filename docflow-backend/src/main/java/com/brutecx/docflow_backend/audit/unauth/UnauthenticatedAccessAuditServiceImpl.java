@@ -7,6 +7,7 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -24,11 +26,12 @@ import java.util.List;
 public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAccessAuditService {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-    private static final String STREAM = "UNAUTH";
+    private static final String STREAM = UnauthenticatedAccessCanonicalMaterialBuilder.STREAM;
 
     private final UnauthenticatedAccessAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
+    private final UnauthenticatedAccessCanonicalMaterialBuilder canonicalMaterialBuilder;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -57,23 +60,41 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        String material = String.join("|",
-                STREAM,
+        Instant ts = Instant.now();
+
+        UnauthenticatedAccessCanonicalInput input = new UnauthenticatedAccessCanonicalInput(
+                ts,
+                correlationId,
+                correlationSource,
+                ExecutionContext.HTTP,
+                AuditResult.FAILED,
                 resolvedMethod,
                 resolvedPath,
-                correlationId,
+                ctx.ip(),
+                ctx.userAgent(),
                 fingerprint
         );
 
+        String canonicalMaterial = canonicalMaterialBuilder.buildCanonicalMaterial(input);
+
+        /*
+         * Partition rule:
+         * UnauthenticatedAccess → GLOBAL
+         * CorrelationId must NEVER be used as partition.
+         */
+
+        AuditPartition partition = AuditPartition.global(STREAM);
+
         try {
+
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            STREAM,
-                            correlationId,
-                            material
+                            partition,
+                            canonicalMaterial
                     );
 
-            repository.save(new UnauthenticatedAccessAuditEvent(
+            repository.saveAndFlush(new UnauthenticatedAccessAuditEvent(
+                    ts,
                     correlationId,
                     correlationSource,
                     ExecutionContext.HTTP,
@@ -87,6 +108,7 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
         } catch (DataIntegrityViolationException ex) {
             log.debug(
                     "UNAUTH AUDIT DEDUPLICATED correlationId={} method={} path={}",
@@ -127,6 +149,6 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
     }
 
     private static String normalizeOr(String v, String fallback) {
-        return (v != null && !v.isBlank()) ? v : fallback;
+        return (v != null && !v.isBlank()) ? v.trim() : fallback;
     }
 }

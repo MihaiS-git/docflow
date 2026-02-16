@@ -1,61 +1,58 @@
 package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.CredentialLifecycleAuditDTO;
-import com.brutecx.docflow_backend.api.dto.audit.CredentialLifecycleAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.*;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEvent;
-import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEventRepository;
+import com.brutecx.docflow_backend.audit.credential.*;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
-import com.brutecx.docflow_backend.audit.tamper.AuditChainHasher;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
-import java.util.function.Consumer;
 
 @Service
 @RequiredArgsConstructor
 public class CredentialLifecycleAuditQueryService {
 
     private static final int MAX_PAGE_SIZE = 100;
-
-    private static final int EXPORT_MAX_ROWS = 50_000;
-    private static final int EXPORT_BATCH_SIZE = 1_000;
     private static final int VERIFY_BATCH_SIZE = 1_000;
+    private static final int EXPORT_BATCH_SIZE = 1_000;
+    private static final int EXPORT_MAX_ROWS = 200_000;
+    private static final String STREAM = "CREDENTIAL_LIFECYCLE";
 
-    private static final String STREAM = "CREDENTIAL";
-
-    // Frozen allowlist for this stream (contract-safe, minimal)
-    private static final List<String> ALLOWED_SORT_FIELDS = List.of("timestamp");
+    private static final String PARTITION_ANON = "ANON";
 
     private final CredentialLifecycleAuditEventRepository repository;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
     private final AuditRequestContextExtractor ctxExtractor;
     private final UserService userService;
     private final TenantService tenantService;
+    private final CredentialLifecycleCanonicalMaterialBuilder canonicalBuilder;
+    private final AuditChainService auditChainService;
+    private final ObjectMapper objectMapper;
 
-    @Value("${docflow.audit.chain.secret:}")
-    private String chainSecret;
-
-    /* =====================================================
-       QUERY (cursor primary, offset optional)
-       ===================================================== */
+    /* ================= CURSOR ================= */
 
     @Transactional(readOnly = true)
-    public Page<CredentialLifecycleAuditDTO> query(
+    public CredentialLifecycleAuditCursorPageDTO query(
             Instant from,
             Instant to,
             String correlationId,
@@ -63,194 +60,80 @@ public class CredentialLifecycleAuditQueryService {
             AuditResult result,
             Instant cursorTimestamp,
             UUID cursorId,
-            int page,
-            int size,
-            String sortField,
-            Sort.Direction direction
+            int size
     ) {
 
-        int safePage = Math.max(page, 0);
+        validateRange(from, to);
+        validateCursorPair(cursorTimestamp, cursorId);
+
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
-        Sort.Direction dir = direction != null ? direction : Sort.Direction.DESC;
-        String safeSort = validateSortField(sortField);
-
-        // Deterministic ordering: always timestamp + id
-        Sort sort = Sort.by(
-                new Sort.Order(dir, safeSort),
-                new Sort.Order(dir, "id")
+        Pageable pageable = PageRequest.of(
+                0,
+                safeSize + 1,
+                Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id"))
         );
-
-        Pageable pageable = PageRequest.of(safePage, safeSize, sort);
 
         Specification<CredentialLifecycleAuditEvent> spec = Specification.allOf(
                 from != null ? CredentialLifecycleAuditSpecifications.timestampFrom(from) : null,
                 to != null ? CredentialLifecycleAuditSpecifications.timestampTo(to) : null,
-                correlationId != null && !correlationId.isBlank()
-                        ? CredentialLifecycleAuditSpecifications.hasCorrelationId(correlationId)
-                        : null,
-                subjectExternalId != null && !subjectExternalId.isBlank()
-                        ? CredentialLifecycleAuditSpecifications.hasSubjectExternalId(subjectExternalId)
-                        : null,
+                hasText(correlationId) ? CredentialLifecycleAuditSpecifications.hasCorrelationId(correlationId) : null,
+                hasText(subjectExternalId) ? CredentialLifecycleAuditSpecifications.hasSubjectExternalId(subjectExternalId) : null,
                 result != null ? CredentialLifecycleAuditSpecifications.hasResult(result) : null,
-                (cursorTimestamp != null && cursorId != null)
-                        ? CredentialLifecycleAuditSpecifications.cursorAfter(
-                        cursorTimestamp,
-                        cursorId,
-                        dir == Sort.Direction.ASC
-                )
+                cursorTimestamp != null
+                        ? CredentialLifecycleAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false)
                         : null
         );
 
-        Page<CredentialLifecycleAuditEvent> pageResult =
-                repository.findAll(spec, pageable);
+        Page<CredentialLifecycleAuditEvent> page = repository.findAll(spec, pageable);
 
-        recordSensitiveAccess();
+        List<CredentialLifecycleAuditEvent> raw = page.getContent();
+        boolean hasMore = raw.size() > safeSize;
 
-        return pageResult.map(CredentialLifecycleAuditDTO::from);
+        List<CredentialLifecycleAuditDTO> items = new ArrayList<>(Math.min(raw.size(), safeSize));
+        for (int i = 0; i < raw.size() && i < safeSize; i++) {
+            items.add(CredentialLifecycleAuditDTO.from(raw.get(i)));
+        }
+
+        Instant nextTs = null;
+        UUID nextId = null;
+
+        if (hasMore) {
+            CredentialLifecycleAuditEvent last = raw.get(safeSize - 1);
+            nextTs = last.getTimestamp();
+            nextId = last.getId();
+        }
+
+        recordMeta("AUDIT_READ");
+
+        return new CredentialLifecycleAuditCursorPageDTO(items, hasMore, nextTs, nextId);
     }
 
-    private static String validateSortField(String sortField) {
-        if (sortField == null || sortField.isBlank()) {
-            return "timestamp";
-        }
-        if (!ALLOWED_SORT_FIELDS.contains(sortField)) {
-            throw new IllegalArgumentException("Unsupported sort field");
-        }
-        return sortField;
-    }
-
-    /* =====================================================
-       EXPORT (CSV/JSONL use this)
-       - requires from/to
-       - deterministic ASC timestamp + id
-       - hard cap
-       ===================================================== */
-
-    @Transactional(readOnly = true)
-    public void export(
-            Instant from,
-            Instant to,
-            String correlationId,
-            String subjectExternalId,
-            AuditResult result,
-            Consumer<CredentialLifecycleAuditEvent> consumer
-    ) {
-
-        if (from == null || to == null) {
-            throw new IllegalArgumentException("from and to are required for export");
-        }
-
-        long exported = 0;
-        Instant cursorTimestamp = null;
-        UUID cursorUuid = null;
-
-        while (true) {
-
-            Specification<CredentialLifecycleAuditEvent> spec = Specification.allOf(
-                    CredentialLifecycleAuditSpecifications.timestampFrom(from),
-                    CredentialLifecycleAuditSpecifications.timestampTo(to),
-                    correlationId != null && !correlationId.isBlank()
-                            ? CredentialLifecycleAuditSpecifications.hasCorrelationId(correlationId)
-                            : null,
-                    subjectExternalId != null && !subjectExternalId.isBlank()
-                            ? CredentialLifecycleAuditSpecifications.hasSubjectExternalId(subjectExternalId)
-                            : null,
-                    result != null ? CredentialLifecycleAuditSpecifications.hasResult(result) : null,
-                    (cursorTimestamp != null && cursorUuid != null)
-                            ? CredentialLifecycleAuditSpecifications.cursorAfter(
-                            cursorTimestamp,
-                            cursorUuid,
-                            true
-                    )
-                            : null
-            );
-
-            Pageable pageable = PageRequest.of(
-                    0,
-                    EXPORT_BATCH_SIZE,
-                    Sort.by(
-                            Sort.Order.asc("timestamp"),
-                            Sort.Order.asc("id")
-                    )
-            );
-
-            Page<CredentialLifecycleAuditEvent> batch =
-                    repository.findAll(spec, pageable);
-
-            if (batch.isEmpty()) {
-                break;
-            }
-
-            for (CredentialLifecycleAuditEvent e : batch.getContent()) {
-
-                consumer.accept(e);
-                exported++;
-
-                if (exported >= EXPORT_MAX_ROWS) {
-                    recordSensitiveAccess();
-                    return;
-                }
-
-                cursorTimestamp = e.getTimestamp();
-                cursorUuid = e.getId();
-            }
-        }
-
-        recordSensitiveAccess();
-    }
-
-    /* =====================================================
-       VERIFY
-       - requires from/to
-       - deterministic ASC traversal
-       - validates continuity per partitionKey (subjectExternalId / GLOBAL)
-       - recomputes event_hash using your exact Keycloak pull job material
-       ===================================================== */
+    /* ================= VERIFY ================= */
 
     @Transactional(readOnly = true)
     public CredentialLifecycleAuditVerificationResultDTO verify(
             Instant from,
-            Instant to,
-            String correlationId,
-            String subjectExternalId
+            Instant to
     ) {
 
-        if (from == null || to == null) {
-            throw new IllegalArgumentException("from and to are required for verification");
-        }
-        if (chainSecret == null || chainSecret.isBlank()) {
-            recordSensitiveAccess();
-            return CredentialLifecycleAuditVerificationResultDTO.failure(
-                    0,
-                    null,
-                    "Audit chain secret not configured"
-            );
-        }
+        validateRangeRequired(from, to);
 
+        Map<AuditPartition, String> lastHashByPartition = new HashMap<>();
         long verified = 0;
 
-        // Continuity is per partitionKey (as used by AuditChainService.nextHash STREAM + partitionKey)
-        Map<String, String> lastHashByPartition = new HashMap<>();
-
         Instant cursorTimestamp = null;
-        UUID cursorUuid = null;
+        UUID cursorId = null;
 
         while (true) {
 
             Specification<CredentialLifecycleAuditEvent> spec = Specification.allOf(
                     CredentialLifecycleAuditSpecifications.timestampFrom(from),
                     CredentialLifecycleAuditSpecifications.timestampTo(to),
-                    correlationId != null && !correlationId.isBlank()
-                            ? CredentialLifecycleAuditSpecifications.hasCorrelationId(correlationId)
-                            : null,
-                    subjectExternalId != null && !subjectExternalId.isBlank()
-                            ? CredentialLifecycleAuditSpecifications.hasSubjectExternalId(subjectExternalId)
-                            : null,
-                    (cursorTimestamp != null && cursorUuid != null)
+                    cursorTimestamp != null
                             ? CredentialLifecycleAuditSpecifications.cursorAfter(
                             cursorTimestamp,
-                            cursorUuid,
+                            cursorId,
                             true
                     )
                             : null
@@ -259,117 +142,230 @@ public class CredentialLifecycleAuditQueryService {
             Pageable pageable = PageRequest.of(
                     0,
                     VERIFY_BATCH_SIZE,
-                    Sort.by(
-                            Sort.Order.asc("timestamp"),
-                            Sort.Order.asc("id")
-                    )
+                    Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
             );
 
-            Page<CredentialLifecycleAuditEvent> batch =
-                    repository.findAll(spec, pageable);
+            Page<CredentialLifecycleAuditEvent> batch = repository.findAll(spec, pageable);
+            if (batch.isEmpty()) break;
 
-            if (batch.isEmpty()) {
-                break;
-            }
+            for (CredentialLifecycleAuditEvent event : batch.getContent()) {
 
-            for (CredentialLifecycleAuditEvent e : batch.getContent()) {
+                String stream = canonicalBuilder.stream();
 
-                String partitionKey =
-                        (e.getSubjectExternalId() != null && !e.getSubjectExternalId().isBlank())
-                                ? e.getSubjectExternalId()
-                                : "GLOBAL";
+                String subjectValue = hasText(event.getSubjectExternalId())
+                        ? event.getSubjectExternalId().trim()
+                        : PARTITION_ANON;
 
-                String expectedPrev = lastHashByPartition.get(partitionKey);
-                if (expectedPrev != null && !Objects.equals(e.getPrevEventHash(), expectedPrev)) {
-                    recordSensitiveAccess();
+                AuditPartition partition = AuditPartition.subject(stream, subjectValue);
+
+                String previousHash = lastHashByPartition.get(partition);
+
+                if (previousHash != null &&
+                        !Objects.equals(previousHash, normalizeHash(event.getPrevEventHash()))) {
+
+                    recordMeta("AUDIT_VERIFY");
                     return CredentialLifecycleAuditVerificationResultDTO.failure(
                             verified,
-                            e.getId(),
-                            "Chain continuity mismatch partition=" + partitionKey
+                            event.getId(),
+                            "CONTINUITY_MISMATCH_PREV_EVENT_HASH"
                     );
                 }
 
-                // Recompute EXACTLY like KeycloakCredentialLifecycleEventPullJob
-                String sessionId =
-                        (e.getSessionId() != null && !e.getSessionId().isBlank())
-                                ? e.getSessionId()
-                                : "-";
-
-                String subject = (e.getSubjectExternalId() != null) ? e.getSubjectExternalId() : "GLOBAL";
-                String clientId = (e.getClientId() != null) ? e.getClientId() : "UNKNOWN";
-
-                String fingerprint = e.getEventFingerprint();
-
-                String eventMaterial = String.join("|",
-                        STREAM,
-                        e.getEventType().name(),
-                        subject,
-                        clientId,
-                        sessionId,
-                        String.valueOf(e.getTimestamp().toEpochMilli()),
-                        fingerprint
+                String canonical = canonicalBuilder.buildCanonicalMaterial(
+                        CredentialLifecycleCanonicalInput.from(event)
                 );
 
-                String material = "v1|" + STREAM + "|" + partitionKey + "|" + e.getPrevEventHash() + "|" + eventMaterial;
+                String expectedHash = auditChainService.computeEventHash(
+                        partition,
+                        event.getChainVersion(),
+                        normalizeHash(event.getPrevEventHash()),
+                        canonical
+                );
 
-                String recomputed = AuditChainHasher.hmacSha256Hex(chainSecret, material);
+                if (!Objects.equals(expectedHash, event.getEventHash())) {
 
-                if (!Objects.equals(recomputed, e.getEventHash())) {
-                    recordSensitiveAccess();
+                    recordMeta("AUDIT_VERIFY");
                     return CredentialLifecycleAuditVerificationResultDTO.failure(
                             verified,
-                            e.getId(),
-                            "Event hash mismatch partition=" + partitionKey
+                            event.getId(),
+                            "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED"
                     );
                 }
 
-                lastHashByPartition.put(partitionKey, e.getEventHash());
+                lastHashByPartition.put(partition, normalizeHash(event.getEventHash()));
                 verified++;
 
-                cursorTimestamp = e.getTimestamp();
-                cursorUuid = e.getId();
+                cursorTimestamp = event.getTimestamp();
+                cursorId = event.getId();
             }
         }
 
-        recordSensitiveAccess();
+        recordMeta("AUDIT_VERIFY");
         return CredentialLifecycleAuditVerificationResultDTO.success(verified);
     }
 
-    /* =====================================================
-       Sensitive Read Logging
-       ===================================================== */
+    /* ================= EXPORT JSONL ================= */
 
-    private void recordSensitiveAccess() {
+    @Transactional(readOnly = true)
+    public void streamForensicExportJsonl(
+            HttpServletResponse response,
+            Instant from,
+            Instant to
+    ) {
+
+        streamExport(response, from, to, false);
+    }
+
+    /* ================= EXPORT CSV ================= */
+
+    @Transactional(readOnly = true)
+    public void streamForensicExportCsv(
+            HttpServletResponse response,
+            Instant from,
+            Instant to
+    ) {
+
+        streamExport(response, from, to, true);
+    }
+
+    private void streamExport(
+            HttpServletResponse response,
+            Instant from,
+            Instant to,
+            boolean csv
+    ) {
+
+        validateRangeRequired(from, to);
+
+        long exported = 0;
+        Instant cursorTimestamp = null;
+        UUID cursorId = null;
+
+        Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
+        Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
+
+        try (PrintWriter w = new PrintWriter(
+                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
+
+            while (true) {
+
+                Specification<CredentialLifecycleAuditEvent> spec = Specification.allOf(
+                        CredentialLifecycleAuditSpecifications.timestampFrom(from),
+                        CredentialLifecycleAuditSpecifications.timestampTo(to),
+                        (cursorTimestamp != null && cursorId != null)
+                                ? CredentialLifecycleAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
+                                : null
+                );
+
+                Page<CredentialLifecycleAuditEvent> page = repository.findAll(spec, pageable);
+                if (page.isEmpty()) break;
+
+                for (CredentialLifecycleAuditEvent e : page.getContent()) {
+
+                    if (csv) {
+                        w.println(String.join(",",
+                                csv(e.getId()),
+                                csv(e.getTimestamp()),
+                                csv(e.getSubjectExternalId()),
+                                csv(e.getCorrelationId()),
+                                csv(e.getChainVersion()),
+                                csv(e.getPrevEventHash()),
+                                csv(e.getEventHash())
+                        ));
+                    } else {
+                        w.println(objectMapper.writeValueAsString(e));
+                    }
+
+                    exported++;
+                    if (exported >= EXPORT_MAX_ROWS) {
+                        recordMeta("AUDIT_EXPORT");
+                        w.flush();
+                        return;
+                    }
+
+                    cursorTimestamp = e.getTimestamp();
+                    cursorId = e.getId();
+                }
+
+                if (!page.hasNext()) break;
+                pageable = page.nextPageable();
+            }
+
+            recordMeta("AUDIT_EXPORT");
+            w.flush();
+
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to stream credential lifecycle export", ex);
+        }
+    }
+
+    /* ================= META ================= */
+
+    private void recordMeta(String action) {
 
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
-        UUID rootTenantId = tenantService.getRootTenant().getId();
+        UUID rootTenant = tenantService.getRootTenant().getId();
 
         String fingerprint = EventFingerprint.of(List.of(
                 "SENSITIVE_ACCESS",
-                "AUDIT_READ",
-                "CREDENTIAL_LIFECYCLE",
+                action,
+                STREAM,
                 actor.getId().toString(),
-                rootTenantId.toString(),
+                rootTenant.toString(),
                 ctx.correlationId()
         ));
 
         sensitiveAccessAuditService.record(
                 actor.getId(),
                 actor.getExternalSubjectId(),
-                rootTenantId,
+                rootTenant,
                 SensitiveAccessSubjectType.AUDIT_STREAM,
-                "CREDENTIAL_LIFECYCLE",
+                STREAM,
                 "AUDIT",
-                "READ",
+                action,
                 null,
                 ctx.correlationId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                "AUDIT_READ",
-                "Read credential lifecycle audit stream",
+                action,
+                "Credential lifecycle audit operation",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );
+    }
+
+    private void validateRange(Instant from, Instant to) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new IllegalArgumentException("'from' must be <= 'to'");
+        }
+    }
+
+    private void validateRangeRequired(Instant from, Instant to) {
+        if (from == null || to == null) {
+            throw new IllegalArgumentException("from and to are required");
+        }
+        validateRange(from, to);
+    }
+
+    private void validateCursorPair(Instant ts, UUID id) {
+        if ((ts == null) ^ (id == null)) {
+            throw new IllegalArgumentException("cursorTimestamp and cursorId must be provided together");
+        }
+    }
+
+    private boolean hasText(String s) {
+        return s != null && !s.isBlank();
+    }
+
+    private String csv(Object v) {
+        if (v == null) return "";
+        String s = String.valueOf(v);
+        if (!s.contains(",") && !s.contains("\"") && !s.contains("\n")) return s;
+        return "\"" + s.replace("\"", "\"\"") + "\"";
+    }
+
+    private static String normalizeHash(String v) {
+        return (v == null || v.isBlank()) ? "-" : v;
     }
 }

@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.enforcement;
 
+import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import com.brutecx.docflow_backend.domain.tenant.UserTenantMembershipRepository;
 import com.brutecx.docflow_backend.domain.user.UserRepository;
@@ -18,8 +19,14 @@ public class TenantAuthorizationManagerFactory {
 
     private final UserRepository userRepository;
     private final UserTenantMembershipRepository membershipRepository;
+    private final ILifecycleDeniedAuditService lifecycleDeniedAuditService;
 
     public AuthorizationManager<RequestAuthorizationContext> atLeast(TenantRole requiredRole) {
-        return new TenantAuthorizationManager(requiredRole, userRepository, membershipRepository);
+        return new TenantAuthorizationManager(
+                requiredRole,
+                userRepository,
+                membershipRepository,
+                lifecycleDeniedAuditService
+        );
     }
 }

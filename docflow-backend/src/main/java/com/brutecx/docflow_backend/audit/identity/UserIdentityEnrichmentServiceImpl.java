@@ -5,6 +5,7 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakUser;
 import lombok.RequiredArgsConstructor;
@@ -64,10 +65,8 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                     kcUser.displayName()
             );
 
-            // Ensure projection is persisted
             repo.save(projection);
 
-            // SYSTEM-level audit event (deterministic correlation)
             String correlationId = "identity-" + subjectId;
 
             String username = kcUser.username() != null ? kcUser.username() : "-";
@@ -88,10 +87,17 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                     fingerprint
             );
 
+            /*
+             * Partition rule:
+             * Identity projection → SUBJECT
+             */
+
+            AuditPartition partition =
+                    AuditPartition.subject(STREAM, subjectId);
+
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            STREAM,
-                            subjectId,
+                            partition,
                             material
                     );
 

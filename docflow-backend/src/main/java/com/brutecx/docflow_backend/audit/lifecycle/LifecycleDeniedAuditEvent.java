@@ -83,6 +83,24 @@ public class LifecycleDeniedAuditEvent {
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
+    /* =========================
+       GOLD: tamper-evident chain fields
+       ========================= */
+
+    @Column(name = "chain_version", nullable = false, updatable = false)
+    private int chainVersion;
+
+    @Column(name = "prev_event_hash", updatable = false, length = 128)
+    private String prevEventHash;
+
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
+    private String eventHash;
+
+    /**
+     * Legacy constructor (kept for compile compatibility).
+     * Produces NON-CHAINED records: chainVersion=0, hashes="-".
+     * Prefer the GOLD constructor below.
+     */
     public LifecycleDeniedAuditEvent(
             String correlationId,
             CorrelationSource correlationSource,
@@ -96,8 +114,46 @@ public class LifecycleDeniedAuditEvent {
             String userAgent,
             String eventFingerprint
     ) {
+        this(
+                correlationId,
+                correlationSource,
+                executionContext,
+                result,
+                subjectId,
+                reasonCode,
+                httpMethod,
+                path,
+                ip,
+                userAgent,
+                eventFingerprint,
+                0,
+                "-",
+                "-"
+        );
+    }
+
+    /**
+     * GOLD constructor: caller provides chain fields from AuditChainService.nextHash(...).
+     */
+    public LifecycleDeniedAuditEvent(
+            String correlationId,
+            CorrelationSource correlationSource,
+            ExecutionContext executionContext,
+            AuditResult result,
+            String subjectId,
+            String reasonCode,
+            String httpMethod,
+            String path,
+            String ip,
+            String userAgent,
+            String eventFingerprint,
+            int chainVersion,
+            String prevEventHash,
+            String eventHash
+    ) {
         this.correlationId = correlationId;
         this.correlationSource = correlationSource;
+        this.execution_context_guard(executionContext);
         this.executionContext = executionContext;
         this.result = result;
         this.subjectId = subjectId;
@@ -107,10 +163,28 @@ public class LifecycleDeniedAuditEvent {
         this.ip = ip;
         this.userAgent = userAgent;
         this.eventFingerprint = eventFingerprint;
+
+        this.chainVersion = chainVersion;
+        this.prevEventHash = prevEventHash;
+        this.eventHash = eventHash;
+    }
+
+    private void execution_context_guard(ExecutionContext executionContext) {
+        if (executionContext == null) {
+            throw new IllegalArgumentException("executionContext is required");
+        }
     }
 
     @PrePersist
     protected void onCreate() {
-        this.timestamp = Instant.now();
+        if (this.timestamp == null) {
+            this.timestamp = Instant.now();
+        }
+        if (this.prevEventHash == null) {
+            this.prevEventHash = "-";
+        }
+        if (this.eventHash == null) {
+            this.eventHash = "-";
+        }
     }
 }

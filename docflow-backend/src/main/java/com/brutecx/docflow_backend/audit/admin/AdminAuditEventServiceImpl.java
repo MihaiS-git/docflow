@@ -3,10 +3,13 @@ package com.brutecx.docflow_backend.audit.admin;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
+import com.brutecx.docflow_backend.audit.canonical.AuditCanonicalVersionProvider;
+import com.brutecx.docflow_backend.audit.canonical.CanonicalJsonService;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import lombok.RequiredArgsConstructor;
@@ -27,12 +30,15 @@ import java.util.UUID;
 public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-    private static final String STREAM = "ADMIN_AUDIT";
+    private static final String STREAM = AdminAuditCanonicalMaterialBuilder.STREAM;
 
     private final AdminAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
     private final UserService userService;
+    private final AdminAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final AuditCanonicalVersionProvider canonicalVersionProvider;
+    private final CanonicalJsonService canonicalJsonService;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -53,55 +59,50 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
         String correlationId = requireCorrelation(ctx);
 
-        UUID actorUserId;
-        try {
-            User actor = userService.getRequiredCurrentUser();
-            actorUserId = actor.getId();
-        } catch (IllegalStateException ex) {
-            // Bootstrap identity mutation case:
-            // actor not yet visible in DB due to suspended transaction
-            if (actionType == AdminAuditActionType.BOOTSTRAP_ACTIVATED
-                    && targetUserId != null) {
-                actorUserId = targetUserId;
-            } else {
-                throw ex;
-            }
-        }
+        UUID actorUserId = resolveActor(actionType, targetUserId);
 
         CorrelationSource correlationSource = resolveCorrelationSource();
         AuditResult result = resolveResult(actionType, metadata);
 
-        List<String> fp = new ArrayList<>();
-        fp.add(STREAM);
-        fp.add(actionType.name());
-        fp.add(result.name());
-        fp.add(tenantId.toString());
-        fp.add(actorUserId.toString());
-        fp.add(subjectId);
-        fp.add(correlationId);
-        fp.add(targetUserId != null ? targetUserId.toString() : "-");
-        fp.add(metadata != null ? metadata.getClass().getSimpleName() : "-");
-        fp.add(metadata != null ? metadata.toString() : "-");
-
-        String fingerprint = EventFingerprint.of(fp);
-
-        String material = String.join("|",
-                STREAM,
-                actorUserId.toString(),
+        String fingerprint = buildFingerprint(
+                actionType,
+                result,
+                tenantId,
+                actorUserId,
                 subjectId,
-                tenantId.toString(),
-                actionType.name(),
-                result.name(),
-                correlationId,
-                fingerprint
+                targetUserId,
+                metadata,
+                correlationId
         );
 
+        String canonicalMaterial = canonicalMaterialBuilder.buildCanonicalMaterial(
+                new AdminAuditCanonicalMaterialBuilder.Input(
+                        actorUserId,
+                        subjectId,
+                        tenantId,
+                        actionType,
+                        result,
+                        correlationId,
+                        targetUserId,
+                        metadata,
+                        fingerprint
+                )
+        );
+
+        /*
+         * Partition rules:
+         * AdminAudit → TENANT
+         */
+
+        AuditPartition partition =
+                AuditPartition.tenant(STREAM, tenantId.toString());
+
         try {
+
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
-                            STREAM,
-                            tenantId.toString(),
-                            material
+                            partition,
+                            canonicalMaterial
                     );
 
             repository.save(new AdminAuditEvent(
@@ -122,6 +123,7 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
         } catch (Exception ex) {
             log.error(
                     "ADMIN AUDIT FAILURE correlationId={} actionType={} tenantId={}",
@@ -132,6 +134,52 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
             );
             throw ex;
         }
+    }
+
+    private UUID resolveActor(AdminAuditActionType actionType, UUID targetUserId) {
+        try {
+            User actor = userService.getRequiredCurrentUser();
+            return actor.getId();
+        } catch (IllegalStateException ex) {
+            if (actionType == AdminAuditActionType.BOOTSTRAP_ACTIVATED && targetUserId != null) {
+                return targetUserId;
+            }
+            throw ex;
+        }
+    }
+
+    private String buildFingerprint(
+            AdminAuditActionType actionType,
+            AuditResult result,
+            UUID tenantId,
+            UUID actorUserId,
+            String subjectId,
+            UUID targetUserId,
+            AdminAuditMetadata metadata,
+            String correlationId
+    ) {
+
+        int cv = canonicalVersionProvider.canonicalVersion();
+
+        List<String> fp = new ArrayList<>();
+        fp.add(STREAM);
+        fp.add("CV=" + cv);
+        fp.add(actionType.name());
+        fp.add(result.name());
+        fp.add(tenantId.toString());
+        fp.add(actorUserId.toString());
+        fp.add(subjectId);
+        fp.add(correlationId);
+        fp.add(targetUserId != null ? targetUserId.toString() : "-");
+        fp.add(metadata != null ? metadata.getClass().getSimpleName() : "-");
+
+        if (metadata != null) {
+            fp.add(canonicalJsonService.toCanonicalJson(metadata));
+        } else {
+            fp.add("-");
+        }
+
+        return EventFingerprint.of(fp);
     }
 
     private static void ensureHttpContext() {
