@@ -1,7 +1,7 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditCursorPageDTO;
 import com.brutecx.docflow_backend.domain.audit.OnboardingAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -87,7 +87,9 @@ public class OnboardingAuditController {
         return ResponseEntity.ok(queryService.verify(from, to, tenantId));
     }
 
-    @GetMapping(value = "/export", produces = "application/x-ndjson")
+    /* ================= JSONL ================= */
+
+    @GetMapping(value = "/export", produces = "application/json")
     public void exportJsonl(
             HttpServletResponse response,
             @RequestParam
@@ -99,10 +101,41 @@ public class OnboardingAuditController {
             @RequestParam(required = false)
             UUID tenantId
     ) {
-        response.setHeader(HttpHeaders.CONTENT_TYPE, "application/x-ndjson");
-        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"onboarding-audit-export.jsonl\"");
+
+        response.setContentType("application/json");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"onboarding-audit-export.jsonl\""
+        );
         response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
 
         queryService.streamForensicExportJsonl(response, from, to, tenantId);
+    }
+
+    /* ================= CSV ================= */
+
+    @GetMapping(value = "/export/csv", produces = "text/csv")
+    public void exportCsv(
+            HttpServletResponse response,
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant from,
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant to,
+            @RequestParam(required = false)
+            UUID tenantId
+    ) {
+
+        response.setContentType("text/csv");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"onboarding-audit-export.csv\""
+        );
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+
+        queryService.streamForensicExportCsv(response, from, to, tenantId);
     }
 }

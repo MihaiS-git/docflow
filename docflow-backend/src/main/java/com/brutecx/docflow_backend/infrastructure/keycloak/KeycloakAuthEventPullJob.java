@@ -33,14 +33,14 @@ public class KeycloakAuthEventPullJob {
     private final KeycloakEventCheckpointRepository checkpointRepo;
     private final AuthenticationEventRepository authEventRepo;
     private final AuditChainService auditChainService;
-    private final AuthenticationCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
 
     public KeycloakAuthEventPullJob(
             KeycloakAdminClient keycloak,
             KeycloakEventCheckpointRepository checkpointRepo,
             AuthenticationEventRepository authEventRepo,
             AuditChainService auditChainService,
-            AuthenticationCanonicalMaterialBuilder canonicalMaterialBuilder
+            AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder
     ) {
         this.keycloak = keycloak;
         this.checkpointRepo = checkpointRepo;
@@ -115,7 +115,7 @@ public class KeycloakAuthEventPullJob {
             }
 
             String fingerprint = EventFingerprint.of(List.of(
-                    AuthenticationCanonicalMaterialBuilder.STREAM,
+                    AuthenticationAuditCanonicalMaterialBuilder.STREAM,
                     "KEYCLOAK_ADMIN",
                     AuthenticationResult.FAILURE.name(),
                     subjectId,
@@ -124,24 +124,26 @@ public class KeycloakAuthEventPullJob {
                     correlationId
             ));
 
-            AuthenticationCanonicalInput input = new AuthenticationCanonicalInput(
-                    eventMs,
-                    AuthenticationEventSource.KEYCLOAK_ADMIN_EVENTS,
-                    username,
-                    subjectId,
-                    AuthenticationResult.FAILURE,
-                    "KEYCLOAK",
-                    ip,
-                    userAgent,
-                    correlationId,
-                    correlationSource,
-                    ExecutionContext.ADMIN_API,
-                    AuditResult.FAILED,
-                    fingerprint
-            );
+            AuthenticationAuditCanonicalMaterialBuilder.Input canonicalInput =
+                    new AuthenticationAuditCanonicalMaterialBuilder.Input(
+                            eventTime,
+                            AuthenticationEventSource.KEYCLOAK_ADMIN_EVENTS,
+                            username,
+                            subjectId,
+                            AuthenticationResult.FAILURE,
+                            "KEYCLOAK",
+                            ip,
+                            userAgent,
+                            correlationId,
+                            correlationSource.name(),
+                            ExecutionContext.ADMIN_API.name(),
+                            AuditResult.FAILED.name(),
+                            fingerprint
+                    );
 
             String canonicalMaterial =
-                    canonicalMaterialBuilder.buildCanonicalMaterial(input);
+                    canonicalMaterialBuilder.buildCanonicalMaterial(canonicalInput);
+
 
             /*
              * Authentication → SUBJECT partition (per final rules)
@@ -149,7 +151,7 @@ public class KeycloakAuthEventPullJob {
 
             AuditPartition partition =
                     AuditPartition.subject(
-                            AuthenticationCanonicalMaterialBuilder.STREAM,
+                            AuthenticationAuditCanonicalMaterialBuilder.STREAM,
                             subjectId
                     );
 
@@ -160,23 +162,24 @@ public class KeycloakAuthEventPullJob {
                     );
 
             AuthenticationEvent entity = new AuthenticationEvent(
-                    input.source(),
-                    eventTime,
-                    input.username(),
-                    input.subjectId(),
-                    input.result(),
-                    input.idp(),
-                    input.ip(),
-                    input.userAgent(),
-                    input.correlationId(),
-                    input.correlationSource(),
-                    input.executionContext(),
-                    input.auditResult(),
-                    input.eventFingerprint(),
+                    canonicalInput.source(),
+                    canonicalInput.timestamp(),
+                    canonicalInput.username(),
+                    canonicalInput.subjectId(),
+                    canonicalInput.result(),
+                    canonicalInput.idp(),
+                    canonicalInput.ip(),
+                    canonicalInput.userAgent(),
+                    canonicalInput.correlationId(),
+                    CorrelationSource.valueOf(canonicalInput.correlationSource()),
+                    ExecutionContext.valueOf(canonicalInput.executionContext()),
+                    AuditResult.valueOf(canonicalInput.auditResult()),
+                    canonicalInput.fingerprint(),
                     chain.chainVersion(),
                     chain.prevHash(),
                     chain.eventHash()
             );
+
 
             try {
                 authEventRepo.save(entity);

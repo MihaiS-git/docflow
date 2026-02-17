@@ -1,9 +1,6 @@
 package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditDTO;
-import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.*;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -52,7 +49,7 @@ public class UnauthenticatedAccessAuditQueryService {
     private final ObjectMapper objectMapper;
 
     /* =====================================================
-       CURSOR QUERY – DESC timestamp, DESC id
+       CURSOR QUERY – DESC
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -83,11 +80,7 @@ public class UnauthenticatedAccessAuditQueryService {
                         ? UnauthenticatedAccessAuditSpecifications.hasCorrelationId(correlationId)
                         : null,
                 cursorTimestamp != null
-                        ? UnauthenticatedAccessAuditSpecifications.cursor(
-                        cursorTimestamp,
-                        cursorId,
-                        UnauthenticatedAccessAuditSpecifications.SortDirection.DESC
-                )
+                        ? UnauthenticatedAccessAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false)
                         : null
         );
 
@@ -116,14 +109,11 @@ public class UnauthenticatedAccessAuditQueryService {
     }
 
     /* =====================================================
-       VERIFY – GLOBAL partition
+       VERIFY – GLOBAL PARTITION
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public AuditVerificationResultDTO verify(
-            Instant from,
-            Instant to
-    ) {
+    public AuditVerificationResultDTO verify(Instant from, Instant to) {
 
         validateRangeRequired(from, to);
 
@@ -132,7 +122,6 @@ public class UnauthenticatedAccessAuditQueryService {
         UUID cursorId = null;
 
         AuditPartition partition = AuditPartition.global(STREAM);
-
         String lastHash = "-";
 
         while (true) {
@@ -147,11 +136,7 @@ public class UnauthenticatedAccessAuditQueryService {
                     UnauthenticatedAccessAuditSpecifications.timestampFrom(from),
                     UnauthenticatedAccessAuditSpecifications.timestampTo(to),
                     cursorTs != null
-                            ? UnauthenticatedAccessAuditSpecifications.cursor(
-                            cursorTs,
-                            cursorId,
-                            UnauthenticatedAccessAuditSpecifications.SortDirection.ASC
-                    )
+                            ? UnauthenticatedAccessAuditSpecifications.cursorAfter(cursorTs, cursorId, true)
                             : null
             );
 
@@ -179,7 +164,7 @@ public class UnauthenticatedAccessAuditQueryService {
                 if (e.getChainVersion() > 0) {
 
                     String canonical = canonicalBuilder.buildCanonicalMaterial(
-                            UnauthenticatedAccessCanonicalInput.fromEvent(e)
+                            canonicalBuilder.fromEvent(e)
                     );
 
                     String expected = auditChainService.computeEventHash(
@@ -209,7 +194,7 @@ public class UnauthenticatedAccessAuditQueryService {
     }
 
     /* =====================================================
-       FORENSIC EXPORT – JSONL + CSV
+       EXPORT – JSONL + CSV
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -246,7 +231,8 @@ public class UnauthenticatedAccessAuditQueryService {
         Instant cursorTs = null;
         UUID cursorId = null;
 
-        try (PrintWriter w = new PrintWriter(new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
+        try (PrintWriter w = new PrintWriter(
+                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
 
             if (csv) {
                 w.println(String.join(",",
@@ -278,11 +264,7 @@ public class UnauthenticatedAccessAuditQueryService {
                                 ? UnauthenticatedAccessAuditSpecifications.hasCorrelationId(correlationId)
                                 : null,
                         cursorTs != null
-                                ? UnauthenticatedAccessAuditSpecifications.cursor(
-                                cursorTs,
-                                cursorId,
-                                UnauthenticatedAccessAuditSpecifications.SortDirection.ASC
-                        )
+                                ? UnauthenticatedAccessAuditSpecifications.cursorAfter(cursorTs, cursorId, true)
                                 : null
                 );
 
@@ -331,7 +313,7 @@ public class UnauthenticatedAccessAuditQueryService {
     }
 
     /* =====================================================
-       META AUDIT
+       META
        ===================================================== */
 
     private void recordMeta(String action, String scope) {

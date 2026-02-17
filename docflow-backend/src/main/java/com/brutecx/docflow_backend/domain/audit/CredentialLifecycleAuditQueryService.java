@@ -1,10 +1,15 @@
 package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.*;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.CredentialLifecycleAuditCursorPageDTO;
+import com.brutecx.docflow_backend.api.dto.audit.CredentialLifecycleAuditDTO;
+import com.brutecx.docflow_backend.api.dto.audit.CredentialLifecycleAuditForensicExportDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.credential.*;
+import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEvent;
+import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEventRepository;
+import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleCanonicalMaterialBuilder;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
@@ -22,9 +27,6 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 
@@ -36,8 +38,8 @@ public class CredentialLifecycleAuditQueryService {
     private static final int VERIFY_BATCH_SIZE = 1_000;
     private static final int EXPORT_BATCH_SIZE = 1_000;
     private static final int EXPORT_MAX_ROWS = 200_000;
-    private static final String STREAM = "CREDENTIAL_LIFECYCLE";
 
+    private static final String STREAM = CredentialLifecycleCanonicalMaterialBuilder.STREAM;
     private static final String PARTITION_ANON = "ANON";
 
     private final CredentialLifecycleAuditEventRepository repository;
@@ -49,7 +51,9 @@ public class CredentialLifecycleAuditQueryService {
     private final AuditChainService auditChainService;
     private final ObjectMapper objectMapper;
 
-    /* ================= CURSOR ================= */
+    /* =====================================================
+       CURSOR QUERY – DESC
+       ===================================================== */
 
     @Transactional(readOnly = true)
     public CredentialLifecycleAuditCursorPageDTO query(
@@ -63,8 +67,8 @@ public class CredentialLifecycleAuditQueryService {
             int size
     ) {
 
-        validateRange(from, to);
-        validateCursorPair(cursorTimestamp, cursorId);
+        GoldAuditSupport.validateRange(from, to);
+        GoldAuditSupport.validateCursorPair(cursorTimestamp, cursorId);
 
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
@@ -109,17 +113,16 @@ public class CredentialLifecycleAuditQueryService {
         return new CredentialLifecycleAuditCursorPageDTO(items, hasMore, nextTs, nextId);
     }
 
-    /* ================= VERIFY ================= */
+    /* =====================================================
+       VERIFY – ASC
+       ===================================================== */
 
     @Transactional(readOnly = true)
-    public AuditVerificationResultDTO verify(
-            Instant from,
-            Instant to
-    ) {
+    public AuditVerificationResultDTO verify(Instant from, Instant to) {
 
-        validateRangeRequired(from, to);
+        GoldAuditSupport.validateRangeRequired(from, to);
 
-        Map<AuditPartition, String> lastHashByPartition = new HashMap<>();
+        Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
         long verified = 0;
 
         Instant cursorTimestamp = null;
@@ -131,11 +134,7 @@ public class CredentialLifecycleAuditQueryService {
                     CredentialLifecycleAuditSpecifications.timestampFrom(from),
                     CredentialLifecycleAuditSpecifications.timestampTo(to),
                     cursorTimestamp != null
-                            ? CredentialLifecycleAuditSpecifications.cursorAfter(
-                            cursorTimestamp,
-                            cursorId,
-                            true
-                    )
+                            ? CredentialLifecycleAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
                             : null
             );
 
@@ -150,51 +149,31 @@ public class CredentialLifecycleAuditQueryService {
 
             for (CredentialLifecycleAuditEvent event : batch.getContent()) {
 
-                String stream = canonicalBuilder.stream();
-
-                String subjectValue = hasText(event.getSubjectExternalId())
-                        ? event.getSubjectExternalId().trim()
-                        : PARTITION_ANON;
-
-                AuditPartition partition = AuditPartition.subject(stream, subjectValue);
-
-                String previousHash = lastHashByPartition.get(partition);
-
-                if (previousHash != null &&
-                        !Objects.equals(previousHash, normalizeHash(event.getPrevEventHash()))) {
-
-                    recordMeta("AUDIT_VERIFY");
-                    return AuditVerificationResultDTO.failure(
-                            verified,
-                            event.getId(),
-                            "CONTINUITY_MISMATCH_PREV_EVENT_HASH"
-                    );
-                }
+                AuditPartition partition = resolvePartition(event);
 
                 String canonical = canonicalBuilder.buildCanonicalMaterial(
-                        CredentialLifecycleCanonicalInput.from(event)
+                        canonicalBuilder.fromEvent(event)
                 );
 
-                String expectedHash = auditChainService.computeEventHash(
-                        partition,
-                        event.getChainVersion(),
-                        normalizeHash(event.getPrevEventHash()),
-                        canonical
-                );
+                AuditVerificationResultDTO failure =
+                        GoldAuditSupport.verifyEvent(
+                                event.getId(),
+                                partition,
+                                event.getChainVersion(),
+                                event.getPrevEventHash(),
+                                event.getEventHash(),
+                                canonical,
+                                auditChainService,
+                                lastHashByPartitionStateKey,
+                                verified
+                        );
 
-                if (!Objects.equals(expectedHash, event.getEventHash())) {
-
+                if (failure != null) {
                     recordMeta("AUDIT_VERIFY");
-                    return AuditVerificationResultDTO.failure(
-                            verified,
-                            event.getId(),
-                            "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED"
-                    );
+                    return failure;
                 }
 
-                lastHashByPartition.put(partition, normalizeHash(event.getEventHash()));
                 verified++;
-
                 cursorTimestamp = event.getTimestamp();
                 cursorId = event.getId();
             }
@@ -204,7 +183,9 @@ public class CredentialLifecycleAuditQueryService {
         return AuditVerificationResultDTO.success(verified);
     }
 
-    /* ================= EXPORT JSONL ================= */
+    /* =====================================================
+       EXPORT – ASC
+       ===================================================== */
 
     @Transactional(readOnly = true)
     public void streamForensicExportJsonl(
@@ -212,11 +193,8 @@ public class CredentialLifecycleAuditQueryService {
             Instant from,
             Instant to
     ) {
-
         streamExport(response, from, to, false);
     }
-
-    /* ================= EXPORT CSV ================= */
 
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
@@ -224,7 +202,6 @@ public class CredentialLifecycleAuditQueryService {
             Instant from,
             Instant to
     ) {
-
         streamExport(response, from, to, true);
     }
 
@@ -235,71 +212,76 @@ public class CredentialLifecycleAuditQueryService {
             boolean csv
     ) {
 
-        validateRangeRequired(from, to);
+        GoldAuditSupport.validateRangeRequired(from, to);
 
-        long exported = 0;
-        Instant cursorTimestamp = null;
-        UUID cursorId = null;
-
-        Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
-        Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
-
-        try (PrintWriter w = new PrintWriter(
-                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
-
-            while (true) {
-
-                Specification<CredentialLifecycleAuditEvent> spec = Specification.allOf(
-                        CredentialLifecycleAuditSpecifications.timestampFrom(from),
-                        CredentialLifecycleAuditSpecifications.timestampTo(to),
-                        (cursorTimestamp != null && cursorId != null)
-                                ? CredentialLifecycleAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
-                                : null
-                );
-
-                Page<CredentialLifecycleAuditEvent> page = repository.findAll(spec, pageable);
-                if (page.isEmpty()) break;
-
-                for (CredentialLifecycleAuditEvent e : page.getContent()) {
-
+        GoldAuditSupport.streamExportAsc(
+                response,
+                EXPORT_BATCH_SIZE,
+                EXPORT_MAX_ROWS,
+                pageable -> repository.findAll(
+                        Specification.allOf(
+                                CredentialLifecycleAuditSpecifications.timestampFrom(from),
+                                CredentialLifecycleAuditSpecifications.timestampTo(to)
+                        ),
+                        pageable
+                ),
+                csv
+                        ? w -> w.println(String.join(",",
+                        "id",
+                        "timestamp",
+                        "subjectExternalId",
+                        "clientId",
+                        "sessionId",
+                        "ip",
+                        "eventType",
+                        "requiredAction",
+                        "correlationId",
+                        "correlationSource",
+                        "executionContext",
+                        "result",
+                        "reasonCode",
+                        "reasonDetail",
+                        "eventFingerprint",
+                        "chainVersion",
+                        "prevEventHash",
+                        "eventHash"
+                ))
+                        : null,
+                (w, e) -> {
                     if (csv) {
                         w.println(String.join(",",
-                                csv(e.getId()),
-                                csv(e.getTimestamp()),
-                                csv(e.getSubjectExternalId()),
-                                csv(e.getCorrelationId()),
-                                csv(e.getChainVersion()),
-                                csv(e.getPrevEventHash()),
-                                csv(e.getEventHash())
+                                GoldAuditSupport.csv(e.getId()),
+                                GoldAuditSupport.csv(e.getTimestamp()),
+                                GoldAuditSupport.csv(e.getSubjectExternalId()),
+                                GoldAuditSupport.csv(e.getClientId()),
+                                GoldAuditSupport.csv(e.getSessionId()),
+                                GoldAuditSupport.csv(e.getIp()),
+                                GoldAuditSupport.csv(e.getEventType()),
+                                GoldAuditSupport.csv(e.getRequiredAction()),
+                                GoldAuditSupport.csv(e.getCorrelationId()),
+                                GoldAuditSupport.csv(e.getCorrelationSource()),
+                                GoldAuditSupport.csv(e.getExecutionContext()),
+                                GoldAuditSupport.csv(e.getResult()),
+                                GoldAuditSupport.csv(e.getReasonCode()),
+                                GoldAuditSupport.csv(e.getReasonDetail()),
+                                GoldAuditSupport.csv(e.getEventFingerprint()),
+                                GoldAuditSupport.csv(e.getChainVersion()),
+                                GoldAuditSupport.csv(e.getPrevEventHash()),
+                                GoldAuditSupport.csv(e.getEventHash())
                         ));
                     } else {
-                        w.println(objectMapper.writeValueAsString(e));
+                        w.println(objectMapper.writeValueAsString(
+                                CredentialLifecycleAuditForensicExportDTO.from(e)
+                        ));
                     }
-
-                    exported++;
-                    if (exported >= EXPORT_MAX_ROWS) {
-                        recordMeta("AUDIT_EXPORT");
-                        w.flush();
-                        return;
-                    }
-
-                    cursorTimestamp = e.getTimestamp();
-                    cursorId = e.getId();
-                }
-
-                if (!page.hasNext()) break;
-                pageable = page.nextPageable();
-            }
-
-            recordMeta("AUDIT_EXPORT");
-            w.flush();
-
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to stream credential lifecycle export", ex);
-        }
+                },
+                () -> recordMeta("AUDIT_EXPORT")
+        );
     }
 
-    /* ================= META ================= */
+    /* =====================================================
+       META
+       ===================================================== */
 
     private void recordMeta(String action) {
 
@@ -311,6 +293,7 @@ public class CredentialLifecycleAuditQueryService {
                 "SENSITIVE_ACCESS",
                 action,
                 STREAM,
+                "SCOPE_GLOBAL",
                 actor.getId().toString(),
                 rootTenant.toString(),
                 ctx.correlationId()
@@ -335,37 +318,15 @@ public class CredentialLifecycleAuditQueryService {
         );
     }
 
-    private void validateRange(Instant from, Instant to) {
-        if (from != null && to != null && from.isAfter(to)) {
-            throw new IllegalArgumentException("'from' must be <= 'to'");
-        }
-    }
+    private AuditPartition resolvePartition(CredentialLifecycleAuditEvent e) {
+        String subjectValue = hasText(e.getSubjectExternalId())
+                ? e.getSubjectExternalId().trim()
+                : PARTITION_ANON;
 
-    private void validateRangeRequired(Instant from, Instant to) {
-        if (from == null || to == null) {
-            throw new IllegalArgumentException("from and to are required");
-        }
-        validateRange(from, to);
-    }
-
-    private void validateCursorPair(Instant ts, UUID id) {
-        if ((ts == null) ^ (id == null)) {
-            throw new IllegalArgumentException("cursorTimestamp and cursorId must be provided together");
-        }
+        return AuditPartition.subject(STREAM, subjectValue);
     }
 
     private boolean hasText(String s) {
         return s != null && !s.isBlank();
-    }
-
-    private String csv(Object v) {
-        if (v == null) return "";
-        String s = String.valueOf(v);
-        if (!s.contains(",") && !s.contains("\"") && !s.contains("\n")) return s;
-        return "\"" + s.replace("\"", "\"\"") + "\"";
-    }
-
-    private static String normalizeHash(String v) {
-        return (v == null || v.isBlank()) ? "-" : v;
     }
 }

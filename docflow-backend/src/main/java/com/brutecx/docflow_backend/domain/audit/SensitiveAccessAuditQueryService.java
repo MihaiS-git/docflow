@@ -1,9 +1,6 @@
 package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditDTO;
-import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.*;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -43,13 +40,12 @@ public class SensitiveAccessAuditQueryService {
     private final AuditRequestContextExtractor ctxExtractor;
     private final UserService userService;
     private final TenantService tenantService;
-
     private final AuditChainService auditChainService;
     private final SensitiveAccessCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final ObjectMapper objectMapper;
 
     /* =====================================================
-       CURSOR QUERY – timestamp DESC, id DESC
+       CURSOR QUERY
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -84,11 +80,7 @@ public class SensitiveAccessAuditQueryService {
                 tenantId != null ? SensitiveAccessAuditSpecifications.hasTenantId(tenantId) : null,
                 actorUserId != null ? SensitiveAccessAuditSpecifications.hasActorUserId(actorUserId) : null,
                 cursorTimestamp != null
-                        ? SensitiveAccessAuditSpecifications.cursor(
-                        cursorTimestamp,
-                        cursorId,
-                        SensitiveAccessAuditSpecifications.SortDirection.DESC
-                )
+                        ? SensitiveAccessAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false)
                         : null
         );
 
@@ -106,22 +98,18 @@ public class SensitiveAccessAuditQueryService {
         UUID nextId = null;
 
         if (hasMore) {
-            SensitiveAccessAuditEvent lastIncluded = raw.get(safeSize - 1);
-            nextTs = lastIncluded.getTimestamp();
-            nextId = lastIncluded.getId();
+            SensitiveAccessAuditEvent last = raw.get(safeSize - 1);
+            nextTs = last.getTimestamp();
+            nextId = last.getId();
         }
 
-        recordMeta(
-                "AUDIT_READ",
-                buildScope("QUERY", from, to, correlationId, subjectId, tenantId, actorUserId)
-        );
+        recordMeta("AUDIT_READ");
 
         return new SensitiveAccessAuditCursorPageDTO(items, hasMore, nextTs, nextId);
     }
 
     /* =====================================================
-       VERIFY – timestamp ASC, id ASC
-       Strict per-tenant partition via AuditPartition
+       VERIFY
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -136,7 +124,7 @@ public class SensitiveAccessAuditQueryService {
         Instant cursorTimestamp = null;
         UUID cursorId = null;
 
-        Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
+        Map<String, String> lastHashByPartition = new HashMap<>();
 
         while (true) {
 
@@ -144,11 +132,7 @@ public class SensitiveAccessAuditQueryService {
                     SensitiveAccessAuditSpecifications.timestampFrom(from),
                     SensitiveAccessAuditSpecifications.timestampTo(to),
                     cursorTimestamp != null
-                            ? SensitiveAccessAuditSpecifications.cursor(
-                            cursorTimestamp,
-                            cursorId,
-                            SensitiveAccessAuditSpecifications.SortDirection.ASC
-                    )
+                            ? SensitiveAccessAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
                             : null
             );
 
@@ -159,32 +143,25 @@ public class SensitiveAccessAuditQueryService {
             );
 
             Page<SensitiveAccessAuditEvent> batch = repository.findAll(spec, pageable);
-            if (batch.isEmpty()) break;
+            if (batch.isEmpty()) {
+                recordMeta("AUDIT_VERIFY");
+                return AuditVerificationResultDTO.success(verified);
+            }
 
             for (SensitiveAccessAuditEvent event : batch.getContent()) {
 
-                UUID eventTenantId = event.getTenantId();
-                if (eventTenantId == null) {
-                    recordMeta("AUDIT_VERIFY", buildScope("VERIFY_MISSING_TENANT", from, to, null, null, null, null));
-                    return AuditVerificationResultDTO.failure(
-                            verified,
-                            event.getId(),
-                            "MISSING_TENANT_ID"
-                    );
-                }
-
                 AuditPartition partition =
-                        AuditPartition.tenant(STREAM, eventTenantId.toString());
+                        AuditPartition.tenant(STREAM, event.getTenantId().toString());
 
                 String stateKey = partition.toStateKey();
 
                 String actualPrev = normalizeHash(event.getPrevEventHash());
-                String expectedPrev = lastHashByPartitionStateKey.getOrDefault(stateKey, "-");
+                String expectedPrev = lastHashByPartition.getOrDefault(stateKey, "-");
 
                 if (event.getChainVersion() > 0) {
 
                     if (!Objects.equals(expectedPrev, actualPrev)) {
-                        recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null, null, null, null));
+                        recordMeta("AUDIT_VERIFY");
                         return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
@@ -192,18 +169,8 @@ public class SensitiveAccessAuditQueryService {
                         );
                     }
 
-                    String storedHash = normalizeHash(event.getEventHash());
-                    if ("-".equals(storedHash)) {
-                        recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null, null, null, null));
-                        return AuditVerificationResultDTO.failure(
-                                verified,
-                                event.getId(),
-                                "MISSING_EVENT_HASH_FOR_CHAINED_EVENT"
-                        );
-                    }
-
                     String canonical = canonicalMaterialBuilder.buildCanonicalMaterial(
-                            SensitiveAccessCanonicalInput.fromEvent(event)
+                            canonicalMaterialBuilder.fromEvent(event)
                     );
 
                     String expected = auditChainService.computeEventHash(
@@ -213,30 +180,101 @@ public class SensitiveAccessAuditQueryService {
                             canonical
                     );
 
-                    if (!Objects.equals(expected, storedHash)) {
-                        recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null, null, null, null));
+                    if (!Objects.equals(expected, normalizeHash(event.getEventHash()))) {
+                        recordMeta("AUDIT_VERIFY");
                         return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
-                                "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED"
+                                "EVENT_HASH_MISMATCH"
                         );
                     }
                 }
 
-                lastHashByPartitionStateKey.put(stateKey, normalizeHash(event.getEventHash()));
+                lastHashByPartition.put(stateKey, normalizeHash(event.getEventHash()));
                 verified++;
 
                 cursorTimestamp = event.getTimestamp();
                 cursorId = event.getId();
             }
         }
-
-        recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null, null, null, null));
-        return AuditVerificationResultDTO.success(verified);
     }
 
     /* =====================================================
-   FORENSIC EXPORT – CSV
+       JSONL EXPORT
+       ===================================================== */
+
+    @Transactional(readOnly = true)
+    public void streamForensicExportJsonl(
+            HttpServletResponse response,
+            Instant from,
+            Instant to,
+            String correlationId,
+            String subjectId,
+            UUID tenantId,
+            UUID actorUserId
+    ) {
+
+        validateRangeRequired(from, to);
+
+        long exported = 0;
+        Instant cursorTs = null;
+        UUID cursorUuid = null;
+
+        Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
+        Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
+
+        try (PrintWriter w = new PrintWriter(
+                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
+
+            while (true) {
+
+                Specification<SensitiveAccessAuditEvent> spec = Specification.allOf(
+                        SensitiveAccessAuditSpecifications.timestampFrom(from),
+                        SensitiveAccessAuditSpecifications.timestampTo(to),
+                        hasText(correlationId) ? SensitiveAccessAuditSpecifications.hasCorrelationId(correlationId) : null,
+                        hasText(subjectId) ? SensitiveAccessAuditSpecifications.hasSubjectId(subjectId) : null,
+                        tenantId != null ? SensitiveAccessAuditSpecifications.hasTenantId(tenantId) : null,
+                        actorUserId != null ? SensitiveAccessAuditSpecifications.hasActorUserId(actorUserId) : null,
+                        (cursorTs != null && cursorUuid != null)
+                                ? SensitiveAccessAuditSpecifications.cursorAfter(cursorTs, cursorUuid, true)
+                                : null
+                );
+
+                Page<SensitiveAccessAuditEvent> page = repository.findAll(spec, pageable);
+                if (page.isEmpty()) break;
+
+                for (SensitiveAccessAuditEvent e : page.getContent()) {
+
+                    w.println(objectMapper.writeValueAsString(
+                            SensitiveAccessAuditForensicExportDTO.from(e)
+                    ));
+
+                    exported++;
+
+                    if (exported >= EXPORT_MAX_ROWS) {
+                        recordMeta("AUDIT_EXPORT");
+                        w.flush();
+                        return;
+                    }
+
+                    cursorTs = e.getTimestamp();
+                    cursorUuid = e.getId();
+                }
+
+                if (!page.hasNext()) break;
+                pageable = page.nextPageable();
+            }
+
+            recordMeta("AUDIT_EXPORT");
+            w.flush();
+
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to stream sensitive access forensic export", ex);
+        }
+    }
+
+    /* =====================================================
+   CSV EXPORT – ASC timestamp, ASC id
    ===================================================== */
 
     @Transactional(readOnly = true)
@@ -262,17 +300,28 @@ public class SensitiveAccessAuditQueryService {
         try (PrintWriter w = new PrintWriter(
                 new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
 
-            // CSV header
+            // CSV HEADER (Forensic-grade, includes chain fields)
             w.println(String.join(",",
                     "id",
                     "timestamp",
-                    "tenantId",
                     "actorUserId",
+                    "actorExternalSubjectId",
+                    "tenantId",
+                    "subjectType",
                     "subjectId",
-                    "action",
                     "resource",
-                    "result",
+                    "action",
+                    "resourcePath",
                     "correlationId",
+                    "correlationSource",
+                    "executionContext",
+                    "result",
+                    "ip",
+                    "userAgent",
+                    "reasonCode",
+                    "reasonDetail",
+                    "dataClassification",
+                    "eventFingerprint",
                     "chainVersion",
                     "prevEventHash",
                     "eventHash"
@@ -288,11 +337,7 @@ public class SensitiveAccessAuditQueryService {
                         tenantId != null ? SensitiveAccessAuditSpecifications.hasTenantId(tenantId) : null,
                         actorUserId != null ? SensitiveAccessAuditSpecifications.hasActorUserId(actorUserId) : null,
                         (cursorTs != null && cursorUuid != null)
-                                ? SensitiveAccessAuditSpecifications.cursor(
-                                cursorTs,
-                                cursorUuid,
-                                SensitiveAccessAuditSpecifications.SortDirection.ASC
-                        )
+                                ? SensitiveAccessAuditSpecifications.cursorAfter(cursorTs, cursorUuid, true)
                                 : null
                 );
 
@@ -304,13 +349,24 @@ public class SensitiveAccessAuditQueryService {
                     w.println(String.join(",",
                             csv(e.getId()),
                             csv(e.getTimestamp()),
-                            csv(e.getTenantId()),
                             csv(e.getActorUserId()),
+                            csv(e.getActorExternalSubjectId()),
+                            csv(e.getTenantId()),
+                            csv(e.getSubjectType()),
                             csv(e.getSubjectId()),
-                            csv(e.getAction()),
                             csv(e.getResource()),
-                            csv(e.getResult()),
+                            csv(e.getAction()),
+                            csv(e.getResourcePath()),
                             csv(e.getCorrelationId()),
+                            csv(e.getCorrelationSource()),
+                            csv(e.getExecutionContext()),
+                            csv(e.getResult()),
+                            csv(e.getIp()),
+                            csv(e.getUserAgent()),
+                            csv(e.getReasonCode()),
+                            csv(e.getReasonDetail()),
+                            csv(e.getDataClassification()),
+                            csv(e.getEventFingerprint()),
                             csv(e.getChainVersion()),
                             csv(e.getPrevEventHash()),
                             csv(e.getEventHash())
@@ -319,8 +375,7 @@ public class SensitiveAccessAuditQueryService {
                     exported++;
 
                     if (exported >= EXPORT_MAX_ROWS) {
-                        recordMeta("AUDIT_EXPORT",
-                                buildScope("EXPORT_CSV_CAP", from, to, correlationId, subjectId, tenantId, actorUserId));
+                        recordMeta("AUDIT_EXPORT");
                         w.flush();
                         return;
                     }
@@ -333,8 +388,7 @@ public class SensitiveAccessAuditQueryService {
                 pageable = page.nextPageable();
             }
 
-            recordMeta("AUDIT_EXPORT",
-                    buildScope("EXPORT_CSV", from, to, correlationId, subjectId, tenantId, actorUserId));
+            recordMeta("AUDIT_EXPORT");
             w.flush();
 
         } catch (Exception ex) {
@@ -344,87 +398,10 @@ public class SensitiveAccessAuditQueryService {
 
 
     /* =====================================================
-       FORENSIC EXPORT – JSONL (unchanged logic)
+       META
        ===================================================== */
 
-    @Transactional(readOnly = true)
-    public void streamForensicExportJsonl(
-            HttpServletResponse response,
-            Instant from,
-            Instant to,
-            String correlationId,
-            String subjectId,
-            UUID tenantId,
-            UUID actorUserId
-    ) {
-
-        validateRangeRequired(from, to);
-
-        long exported = 0;
-        Instant cursorTs = null;
-        UUID cursorUuid = null;
-
-        Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
-        Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
-
-        try (PrintWriter w = new PrintWriter(new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
-
-            while (true) {
-
-                Specification<SensitiveAccessAuditEvent> spec = Specification.allOf(
-                        SensitiveAccessAuditSpecifications.timestampFrom(from),
-                        SensitiveAccessAuditSpecifications.timestampTo(to),
-                        hasText(correlationId) ? SensitiveAccessAuditSpecifications.hasCorrelationId(correlationId) : null,
-                        hasText(subjectId) ? SensitiveAccessAuditSpecifications.hasSubjectId(subjectId) : null,
-                        tenantId != null ? SensitiveAccessAuditSpecifications.hasTenantId(tenantId) : null,
-                        actorUserId != null ? SensitiveAccessAuditSpecifications.hasActorUserId(actorUserId) : null,
-                        (cursorTs != null && cursorUuid != null)
-                                ? SensitiveAccessAuditSpecifications.cursor(
-                                cursorTs,
-                                cursorUuid,
-                                SensitiveAccessAuditSpecifications.SortDirection.ASC
-                        )
-                                : null
-                );
-
-                Page<SensitiveAccessAuditEvent> page = repository.findAll(spec, pageable);
-                if (page.isEmpty()) break;
-
-                for (SensitiveAccessAuditEvent e : page.getContent()) {
-                    w.println(objectMapper.writeValueAsString(
-                            SensitiveAccessAuditForensicExportDTO.from(e)
-                    ));
-                    exported++;
-
-                    if (exported >= EXPORT_MAX_ROWS) {
-                        recordMeta("AUDIT_EXPORT",
-                                buildScope("EXPORT_JSONL_CAP", from, to, correlationId, subjectId, tenantId, actorUserId));
-                        w.flush();
-                        return;
-                    }
-
-                    cursorTs = e.getTimestamp();
-                    cursorUuid = e.getId();
-                }
-
-                if (!page.hasNext()) break;
-                pageable = page.nextPageable();
-            }
-
-            recordMeta("AUDIT_EXPORT",
-                    buildScope("EXPORT_JSONL", from, to, correlationId, subjectId, tenantId, actorUserId));
-            w.flush();
-
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to stream sensitive access forensic export (JSONL)", ex);
-        }
-    }
-
-    /* =====================================================
-       META AUDIT
-       ===================================================== */
-
-    private void recordMeta(String action, String scope) {
+    private void recordMeta(String action) {
 
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
@@ -433,7 +410,6 @@ public class SensitiveAccessAuditQueryService {
         String fingerprint = EventFingerprint.of(List.of(
                 STREAM,
                 action,
-                scope,
                 actor.getId().toString(),
                 storageTenant.toString(),
                 ctx.correlationId()
@@ -452,31 +428,15 @@ public class SensitiveAccessAuditQueryService {
                 ctx.ip(),
                 ctx.userAgent(),
                 action,
-                scope,
+                "Sensitive access audit operation",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );
     }
 
-    private String buildScope(
-            String op,
-            Instant from,
-            Instant to,
-            String correlationId,
-            String subjectId,
-            UUID tenantId,
-            UUID actorUserId
-    ) {
-        return String.join(";",
-                "op=" + op,
-                "from=" + (from == null ? "" : from.toString()),
-                "to=" + (to == null ? "" : to.toString()),
-                "correlationId=" + (correlationId == null ? "" : correlationId),
-                "subjectId=" + (subjectId == null ? "" : subjectId),
-                "tenantId=" + (tenantId == null ? "" : tenantId),
-                "actorUserId=" + (actorUserId == null ? "" : actorUserId)
-        );
-    }
+    /* =====================================================
+       HELPERS
+       ===================================================== */
 
     private void validateRange(Instant from, Instant to) {
         if (from != null && to != null && from.isAfter(to)) {
@@ -508,7 +468,9 @@ public class SensitiveAccessAuditQueryService {
     private String csv(Object v) {
         if (v == null) return "";
         String s = String.valueOf(v);
-        if (!s.contains(",") && !s.contains("\"") && !s.contains("\n") && !s.contains("\r")) return s;
+        if (!s.contains(",") && !s.contains("\"") && !s.contains("\n") && !s.contains("\r")) {
+            return s;
+        }
         return "\"" + s.replace("\"", "\"\"") + "\"";
     }
 

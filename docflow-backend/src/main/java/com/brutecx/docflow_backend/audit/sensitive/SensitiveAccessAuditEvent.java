@@ -129,16 +129,8 @@ public class SensitiveAccessAuditEvent {
     @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
     private String eventHash;
 
-    /* =========================
-       LIFECYCLE
-       ========================= */
-
-    @PrePersist
-    void prePersist() {
-        this.timestamp = Instant.now();
-    }
-
     public SensitiveAccessAuditEvent(
+            Instant timestamp,
             UUID actorUserId,
             String actorExternalSubjectId,
             UUID tenantId,
@@ -161,6 +153,7 @@ public class SensitiveAccessAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
+        this.timestamp = timestamp;
         this.actorUserId = actorUserId;
         this.actorExternalSubjectId = actorExternalSubjectId;
         this.tenantId = tenantId;

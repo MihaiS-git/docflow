@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -65,13 +66,22 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        LifecycleDeniedCanonicalInput input =
-                new LifecycleDeniedCanonicalInput(
-                        null,
+        /*
+         * Canonical material must mirror verifier mapping.
+         * Timestamp must match entity timestamp semantics.
+         * Since entity sets timestamp in @PrePersist,
+         * we use Instant.now() for canonical material.
+         */
+
+        Instant now = Instant.now();
+
+        LifecycleDeniedCanonicalMaterialBuilder.Input input =
+                new LifecycleDeniedCanonicalMaterialBuilder.Input(
+                        now,
                         correlationId,
-                        correlationSource,
-                        ExecutionContext.HTTP,
-                        AuditResult.DENIED,
+                        correlationSource != null ? correlationSource.name() : null,
+                        ExecutionContext.HTTP.name(),
+                        AuditResult.DENIED.name(),
                         resolvedSubject,
                         resolvedReason,
                         resolvedMethod,
@@ -84,18 +94,10 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
         String canonicalMaterial =
                 canonicalBuilder.buildCanonicalMaterial(input);
 
-        /*
-         * Partition rule:
-         * LifecycleDenied → SUBJECT or GLOBAL
-         */
-
-        AuditPartition partition;
-
-        if (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank()) {
-            partition = AuditPartition.subject(STREAM, resolvedSubject.trim());
-        } else {
-            partition = AuditPartition.global(STREAM);
-        }
+        AuditPartition partition =
+                (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank())
+                        ? AuditPartition.subject(STREAM, resolvedSubject.trim())
+                        : AuditPartition.global(STREAM);
 
         AuditChainService.ChainHash chain =
                 auditChainService.nextHash(

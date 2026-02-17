@@ -1,22 +1,21 @@
 "use client";
 
+import { AuditVerificationResultDTO } from "../api/AuditVerificationResultDTO";
+
 type Props = {
   verifying: boolean;
   onVerify: () => void;
-  result: {
-    ok: boolean;
-    verifiedCount: number;
-    failedCount: number;
-    from: string;
-    to: string;
-    message?: string;
-  } | null;
+  result: AuditVerificationResultDTO | null;
+  from: string;
+  to: string;
 };
 
 export function AuditVerifyPanel({
   verifying,
   onVerify,
   result,
+  from,
+  to,
 }: Props) {
   return (
     <div className="space-y-3">
@@ -31,14 +30,37 @@ export function AuditVerifyPanel({
 
       {result && (
         <div className="border rounded p-3 space-y-1 text-sm">
-          <div>ok: <span className="font-mono">{String(result.ok)}</span></div>
-          <div>verifiedCount: <span className="font-mono">{result.verifiedCount}</span></div>
-          <div>failedCount: <span className="font-mono">{result.failedCount}</span></div>
-          <div>from: <span className="font-mono">{result.from}</span></div>
-          <div>to: <span className="font-mono">{result.to}</span></div>
-          {result.message && (
-            <div>message: <span className="font-mono">{result.message}</span></div>
-          )}
+          <div>
+            valid:{" "}
+            <span className="font-mono">{String(result.valid)}</span>
+          </div>
+
+          <div>
+            verifiedCount:{" "}
+            <span className="font-mono">{result.verifiedCount}</span>
+          </div>
+
+          <div>
+            failedEventId:{" "}
+            <span className="font-mono">
+              {result.failedEventId ?? "-"}
+            </span>
+          </div>
+
+          <div>
+            failureReason:{" "}
+            <span className="font-mono">
+              {result.failureReason ?? "-"}
+            </span>
+          </div>
+
+          <div>
+            from: <span className="font-mono">{from}</span>
+          </div>
+
+          <div>
+            to: <span className="font-mono">{to}</span>
+          </div>
         </div>
       )}
     </div>

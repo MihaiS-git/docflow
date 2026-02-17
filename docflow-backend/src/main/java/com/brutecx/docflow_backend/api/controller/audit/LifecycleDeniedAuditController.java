@@ -1,13 +1,14 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditCursorPageDTO;
 import com.brutecx.docflow_backend.domain.audit.LifecycleDeniedAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,7 +19,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/lifecycle-denied")
 @RequiredArgsConstructor
 @Validated
-@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
 public class LifecycleDeniedAuditController {
 
     private final LifecycleDeniedAuditQueryService queryService;
@@ -75,7 +76,11 @@ public class LifecycleDeniedAuditController {
         return ResponseEntity.ok(queryService.verify(from, to));
     }
 
-    @GetMapping(value = "/export", produces = "application/x-ndjson")
+    /**
+     * JSONL export (NDJSON format).
+     * Use application/json for reliable browser download completion.
+     */
+    @GetMapping(value = "/export", produces = "application/json")
     public void exportJsonl(
             HttpServletResponse response,
             @RequestParam
@@ -92,10 +97,56 @@ public class LifecycleDeniedAuditController {
             @RequestParam(required = false)
             String subjectId
     ) {
-        response.setHeader(HttpHeaders.CONTENT_TYPE, "application/x-ndjson");
-        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"lifecycle-denied-export.jsonl\"");
-        response.setCharacterEncoding("UTF-8");
 
-        queryService.streamForensicExportJsonl(response, from, to, correlationId, subjectId);
+        response.setContentType("application/json");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"lifecycle-denied-audit-export.jsonl\""
+        );
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+
+        queryService.streamForensicExportJsonl(
+                response,
+                from,
+                to,
+                correlationId,
+                subjectId
+        );
+    }
+
+    @GetMapping(value = "/export/csv", produces = "text/csv")
+    public void exportCsv(
+            HttpServletResponse response,
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant from,
+
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant to,
+
+            @RequestParam(required = false)
+            String correlationId,
+
+            @RequestParam(required = false)
+            String subjectId
+    ) {
+
+        response.setContentType("text/csv");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"lifecycle-denied-audit-export.csv\""
+        );
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+
+        queryService.streamForensicExportCsv(
+                response,
+                from,
+                to,
+                correlationId,
+                subjectId
+        );
     }
 }

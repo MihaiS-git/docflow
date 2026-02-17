@@ -1,21 +1,17 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditForensicExportDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditCursorPageDTO;
 import com.brutecx.docflow_backend.domain.audit.RbacDeniedAuditQueryService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -23,11 +19,10 @@ import java.util.UUID;
 @RequestMapping("/api/audit/rbac-denied")
 @RequiredArgsConstructor
 @Validated
-@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
 public class RbacDeniedAuditController {
 
     private final RbacDeniedAuditQueryService queryService;
-    private final ObjectMapper objectMapper;
 
     @GetMapping
     public ResponseEntity<RbacDeniedAuditCursorPageDTO> query(
@@ -81,49 +76,71 @@ public class RbacDeniedAuditController {
         return ResponseEntity.ok(queryService.verify(from, to));
     }
 
-    @GetMapping(value = "/export", produces = "application/x-ndjson")
+    /* ================= JSONL ================= */
+
+    @GetMapping(value = "/export", produces = "application/json")
     public void exportJsonl(
             HttpServletResponse response,
-
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
-
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant to,
-
             @RequestParam(required = false)
             String correlationId,
-
             @RequestParam(required = false)
             String subjectId
     ) {
-        response.setHeader(HttpHeaders.CONTENT_TYPE, "application/x-ndjson");
-        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"rbac-denied-export.jsonl\"");
+
+        response.setContentType("application/json");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"rbac-denied-audit-export.jsonl\""
+        );
         response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
 
-        try (PrintWriter w = new PrintWriter(new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
-
-            queryService.exportForensic(
-                    from,
-                    to,
-                    correlationId,
-                    subjectId,
-                    dto -> writeJsonlLine(w, dto)
-            );
-
-            w.flush();
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to stream RBAC denied forensic export", ex);
-        }
+        queryService.streamForensicExportJsonl(
+                response,
+                from,
+                to,
+                correlationId,
+                subjectId
+        );
     }
 
-    private void writeJsonlLine(PrintWriter w, RbacDeniedAuditForensicExportDTO dto) {
-        try {
-            w.println(objectMapper.writeValueAsString(dto));
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to serialize export record", ex);
-        }
+    /* ================= CSV ================= */
+
+    @GetMapping(value = "/export/csv", produces = "text/csv")
+    public void exportCsv(
+            HttpServletResponse response,
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant from,
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant to,
+            @RequestParam(required = false)
+            String correlationId,
+            @RequestParam(required = false)
+            String subjectId
+    ) {
+
+        response.setContentType("text/csv");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"rbac-denied-audit-export.csv\""
+        );
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+
+        queryService.streamForensicExportCsv(
+                response,
+                from,
+                to,
+                correlationId,
+                subjectId
+        );
     }
 }

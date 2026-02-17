@@ -57,6 +57,8 @@ public class KeycloakCredentialLifecycleEventPullJob {
                 continue;
             }
 
+            Instant eventTimestamp = Instant.ofEpochMilli(e.time());
+
             String sessionId =
                     (e.sessionId() != null && !e.sessionId().isBlank())
                             ? e.sessionId()
@@ -82,9 +84,13 @@ public class KeycloakCredentialLifecycleEventPullJob {
                     String.valueOf(e.time())
             ));
 
-            CredentialLifecycleCanonicalInput input =
-                    new CredentialLifecycleCanonicalInput(
-                            Instant.ofEpochMilli(e.time()),
+            /*
+             * GOLD: use canonical builder Input directly.
+             */
+
+            CredentialLifecycleCanonicalMaterialBuilder.Input input =
+                    new CredentialLifecycleCanonicalMaterialBuilder.Input(
+                            eventTimestamp,
                             e.userId(),
                             e.clientId(),
                             sessionId,
@@ -92,20 +98,16 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             type,
                             extractRequiredAction(e),
                             correlationId,
-                            correlationSource,
-                            ExecutionContext.SCHEDULED_JOB,
-                            AuditResult.SUCCESS,
+                            correlationSource != null ? correlationSource.name() : null,
+                            ExecutionContext.SCHEDULED_JOB.name(),
+                            AuditResult.SUCCESS.name(),
                             "CREDENTIAL_" + type.name(),
                             null,
                             fingerprint
                     );
 
-            String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
-
-            /*
-             * Partition rule:
-             * Credential lifecycle → SUBJECT (userId) or GLOBAL fallback
-             */
+            String canonicalMaterial =
+                    canonicalBuilder.buildCanonicalMaterial(input);
 
             AuditPartition partition =
                     (e.userId() != null && !e.userId().isBlank())
@@ -128,12 +130,12 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             input.eventType(),
                             input.requiredAction(),
                             input.correlationId(),
-                            input.correlationSource(),
-                            input.executionContext(),
-                            input.result(),
+                            CorrelationSource.valueOf(input.correlationSource()),
+                            ExecutionContext.valueOf(input.executionContext()),
+                            AuditResult.valueOf(input.result()),
                             input.reasonCode(),
                             input.reasonDetail(),
-                            input.eventFingerprint(),
+                            input.fingerprint(),
                             chain.chainVersion(),
                             chain.prevHash(),
                             chain.eventHash()
@@ -143,6 +145,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
                 repository.save(entity);
                 maxTime = Math.max(maxTime, e.time());
             } catch (DataIntegrityViolationException ignored) {
+                // idempotency: fingerprint unique constraint
             }
         }
 

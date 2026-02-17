@@ -40,7 +40,6 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
             String path,
             String eventFingerprint
     ) {
-
         ensureHttpContext();
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
@@ -62,16 +61,21 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
                 ));
 
         CorrelationSource correlationSource = resolveCorrelationSource();
-
         Instant eventTimestamp = Instant.now();
 
-        RbacDeniedCanonicalInput input =
-                new RbacDeniedCanonicalInput(
+        /*
+         * IMPORTANT:
+         * Canonical material must use the SAME mapping semantics as verifier.
+         * So we construct an Input via canonicalBuilder Input record directly.
+         */
+
+        RbacDeniedCanonicalMaterialBuilder.Input input =
+                new RbacDeniedCanonicalMaterialBuilder.Input(
                         eventTimestamp,
                         correlationId,
-                        correlationSource,
-                        ExecutionContext.HTTP,
-                        AuditResult.DENIED,
+                        correlationSource != null ? correlationSource.name() : null,
+                        ExecutionContext.HTTP != null ? ExecutionContext.HTTP.name() : null,
+                        AuditResult.DENIED != null ? AuditResult.DENIED.name() : null,
                         resolvedSubject,
                         resolvedMethod,
                         resolvedPath,
@@ -85,16 +89,13 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
 
         /*
          * Partition rules:
-         * RbacDenied → SUBJECT or GLOBAL
+         * SUBJECT if meaningful
+         * GLOBAL otherwise
          */
-
-        AuditPartition partition;
-
-        if (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank()) {
-            partition = AuditPartition.subject(STREAM, resolvedSubject.trim());
-        } else {
-            partition = AuditPartition.global(STREAM);
-        }
+        AuditPartition partition =
+                (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank())
+                        ? AuditPartition.subject(STREAM, resolvedSubject.trim())
+                        : AuditPartition.global(STREAM);
 
         AuditChainService.ChainHash chain =
                 auditChainService.nextHash(
@@ -103,7 +104,6 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
                 );
 
         try {
-
             repository.save(new RbacDeniedAuditEvent(
                     eventTimestamp,
                     correlationId,
@@ -120,9 +120,7 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
                     chain.prevHash(),
                     chain.eventHash()
             ));
-
         } catch (Exception ex) {
-
             log.error(
                     "RBAC_DENIED_AUDIT_WRITE_FAILED correlationId={} subjectId={} method={} path={}",
                     correlationId,
@@ -131,7 +129,6 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
                     resolvedPath,
                     ex
             );
-
             throw ex;
         }
     }

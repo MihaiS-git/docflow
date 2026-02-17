@@ -20,6 +20,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -59,6 +60,7 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
         if (tenantId == null) {
             throw new IllegalStateException("SensitiveAccessAudit requires tenantId");
         }
+        Objects.requireNonNull(subjectType, "SensitiveAccessAudit requires subjectType");
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
         String correlationId = requireCorrelation(ctx);
@@ -70,7 +72,7 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
         String resolvedReason = normalizeOr(reasonCode, "NONE");
 
         SensitiveDataClassification classification =
-                dataClassification != null
+                (dataClassification != null)
                         ? dataClassification
                         : SensitiveDataClassification.INTERNAL;
 
@@ -81,7 +83,7 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
                         STREAM,
                         String.valueOf(actorUserId),
                         tenantId.toString(),
-                        String.valueOf(subjectType),
+                        subjectType.name(),
                         resolvedSubjectId,
                         resolvedResource,
                         resolvedAction,
@@ -93,31 +95,40 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        SensitiveAccessCanonicalInput input =
-                new SensitiveAccessCanonicalInput(
-                        Instant.now(),
+        // One timestamp used consistently (canonical + persisted row)
+        Instant now = Instant.now();
+
+        // 1) Build canonical builder Input directly (no extra canonical-input type, no fromInput needed)
+        SensitiveAccessCanonicalMaterialBuilder.Input canonicalInput =
+                new SensitiveAccessCanonicalMaterialBuilder.Input(
+                        now,
+
                         actorUserId,
                         actorExternalSubjectId,
                         tenantId,
+
                         subjectType,
                         resolvedSubjectId,
                         resolvedResource,
                         resolvedAction,
                         resolvedPath,
+
                         correlationId,
-                        correlationSource,
-                        ExecutionContext.HTTP,
-                        AuditResult.SUCCESS,
+                        (correlationSource != null ? correlationSource.name() : null),
+                        ExecutionContext.HTTP.name(),
+                        AuditResult.SUCCESS.name(),
                         ctx.ip(),
                         ctx.userAgent(),
+
                         resolvedReason,
                         reasonDetail,
                         classification,
+
                         fingerprint
                 );
 
         String canonicalMaterial =
-                canonicalMaterialBuilder.buildCanonicalMaterial(input);
+                canonicalMaterialBuilder.buildCanonicalMaterial(canonicalInput);
 
         try {
 
@@ -130,29 +141,39 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
                             canonicalMaterial
                     );
 
-            repository.saveAndFlush(new SensitiveAccessAuditEvent(
-                    actorUserId,
-                    actorExternalSubjectId,
-                    tenantId,
-                    subjectType,
-                    resolvedSubjectId,
-                    resolvedResource,
-                    resolvedAction,
-                    resolvedPath,
-                    correlationId,
-                    correlationSource,
-                    ExecutionContext.HTTP,
-                    AuditResult.SUCCESS,
-                    ctx.ip(),
-                    ctx.userAgent(),
-                    resolvedReason,
-                    reasonDetail,
-                    classification,
-                    fingerprint,
-                    chain.chainVersion(),
-                    chain.prevHash(),
-                    chain.eventHash()
-            ));
+            SensitiveAccessAuditEvent entity =
+                    new SensitiveAccessAuditEvent(
+                            now,
+
+                            actorUserId,
+                            actorExternalSubjectId,
+                            tenantId,
+
+                            subjectType,
+                            resolvedSubjectId,
+                            resolvedResource,
+                            resolvedAction,
+                            resolvedPath,
+
+                            correlationId,
+                            correlationSource,
+                            ExecutionContext.HTTP,
+                            AuditResult.SUCCESS,
+                            ctx.ip(),
+                            ctx.userAgent(),
+
+                            resolvedReason,
+                            reasonDetail,
+                            classification,
+
+                            fingerprint,
+
+                            chain.chainVersion(),
+                            chain.prevHash(),
+                            chain.eventHash()
+                    );
+
+            repository.saveAndFlush(entity);
 
         } catch (DataIntegrityViolationException ex) {
             log.debug(

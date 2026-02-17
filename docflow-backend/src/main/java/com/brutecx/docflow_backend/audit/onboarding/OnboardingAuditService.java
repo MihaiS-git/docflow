@@ -67,20 +67,25 @@ public class OnboardingAuditService {
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        OnboardingCanonicalInput input =
-                new OnboardingCanonicalInput(
+        OnboardingCanonicalMaterialBuilder.Input input =
+                new OnboardingCanonicalMaterialBuilder.Input(
                         Instant.now(),
                         actorUserId,
                         subjectId,
                         tenantId,
                         inviteId,
-                        AuditResult.SUCCESS,
+                        correlationId,
+                        correlationSource.name(),
+                        ExecutionContext.HTTP.name(),
+                        ctx.ip(),
+                        ctx.userAgent(),
+                        AuditResult.SUCCESS.name(),
                         OnboardingOutcome.SUCCESS,
                         "ONBOARDING_SUCCESS",
                         null,
-                        correlationId,
                         fingerprint
                 );
+
 
         String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
 
@@ -165,18 +170,22 @@ public class OnboardingAuditService {
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        OnboardingCanonicalInput input =
-                new OnboardingCanonicalInput(
+        OnboardingCanonicalMaterialBuilder.Input input =
+                new OnboardingCanonicalMaterialBuilder.Input(
                         Instant.now(),
                         actorUserId,
                         null,
                         tenantId,
                         inviteId,
-                        AuditResult.FAILED,
-                        OnboardingOutcome.FAILURE,
-                        "ONBOARDING_FAILURE",
-                        resolvedReason,
                         correlationId,
+                        correlationSource.name(),
+                        ExecutionContext.HTTP.name(),
+                        ctx.ip(),
+                        ctx.userAgent(),
+                        AuditResult.SUCCESS.name(),
+                        OnboardingOutcome.SUCCESS,
+                        "ONBOARDING_SUCCESS",
+                        null,
                         fingerprint
                 );
 

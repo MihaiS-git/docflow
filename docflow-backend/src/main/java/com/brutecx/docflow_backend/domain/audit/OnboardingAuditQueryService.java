@@ -1,16 +1,10 @@
 package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditDTO;
-import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.*;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditEvent;
-import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditEventRepository;
-import com.brutecx.docflow_backend.audit.onboarding.OnboardingCanonicalInput;
-import com.brutecx.docflow_backend.audit.onboarding.OnboardingCanonicalMaterialBuilder;
+import com.brutecx.docflow_backend.audit.onboarding.*;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
@@ -22,10 +16,7 @@ import com.brutecx.docflow_backend.domain.user.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,12 +25,7 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -57,13 +43,12 @@ public class OnboardingAuditQueryService {
     private final AuditRequestContextExtractor ctxExtractor;
     private final UserService userService;
     private final TenantService tenantService;
-
     private final AuditChainService auditChainService;
     private final OnboardingCanonicalMaterialBuilder canonicalBuilder;
     private final ObjectMapper objectMapper;
 
     /* =====================================================
-       CURSOR QUERY – timestamp DESC, id DESC
+       CURSOR QUERY – DESC timestamp, DESC id
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -100,12 +85,14 @@ public class OnboardingAuditQueryService {
                 hasText(subjectId) ? OnboardingAuditSpecifications.hasSubjectId(subjectId) : null,
                 tenantId != null ? OnboardingAuditSpecifications.hasTenantId(tenantId) : null,
                 inviteId != null ? OnboardingAuditSpecifications.hasInviteId(inviteId) : null,
-                cursorTimestamp != null ? OnboardingAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false) : null
+                cursorTimestamp != null
+                        ? OnboardingAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false)
+                        : null
         );
 
         Page<OnboardingAuditEvent> page = repository.findAll(spec, pageable);
 
-        recordSensitiveAccess(tenantId);
+        recordSensitiveAccess(tenantId, "AUDIT_READ");
 
         List<OnboardingAuditEvent> raw = page.getContent();
         boolean hasMore = raw.size() > safeSize;
@@ -115,20 +102,20 @@ public class OnboardingAuditQueryService {
             items.add(OnboardingAuditDTO.from(raw.get(i)));
         }
 
-        Instant nextCursorTs = null;
-        UUID nextCursorId = null;
+        Instant nextTs = null;
+        UUID nextId = null;
+
         if (hasMore) {
-            OnboardingAuditEvent lastIncluded = raw.get(safeSize - 1);
-            nextCursorTs = lastIncluded.getTimestamp();
-            nextCursorId = lastIncluded.getId();
+            OnboardingAuditEvent last = raw.get(safeSize - 1);
+            nextTs = last.getTimestamp();
+            nextId = last.getId();
         }
 
-        return new OnboardingAuditCursorPageDTO(items, hasMore, nextCursorTs, nextCursorId);
+        return new OnboardingAuditCursorPageDTO(items, hasMore, nextTs, nextId);
     }
 
     /* =====================================================
-       VERIFY – timestamp ASC, id ASC
-       Strict per-partition continuity (tenant partition via AuditPartition stateKey)
+       VERIFY – ASC timestamp, ASC id
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -144,7 +131,6 @@ public class OnboardingAuditQueryService {
         Instant cursorTimestamp = null;
         UUID cursorId = null;
 
-        // Strict continuity per tenant partition (keyed by AuditPartition stateKey)
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
 
         while (true) {
@@ -166,7 +152,7 @@ public class OnboardingAuditQueryService {
 
             Page<OnboardingAuditEvent> batch = repository.findAll(spec, pageable);
             if (batch.isEmpty()) {
-                recordSensitiveAccess(tenantId);
+                recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
                 return AuditVerificationResultDTO.success(verified);
             }
 
@@ -174,7 +160,7 @@ public class OnboardingAuditQueryService {
 
                 UUID eventTenantId = event.getTenantId();
                 if (eventTenantId == null) {
-                    recordSensitiveAccess(tenantId);
+                    recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
                     return AuditVerificationResultDTO.failure(
                             verified,
                             event.getId(),
@@ -182,7 +168,9 @@ public class OnboardingAuditQueryService {
                     );
                 }
 
-                AuditPartition partition = AuditPartition.tenant(STREAM, eventTenantId.toString());
+                AuditPartition partition =
+                        AuditPartition.tenant(STREAM, eventTenantId.toString());
+
                 String stateKey = partition.toStateKey();
 
                 String actualPrev = normalizeHash(event.getPrevEventHash());
@@ -191,26 +179,16 @@ public class OnboardingAuditQueryService {
                 if (event.getChainVersion() > 0) {
 
                     if (!Objects.equals(expectedPrev, actualPrev)) {
-                        recordSensitiveAccess(tenantId);
+                        recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
                         return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
-                                "CONTINUITY_MISMATCH_PREV_EVENT_HASH tenantId=" + eventTenantId
-                        );
-                    }
-
-                    String storedEventHash = normalizeHash(event.getEventHash());
-                    if ("-".equals(storedEventHash)) {
-                        recordSensitiveAccess(tenantId);
-                        return AuditVerificationResultDTO.failure(
-                                verified,
-                                event.getId(),
-                                "MISSING_EVENT_HASH_FOR_CHAINED_EVENT tenantId=" + eventTenantId
+                                "CONTINUITY_MISMATCH_PREV_EVENT_HASH"
                         );
                     }
 
                     String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(
-                            OnboardingCanonicalInput.fromEvent(event)
+                            canonicalBuilder.fromEvent(event)
                     );
 
                     String expectedHash = auditChainService.computeEventHash(
@@ -220,12 +198,12 @@ public class OnboardingAuditQueryService {
                             canonicalMaterial
                     );
 
-                    if (!Objects.equals(expectedHash, storedEventHash)) {
-                        recordSensitiveAccess(tenantId);
+                    if (!Objects.equals(expectedHash, normalizeHash(event.getEventHash()))) {
+                        recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
                         return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
-                                "EVENT_HASH_MISMATCH tenantId=" + eventTenantId
+                                "EVENT_HASH_MISMATCH"
                         );
                     }
                 }
@@ -240,7 +218,7 @@ public class OnboardingAuditQueryService {
     }
 
     /* =====================================================
-       FORENSIC EXPORT – JSONL (ASC timestamp, ASC id)
+       FORENSIC EXPORT – JSONL
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -260,7 +238,8 @@ public class OnboardingAuditQueryService {
         Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
         Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
 
-        try (PrintWriter w = new PrintWriter(new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
+        try (PrintWriter w = new PrintWriter(
+                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
 
             while (true) {
 
@@ -277,11 +256,14 @@ public class OnboardingAuditQueryService {
                 if (page.isEmpty()) break;
 
                 for (OnboardingAuditEvent e : page.getContent()) {
-                    w.println(objectMapper.writeValueAsString(OnboardingAuditForensicExportDTO.from(e)));
-                    exported++;
 
+                    w.println(objectMapper.writeValueAsString(
+                            OnboardingAuditForensicExportDTO.from(e)
+                    ));
+
+                    exported++;
                     if (exported >= EXPORT_MAX_ROWS) {
-                        recordSensitiveAccess(tenantId);
+                        recordSensitiveAccess(tenantId, "AUDIT_EXPORT");
                         w.flush();
                         return;
                     }
@@ -294,7 +276,7 @@ public class OnboardingAuditQueryService {
                 pageable = page.nextPageable();
             }
 
-            recordSensitiveAccess(tenantId);
+            recordSensitiveAccess(tenantId, "AUDIT_EXPORT");
             w.flush();
 
         } catch (Exception ex) {
@@ -303,10 +285,120 @@ public class OnboardingAuditQueryService {
     }
 
     /* =====================================================
+   FORENSIC EXPORT – CSV (ASC timestamp, ASC id)
+   ===================================================== */
+
+    @Transactional(readOnly = true)
+    public void streamForensicExportCsv(
+            HttpServletResponse response,
+            Instant from,
+            Instant to,
+            UUID tenantId
+    ) {
+
+        validateRangeRequired(from, to);
+
+        long exported = 0;
+        Instant cursorTimestamp = null;
+        UUID cursorId = null;
+
+        Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
+        Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
+
+        try (PrintWriter w = new PrintWriter(
+                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
+
+            // ---- CSV HEADER ----
+            w.println(String.join(",",
+                    "id",
+                    "timestamp",
+                    "actorUserId",
+                    "subjectId",
+                    "tenantId",
+                    "inviteId",
+                    "correlationId",
+                    "correlationSource",
+                    "executionContext",
+                    "ip",
+                    "userAgent",
+                    "result",
+                    "outcome",
+                    "reasonCode",
+                    "reasonDetail",
+                    "eventFingerprint",
+                    "chainVersion",
+                    "prevEventHash",
+                    "eventHash"
+            ));
+
+            while (true) {
+
+                Specification<OnboardingAuditEvent> spec = Specification.allOf(
+                        OnboardingAuditSpecifications.timestampFrom(from),
+                        OnboardingAuditSpecifications.timestampTo(to),
+                        tenantId != null ? OnboardingAuditSpecifications.hasTenantId(tenantId) : null,
+                        (cursorTimestamp != null && cursorId != null)
+                                ? OnboardingAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
+                                : null
+                );
+
+                Page<OnboardingAuditEvent> page = repository.findAll(spec, pageable);
+                if (page.isEmpty()) break;
+
+                for (OnboardingAuditEvent e : page.getContent()) {
+
+                    w.println(String.join(",",
+                            csv(e.getId()),
+                            csv(e.getTimestamp()),
+                            csv(e.getActorUserId()),
+                            csv(e.getSubjectId()),
+                            csv(e.getTenantId()),
+                            csv(e.getInviteId()),
+                            csv(e.getCorrelationId()),
+                            csv(e.getCorrelationSource()),
+                            csv(e.getExecutionContext()),
+                            csv(e.getIp()),
+                            csv(e.getUserAgent()),
+                            csv(e.getResult()),
+                            csv(e.getOutcome()),
+                            csv(e.getReasonCode()),
+                            csv(e.getReasonDetail()),
+                            csv(e.getEventFingerprint()),
+                            csv(e.getChainVersion()),
+                            csv(e.getPrevEventHash()),
+                            csv(e.getEventHash())
+                    ));
+
+                    exported++;
+
+                    if (exported >= EXPORT_MAX_ROWS) {
+                        recordSensitiveAccess(tenantId, "AUDIT_EXPORT");
+                        w.flush();
+                        return;
+                    }
+
+                    cursorTimestamp = e.getTimestamp();
+                    cursorId = e.getId();
+                }
+
+                if (!page.hasNext()) break;
+                pageable = page.nextPageable();
+            }
+
+            recordSensitiveAccess(tenantId, "AUDIT_EXPORT");
+            w.flush();
+
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to stream onboarding audit CSV export", ex);
+        }
+    }
+
+
+    /* =====================================================
        SENSITIVE READ AUDIT
        ===================================================== */
 
-    private void recordSensitiveAccess(UUID requestedTenantId) {
+    private void recordSensitiveAccess(UUID requestedTenantId, String action) {
 
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
@@ -319,7 +411,7 @@ public class OnboardingAuditQueryService {
 
         String fingerprint = EventFingerprint.of(List.of(
                 "SENSITIVE_ACCESS",
-                "AUDIT_READ",
+                action,
                 STREAM,
                 scope,
                 actor.getId().toString(),
@@ -334,22 +426,22 @@ public class OnboardingAuditQueryService {
                 SensitiveAccessSubjectType.AUDIT_STREAM,
                 STREAM,
                 "AUDIT",
-                "READ",
+                action,
                 null,
                 ctx.correlationId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                "AUDIT_READ",
+                action,
                 tenantScoped
-                        ? "Read onboarding audit stream (tenant-scoped)"
-                        : "Read onboarding audit stream (global)",
+                        ? "Onboarding audit operation (tenant-scoped)"
+                        : "Onboarding audit operation (global)",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );
     }
 
     /* =====================================================
-       VALIDATION + HELPERS
+       HELPERS
        ===================================================== */
 
     private void validateRange(Instant from, Instant to) {
@@ -377,5 +469,14 @@ public class OnboardingAuditQueryService {
 
     private static String normalizeHash(String v) {
         return (v == null || v.isBlank()) ? "-" : v;
+    }
+
+    private String csv(Object v) {
+        if (v == null) return "";
+        String s = String.valueOf(v);
+        boolean needsQuotes =
+                s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r");
+        if (!needsQuotes) return s;
+        return "\"" + s.replace("\"", "\"\"") + "\"";
     }
 }

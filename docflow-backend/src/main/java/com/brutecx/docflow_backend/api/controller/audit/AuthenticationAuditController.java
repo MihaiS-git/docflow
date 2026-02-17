@@ -84,10 +84,6 @@ public class AuthenticationAuditController {
         return ResponseEntity.ok(queryService.verify(from, to));
     }
 
-    /**
-     * JSONL export (NDJSON format).
-     * Content-Type changed to application/json to ensure proper browser download completion.
-     */
     @GetMapping(value = "/export", produces = "application/json")
     public void exportJsonl(
             HttpServletResponse response,

@@ -31,14 +31,13 @@ import java.util.List;
 public class AuthenticationEventListener {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-
-    private static final String STREAM = AuthenticationCanonicalMaterialBuilder.STREAM;
+    private static final String STREAM = AuthenticationAuditCanonicalMaterialBuilder.STREAM;
 
     private final AuthenticationEventRepository repository;
     private final IUserIdentityProjectionService identityProjectionService;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
-    private final AuthenticationCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
@@ -91,28 +90,26 @@ public class AuthenticationEventListener {
                 correlationId
         ));
 
-        AuthenticationCanonicalInput input = new AuthenticationCanonicalInput(
-                eventTime.toEpochMilli(),
-                AuthenticationEventSource.SPRING_SECURITY,
-                username,
-                subjectId,
-                result,
-                "KEYCLOAK",
-                ctx.ip(),
-                ctx.userAgent(),
-                correlationId,
-                correlationSource,
-                ExecutionContext.AUTH_FLOW,
-                auditResult,
-                fingerprint
-        );
+        // 🔒 STRICT GOLD: Build canonical input for builder
+        AuthenticationAuditCanonicalMaterialBuilder.Input canonicalInput =
+                new AuthenticationAuditCanonicalMaterialBuilder.Input(
+                        eventTime,
+                        AuthenticationEventSource.SPRING_SECURITY,
+                        username,
+                        subjectId,
+                        result,
+                        "KEYCLOAK",
+                        ctx.ip(),
+                        ctx.userAgent(),
+                        correlationId,
+                        correlationSource.name(),
+                        ExecutionContext.AUTH_FLOW.name(),
+                        auditResult.name(),
+                        fingerprint
+                );
 
-        String canonicalMaterial = canonicalMaterialBuilder.buildCanonicalMaterial(input);
-
-        /*
-         * Partition rule:
-         * Authentication → SUBJECT
-         */
+        String canonicalMaterial =
+                canonicalMaterialBuilder.buildCanonicalMaterial(canonicalInput);
 
         AuditPartition partition =
                 AuditPartition.subject(STREAM, subjectId);
@@ -120,25 +117,22 @@ public class AuthenticationEventListener {
         try {
 
             AuditChainService.ChainHash chain =
-                    auditChainService.nextHash(
-                            partition,
-                            canonicalMaterial
-                    );
+                    auditChainService.nextHash(partition, canonicalMaterial);
 
             repository.save(new AuthenticationEvent(
-                    input.source(),
-                    Instant.ofEpochMilli(input.timestampEpochMs()),
-                    input.username(),
-                    input.subjectId(),
-                    input.result(),
-                    input.idp(),
-                    input.ip(),
-                    input.userAgent(),
-                    input.correlationId(),
-                    input.correlationSource(),
-                    input.executionContext(),
-                    input.auditResult(),
-                    input.eventFingerprint(),
+                    canonicalInput.source(),
+                    canonicalInput.timestamp(),
+                    canonicalInput.username(),
+                    canonicalInput.subjectId(),
+                    canonicalInput.result(),
+                    canonicalInput.idp(),
+                    canonicalInput.ip(),
+                    canonicalInput.userAgent(),
+                    canonicalInput.correlationId(),
+                    CorrelationSource.valueOf(canonicalInput.correlationSource()),
+                    ExecutionContext.valueOf(canonicalInput.executionContext()),
+                    AuditResult.valueOf(canonicalInput.auditResult()),
+                    canonicalInput.fingerprint(),
                     chain.chainVersion(),
                     chain.prevHash(),
                     chain.eventHash()

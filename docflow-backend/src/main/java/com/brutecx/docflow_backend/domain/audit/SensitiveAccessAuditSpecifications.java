@@ -42,43 +42,43 @@ public final class SensitiveAccessAuditSpecifications {
     }
 
     /**
-     * Cursor predicate for deterministic ordering by (timestamp, id).
-     * <p>
-     * For ASC:
-     * - fetch rows AFTER (cursorTimestamp, cursorId)
-     * <p>
-     * For DESC:
-     * - fetch rows BEFORE (cursorTimestamp, cursorId)
+     * Cursor predicate for stable timeline pagination using (timestamp, id).
+     *
+     * For DESC (newest first):
+     *   - "next page" means strictly older than cursor:
+     *     (ts < cursorTs) OR (ts == cursorTs AND id < cursorId)
+     *
+     * For ASC (oldest first):
+     *   - "next page" means strictly newer than cursor:
+     *     (ts > cursorTs) OR (ts == cursorTs AND id > cursorId)
      */
-    public static Specification<SensitiveAccessAuditEvent> cursor(
-            Instant cursorTimestamp,
+    public static Specification<SensitiveAccessAuditEvent> cursorAfter(
+            Instant cursorTs,
             UUID cursorId,
-            SortDirection direction
+            boolean ascending
     ) {
         return (root, query, cb) -> {
 
-            if (direction == SortDirection.ASC) {
+            var ts = root.get("timestamp").as(Instant.class);
+            var id = root.get("id").as(UUID.class);
+
+            if (ascending) {
                 return cb.or(
-                        cb.greaterThan(root.get("timestamp"), cursorTimestamp),
+                        cb.greaterThan(ts, cursorTs),
                         cb.and(
-                                cb.equal(root.get("timestamp"), cursorTimestamp),
-                                cb.greaterThan(root.get("id"), cursorId)
+                                cb.equal(ts, cursorTs),
+                                cb.greaterThan(id, cursorId)
                         )
                 );
             }
 
             return cb.or(
-                    cb.lessThan(root.get("timestamp"), cursorTimestamp),
+                    cb.lessThan(ts, cursorTs),
                     cb.and(
-                            cb.equal(root.get("timestamp"), cursorTimestamp),
-                            cb.lessThan(root.get("id"), cursorId)
+                            cb.equal(ts, cursorTs),
+                            cb.lessThan(id, cursorId)
                     )
             );
         };
-    }
-
-    public enum SortDirection {
-        ASC,
-        DESC
     }
 }

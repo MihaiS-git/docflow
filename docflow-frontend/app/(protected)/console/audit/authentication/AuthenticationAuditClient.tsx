@@ -1,46 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { downloadAuditFile } from "@/lib/audit/auditDownload";
 import { buildRangeQueryParams } from "@/lib/audit/auditRange";
 import { useCursorPagination } from "@/lib/audit/useCursorPagination";
+import { useDefaultAuditRange } from "@/lib/audit/useDefaultAuditRange";
+import { adaptCursorPage } from "@/lib/audit/adaptCursorPage";
+import { createVerifyHandler } from "@/lib/audit/createVerifyHandler";
 import { AuditRangePanel } from "@/lib/audit/AuditRangePanel";
 import { AuditExportButtons } from "@/lib/audit/AuditExportButtons";
 import { AuditVerifyPanel } from "@/lib/audit/AuditVerifyPanel";
-import { AuthenticationAuditCursorPageDTO } from "@/types/api/AuthenticationAuditCursorPageDTO";
-import { AuthenticationAuditRow } from "@/types/api/auditApi";
+import { AuditCursorPagination } from "@/lib/audit/AuditCursorPagination";
 import {
-  toDateTimeLocalString,
   formatAuditTimestamp,
 } from "@/lib/date/dateTimeLocal";
-import { AuditCursorPagination } from "@/lib/audit/AuditCursorPagination";
-
-type AuthenticationAuditVerificationResultDTO = {
-  ok: boolean;
-  verifiedCount: number;
-  failedCount: number;
-  from: string;
-  to: string;
-  message?: string;
-};
-
-function adaptCursorPage(dto: AuthenticationAuditCursorPageDTO) {
-  return {
-    content: dto.items ?? [],
-    hasNext: dto.hasMore ?? false,
-    nextCursorTimestamp: dto.nextCursorTimestamp ?? undefined,
-    nextCursorId: dto.nextCursorId ?? undefined,
-  };
-}
+import { AuthenticationAuditCursorPageDTO } from "@/types/api/AuthenticationAuditCursorPageDTO";
+import { AuthenticationAuditRow } from "@/types/api/auditApi";
+import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 
 export default function AuthenticationAuditClient() {
-  const now = useMemo(() => new Date(), []);
-  const oneHourAgo = useMemo(() => new Date(now.getTime() - 3600000), [now]);
-
-  const [from, setFrom] = useState(toDateTimeLocalString(oneHourAgo));
-  const [to, setTo] = useState(toDateTimeLocalString(now));
-  const [size, setSize] = useState(20);
+  const { from, to, size, setFrom, setTo, setSize } =
+    useDefaultAuditRange();
 
   const [correlationId, setCorrelationId] = useState("");
   const [username, setUsername] = useState("");
@@ -58,12 +39,13 @@ export default function AuthenticationAuditClient() {
   } = useCursorPagination<AuthenticationAuditRow>();
 
   const [verifyResult, setVerifyResult] =
-    useState<AuthenticationAuditVerificationResultDTO | null>(null);
+    useState<AuditVerificationResultDTO | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [downloading, setDownloading] = useState<"jsonl" | "csv" | null>(null);
+  const [downloading, setDownloading] =
+    useState<"jsonl" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queried, setQueried] = useState(false);
 
@@ -90,9 +72,10 @@ export default function AuthenticationAuditClient() {
     try {
       reset();
 
-      const data = await apiFetch<AuthenticationAuditCursorPageDTO>(
-        `/api/audit/authentication?${buildParams().toString()}`
-      );
+      const data =
+        await apiFetch<AuthenticationAuditCursorPageDTO>(
+          `/api/audit/authentication?${buildParams().toString()}`
+        );
 
       applyFirstPage(adaptCursorPage(data));
       setQueried(true);
@@ -107,14 +90,14 @@ export default function AuthenticationAuditClient() {
     if (!hasNext || !nextCursorTimestamp || !nextCursorId) return;
 
     setLoadingMore(true);
-
     try {
-      const data = await apiFetch<AuthenticationAuditCursorPageDTO>(
-        `/api/audit/authentication?${buildParams(
-          nextCursorTimestamp,
-          nextCursorId
-        ).toString()}`
-      );
+      const data =
+        await apiFetch<AuthenticationAuditCursorPageDTO>(
+          `/api/audit/authentication?${buildParams(
+            nextCursorTimestamp,
+            nextCursorId
+          ).toString()}`
+        );
 
       appendPage(adaptCursorPage(data));
     } finally {
@@ -122,21 +105,13 @@ export default function AuthenticationAuditClient() {
     }
   }
 
-  async function handleVerify() {
-    setVerifying(true);
-
-    try {
-      const qs = buildRangeQueryParams({ from, to });
-
-      const data = await apiFetch<AuthenticationAuditVerificationResultDTO>(
-        `/api/audit/authentication/verify?${qs.toString()}`
-      );
-
-      setVerifyResult(data);
-    } finally {
-      setVerifying(false);
-    }
-  }
+  const handleVerify = createVerifyHandler(
+    "/api/audit/authentication",
+    from,
+    to,
+    setVerifyResult,
+    setVerifying
+  );
 
   async function handleExportJsonl() {
     setDownloading("jsonl");
@@ -182,26 +157,22 @@ export default function AuthenticationAuditClient() {
       />
 
       <div className="border rounded p-3 grid gap-3 md:grid-cols-4">
-        <input
-          className="border rounded px-2 py-1"
+        <input className="border rounded px-2 py-1"
           placeholder="Correlation ID"
           value={correlationId}
           onChange={(e) => setCorrelationId(e.target.value)}
         />
-        <input
-          className="border rounded px-2 py-1"
+        <input className="border rounded px-2 py-1"
           placeholder="Username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
-        <input
-          className="border rounded px-2 py-1"
+        <input className="border rounded px-2 py-1"
           placeholder="Subject ID"
           value={subjectId}
           onChange={(e) => setSubjectId(e.target.value)}
         />
-        <input
-          className="border rounded px-2 py-1"
+        <input className="border rounded px-2 py-1"
           placeholder="Result"
           value={result}
           onChange={(e) => setResult(e.target.value)}
@@ -213,6 +184,8 @@ export default function AuthenticationAuditClient() {
           verifying={verifying}
           onVerify={handleVerify}
           result={verifyResult}
+          from={from}
+          to={to}
         />
 
         <AuditExportButtons

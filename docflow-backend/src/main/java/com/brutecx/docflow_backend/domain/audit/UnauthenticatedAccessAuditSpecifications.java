@@ -25,34 +25,44 @@ public final class UnauthenticatedAccessAuditSpecifications {
                 cb.equal(root.get("correlationId"), correlationId);
     }
 
-    public static Specification<UnauthenticatedAccessAuditEvent> cursor(
-            Instant ts,
-            UUID id,
-            SortDirection dir
+    /**
+     * Cursor predicate for stable pagination using (timestamp, id).
+     *
+     * For DESC (newest first):
+     *   next page = strictly older than cursor:
+     *     (ts < cursorTs) OR (ts == cursorTs AND id < cursorId)
+     *
+     * For ASC (oldest first):
+     *   next page = strictly newer than cursor:
+     *     (ts > cursorTs) OR (ts == cursorTs AND id > cursorId)
+     */
+    public static Specification<UnauthenticatedAccessAuditEvent> cursorAfter(
+            Instant cursorTs,
+            UUID cursorId,
+            boolean ascending
     ) {
-        return (root, q, cb) -> {
+        return (root, query, cb) -> {
 
-            if (dir == SortDirection.ASC) {
+            var ts = root.get("timestamp").as(Instant.class);
+            var id = root.get("id").as(UUID.class);
+
+            if (ascending) {
                 return cb.or(
-                        cb.greaterThan(root.get("timestamp"), ts),
+                        cb.greaterThan(ts, cursorTs),
                         cb.and(
-                                cb.equal(root.get("timestamp"), ts),
-                                cb.greaterThan(root.get("id"), id)
+                                cb.equal(ts, cursorTs),
+                                cb.greaterThan(id, cursorId)
                         )
                 );
             }
 
             return cb.or(
-                    cb.lessThan(root.get("timestamp"), ts),
+                    cb.lessThan(ts, cursorTs),
                     cb.and(
-                            cb.equal(root.get("timestamp"), ts),
-                            cb.lessThan(root.get("id"), id)
+                            cb.equal(ts, cursorTs),
+                            cb.lessThan(id, cursorId)
                     )
             );
         };
-    }
-
-    public enum SortDirection {
-        ASC, DESC
     }
 }

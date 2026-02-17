@@ -1,15 +1,14 @@
 package com.brutecx.docflow_backend.domain.audit;
 
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.rbac.RbacDeniedAuditEvent;
 import com.brutecx.docflow_backend.audit.rbac.RbacDeniedAuditEventRepository;
-import com.brutecx.docflow_backend.audit.rbac.RbacDeniedCanonicalInput;
 import com.brutecx.docflow_backend.audit.rbac.RbacDeniedCanonicalMaterialBuilder;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
@@ -20,23 +19,18 @@ import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
-import java.util.function.Consumer;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -54,12 +48,12 @@ public class RbacDeniedAuditQueryService {
     private final AuditRequestContextExtractor ctxExtractor;
     private final UserService userService;
     private final TenantService tenantService;
-
     private final AuditChainService auditChainService;
     private final RbacDeniedCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final ObjectMapper objectMapper;
 
     /* =====================================================
-       CURSOR QUERY – timestamp DESC, id DESC
+       CURSOR QUERY – DESC timestamp, DESC id
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -81,10 +75,7 @@ public class RbacDeniedAuditQueryService {
         Pageable pageable = PageRequest.of(
                 0,
                 safeSize + 1,
-                Sort.by(
-                        Sort.Order.desc("timestamp"),
-                        Sort.Order.desc("id")
-                )
+                Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id"))
         );
 
         Specification<RbacDeniedAuditEvent> spec = Specification.allOf(
@@ -92,12 +83,14 @@ public class RbacDeniedAuditQueryService {
                 to != null ? RbacDeniedAuditSpecifications.timestampTo(to) : null,
                 hasText(correlationId) ? RbacDeniedAuditSpecifications.hasCorrelationId(correlationId) : null,
                 hasText(subjectId) ? RbacDeniedAuditSpecifications.hasSubjectId(subjectId) : null,
-                cursorTimestamp != null ? RbacDeniedAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false) : null
+                cursorTimestamp != null
+                        ? RbacDeniedAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false)
+                        : null
         );
 
         Page<RbacDeniedAuditEvent> page = repository.findAll(spec, pageable);
 
-        recordSensitiveAccess("READ", "Read RBAC denied audit stream (global)");
+        recordSensitiveAccess("AUDIT_READ");
 
         List<RbacDeniedAuditEvent> raw = page.getContent();
         boolean hasMore = raw.size() > safeSize;
@@ -120,8 +113,8 @@ public class RbacDeniedAuditQueryService {
     }
 
     /* =====================================================
-       VERIFY – timestamp ASC, id ASC
-       Strict per-partition continuity (via AuditPartition stateKey)
+       VERIFY – ASC timestamp, ASC id
+       - strict continuity per partition during this scan
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -136,7 +129,7 @@ public class RbacDeniedAuditQueryService {
         Instant cursorTimestamp = null;
         UUID cursorId = null;
 
-        // Strict continuity per partition (keyed by AuditPartition stateKey)
+        // stateKey -> lastEventHash (from previous row in this scan)
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
 
         while (true) {
@@ -152,15 +145,12 @@ public class RbacDeniedAuditQueryService {
             Pageable pageable = PageRequest.of(
                     0,
                     VERIFY_BATCH_SIZE,
-                    Sort.by(
-                            Sort.Order.asc("timestamp"),
-                            Sort.Order.asc("id")
-                    )
+                    Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
             );
 
             Page<RbacDeniedAuditEvent> batch = repository.findAll(spec, pageable);
             if (batch.isEmpty()) {
-                recordSensitiveAccess("VERIFY", "Verify RBAC denied audit stream (global)");
+                recordSensitiveAccess("AUDIT_VERIFY");
                 return AuditVerificationResultDTO.success(verified);
             }
 
@@ -170,51 +160,45 @@ public class RbacDeniedAuditQueryService {
                 String stateKey = partition.toStateKey();
 
                 String actualPrev = normalizeHash(event.getPrevEventHash());
-                String expectedPrev = lastHashByPartitionStateKey.getOrDefault(stateKey, "-");
 
-                if (event.getChainVersion() > 0) {
-
+                // Continuity check only after we have a previous element for this partition in-memory.
+                if (lastHashByPartitionStateKey.containsKey(stateKey)) {
+                    String expectedPrev = lastHashByPartitionStateKey.get(stateKey);
                     if (!Objects.equals(expectedPrev, actualPrev)) {
-                        recordSensitiveAccess("VERIFY", "Verify RBAC denied audit stream (continuity mismatch)");
+                        recordSensitiveAccess("AUDIT_VERIFY");
                         return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "CONTINUITY_MISMATCH_PREV_EVENT_HASH partition=" + partition.partitionValue()
                         );
                     }
-
-                    String storedEventHash = normalizeHash(event.getEventHash());
-                    if ("-".equals(storedEventHash)) {
-                        recordSensitiveAccess("VERIFY", "Verify RBAC denied audit stream (missing event hash)");
-                        return AuditVerificationResultDTO.failure(
-                                verified,
-                                event.getId(),
-                                "MISSING_EVENT_HASH_FOR_CHAINED_EVENT partition=" + partition.partitionValue()
-                        );
-                    }
-
-                    String canonical = canonicalMaterialBuilder.buildCanonicalMaterial(
-                            RbacDeniedCanonicalInput.fromEvent(event)
-                    );
-
-                    String expected = auditChainService.computeEventHash(
-                            partition,
-                            event.getChainVersion(),
-                            actualPrev,
-                            canonical
-                    );
-
-                    if (!Objects.equals(expected, storedEventHash)) {
-                        recordSensitiveAccess("VERIFY", "Verify RBAC denied audit stream (event hash mismatch)");
-                        return AuditVerificationResultDTO.failure(
-                                verified,
-                                event.getId(),
-                                "EVENT_HASH_MISMATCH partition=" + partition.partitionValue()
-                        );
-                    }
                 }
 
-                lastHashByPartitionStateKey.put(stateKey, normalizeHash(event.getEventHash()));
+                // Canonical material is the single source of truth.
+                String canonical = canonicalMaterialBuilder.buildCanonicalMaterial(
+                        canonicalMaterialBuilder.fromEvent(event)
+                );
+
+                // Recompute expected hash (service returns "-" when disabled/misconfigured or chainVersion<=0)
+                String expectedHash = auditChainService.computeEventHash(
+                        partition,
+                        event.getChainVersion(),
+                        actualPrev,
+                        canonical
+                );
+
+                String storedHash = normalizeHash(event.getEventHash());
+
+                if (!Objects.equals(expectedHash, storedHash)) {
+                    recordSensitiveAccess("AUDIT_VERIFY");
+                    return AuditVerificationResultDTO.failure(
+                            verified,
+                            event.getId(),
+                            "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED partition=" + partition.partitionValue()
+                    );
+                }
+
+                lastHashByPartitionStateKey.put(stateKey, storedHash);
                 verified++;
 
                 cursorTimestamp = event.getTimestamp();
@@ -224,91 +208,176 @@ public class RbacDeniedAuditQueryService {
     }
 
     /* =====================================================
-       FORENSIC EXPORT – streaming (JSONL via controller)
+       EXPORT JSONL + CSV (ASC timestamp, ASC id)
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public void exportForensic(
+    public void streamForensicExportJsonl(
+            HttpServletResponse response,
+            Instant from,
+            Instant to,
+            String correlationId,
+            String subjectId
+    ) {
+        streamExport(response, from, to, correlationId, subjectId, false);
+    }
+
+    @Transactional(readOnly = true)
+    public void streamForensicExportCsv(
+            HttpServletResponse response,
+            Instant from,
+            Instant to,
+            String correlationId,
+            String subjectId
+    ) {
+        streamExport(response, from, to, correlationId, subjectId, true);
+    }
+
+    private void streamExport(
+            HttpServletResponse response,
             Instant from,
             Instant to,
             String correlationId,
             String subjectId,
-            Consumer<RbacDeniedAuditForensicExportDTO> consumer
+            boolean csv
     ) {
 
         validateRangeRequired(from, to);
-        Objects.requireNonNull(consumer, "consumer is required");
 
         long exported = 0;
-        Instant cursorTs = null;
-        UUID cursorUuid = null;
+        Instant cursorTimestamp = null;
+        UUID cursorId = null;
 
-        while (true) {
+        Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
+        Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
 
-            Pageable pageable = PageRequest.of(
-                    0,
-                    EXPORT_BATCH_SIZE,
-                    Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
-            );
+        response.setBufferSize(16 * 1024);
 
-            Specification<RbacDeniedAuditEvent> spec = Specification.allOf(
-                    RbacDeniedAuditSpecifications.timestampFrom(from),
-                    RbacDeniedAuditSpecifications.timestampTo(to),
-                    hasText(correlationId) ? RbacDeniedAuditSpecifications.hasCorrelationId(correlationId) : null,
-                    hasText(subjectId) ? RbacDeniedAuditSpecifications.hasSubjectId(subjectId) : null,
-                    (cursorTs != null && cursorUuid != null)
-                            ? RbacDeniedAuditSpecifications.cursorAfter(cursorTs, cursorUuid, true)
-                            : null
-            );
+        try (PrintWriter w = new PrintWriter(
+                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
 
-            Page<RbacDeniedAuditEvent> batch = repository.findAll(spec, pageable);
-            if (batch.isEmpty()) {
-                break;
+            if (csv) {
+                w.println(String.join(",",
+                        "id",
+                        "timestamp",
+                        "subjectId",
+                        "correlationId",
+                        "correlationSource",
+                        "executionContext",
+                        "result",
+                        "httpMethod",
+                        "path",
+                        "ip",
+                        "userAgent",
+                        "eventFingerprint",
+                        "chainVersion",
+                        "prevEventHash",
+                        "eventHash"
+                ));
+                w.flush();
+                response.flushBuffer();
             }
 
-            for (RbacDeniedAuditEvent e : batch.getContent()) {
+            while (true) {
 
-                consumer.accept(RbacDeniedAuditForensicExportDTO.from(e));
+                Specification<RbacDeniedAuditEvent> spec = Specification.allOf(
+                        RbacDeniedAuditSpecifications.timestampFrom(from),
+                        RbacDeniedAuditSpecifications.timestampTo(to),
+                        hasText(correlationId) ? RbacDeniedAuditSpecifications.hasCorrelationId(correlationId) : null,
+                        hasText(subjectId) ? RbacDeniedAuditSpecifications.hasSubjectId(subjectId) : null,
+                        (cursorTimestamp != null && cursorId != null)
+                                ? RbacDeniedAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
+                                : null
+                );
 
-                exported++;
-                if (exported >= EXPORT_MAX_ROWS) {
-                    recordSensitiveAccess("EXPORT", "Export RBAC denied audit stream (row cap reached)");
-                    return;
+                Page<RbacDeniedAuditEvent> page = repository.findAll(spec, pageable);
+                if (page.isEmpty()) break;
+
+                for (RbacDeniedAuditEvent e : page.getContent()) {
+
+                    try {
+                        if (csv) {
+                            w.println(String.join(",",
+                                    csv(e.getId()),
+                                    csv(e.getTimestamp()),
+                                    csv(e.getSubjectId()),
+                                    csv(e.getCorrelationId()),
+                                    csv(e.getCorrelationSource()),
+                                    csv(e.getExecutionContext()),
+                                    csv(e.getResult()),
+                                    csv(e.getHttpMethod()),
+                                    csv(e.getPath()),
+                                    csv(e.getIp()),
+                                    csv(e.getUserAgent()),
+                                    csv(e.getEventFingerprint()),
+                                    csv(e.getChainVersion()),
+                                    csv(e.getPrevEventHash()),
+                                    csv(e.getEventHash())
+                            ));
+                        } else {
+                            w.println(objectMapper.writeValueAsString(
+                                    RbacDeniedAuditForensicExportDTO.from(e)
+                            ));
+                        }
+                    } catch (Exception ex) {
+                        if (!response.isCommitted()) {
+                            response.resetBuffer();
+                        }
+                        throw ex;
+                    }
+
+                    exported++;
+                    if (exported >= EXPORT_MAX_ROWS) {
+                        recordSensitiveAccess("AUDIT_EXPORT");
+                        w.flush();
+                        response.flushBuffer();
+                        return;
+                    }
+
+                    cursorTimestamp = e.getTimestamp();
+                    cursorId = e.getId();
                 }
 
-                cursorTs = e.getTimestamp();
-                cursorUuid = e.getId();
-            }
-        }
+                w.flush();
+                response.flushBuffer();
 
-        recordSensitiveAccess("EXPORT", "Export RBAC denied audit stream (global)");
+                if (!page.hasNext()) break;
+                pageable = page.nextPageable();
+            }
+
+            recordSensitiveAccess("AUDIT_EXPORT");
+            w.flush();
+            response.flushBuffer();
+
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to stream RBAC denied forensic export", ex);
+        }
     }
 
     /* =====================================================
-       SENSITIVE READ AUDIT
+       SENSITIVE ACCESS AUDIT
        ===================================================== */
 
-    private void recordSensitiveAccess(String action, String detail) {
+    private void recordSensitiveAccess(String action) {
 
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
-
-        UUID storageTenant = tenantService.getRootTenant().getId();
+        UUID rootTenant = tenantService.getRootTenant().getId();
 
         String fingerprint = EventFingerprint.of(List.of(
                 "SENSITIVE_ACCESS",
-                "AUDIT_" + action,
+                action,
                 STREAM,
                 "SCOPE_GLOBAL",
                 actor.getId().toString(),
-                storageTenant.toString(),
+                rootTenant.toString(),
                 ctx.correlationId()
         ));
 
         sensitiveAccessAuditService.record(
                 actor.getId(),
                 actor.getExternalSubjectId(),
-                storageTenant,
+                rootTenant,
                 SensitiveAccessSubjectType.AUDIT_STREAM,
                 STREAM,
                 "AUDIT",
@@ -317,27 +386,27 @@ public class RbacDeniedAuditQueryService {
                 ctx.correlationId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                "AUDIT_" + action,
-                detail,
+                action,
+                "RBAC denied audit operation",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );
     }
 
     /* =====================================================
-       PARTITION (unified AuditPartition strategy)
+       PARTITION
        ===================================================== */
 
     private static AuditPartition resolvePartition(RbacDeniedAuditEvent e) {
         String subject = e.getSubjectId();
-        if (subject != null && !subject.isBlank() && !"UNKNOWN".equals(subject.trim())) {
-            return AuditPartition.subject(STREAM, subject);
+        if (subject != null && !subject.isBlank()) {
+            return AuditPartition.subject(STREAM, subject.trim());
         }
         return AuditPartition.global(STREAM);
     }
 
     /* =====================================================
-       VALIDATION + HELPERS
+       HELPERS
        ===================================================== */
 
     private void validateRange(Instant from, Instant to) {
@@ -361,6 +430,14 @@ public class RbacDeniedAuditQueryService {
 
     private boolean hasText(String s) {
         return s != null && !s.isBlank();
+    }
+
+    private String csv(Object v) {
+        if (v == null) return "";
+        String s = String.valueOf(v);
+        boolean needsQuotes = s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r");
+        if (!needsQuotes) return s;
+        return "\"" + s.replace("\"", "\"\"") + "\"";
     }
 
     private static String normalizeHash(String v) {

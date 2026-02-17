@@ -1,3 +1,4 @@
+// src/main/java/com/brutecx/docflow_backend/domain/audit/AdminAuditQueryService.java
 package com.brutecx.docflow_backend.domain.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditCursorPageDTO;
@@ -10,11 +11,11 @@ import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditCanonicalMaterialBuilder;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditEvent;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditEventRepository;
-import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
-import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
@@ -26,9 +27,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 
@@ -68,8 +67,8 @@ public class AdminAuditQueryService {
             int size
     ) {
 
-        validateRange(from, to);
-        validateCursorPair(cursorTimestamp, cursorId);
+        GoldAuditSupport.validateRange(from, to);
+        GoldAuditSupport.validateCursorPair(cursorTimestamp, cursorId);
 
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
@@ -92,7 +91,7 @@ public class AdminAuditQueryService {
 
         Page<AdminAuditEvent> page = repository.findAll(spec, pageable);
 
-        recordSensitiveAccess(tenantId);
+        recordSensitiveAccess(tenantId, "AUDIT_READ");
 
         List<AdminAuditEvent> raw = page.getContent();
         boolean hasMore = raw.size() > safeSize;
@@ -114,7 +113,8 @@ public class AdminAuditQueryService {
     }
 
     /* =====================================================
-       VERIFY – Strict per-tenant partition
+       VERIFY – timestamp ASC, id ASC
+       - strict continuity per partition (tenant partition OR global partition)
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -124,12 +124,13 @@ public class AdminAuditQueryService {
             UUID tenantId
     ) {
 
-        validateRangeRequired(from, to);
+        GoldAuditSupport.validateRangeRequired(from, to);
 
         long verified = 0;
         Instant cursorTimestamp = null;
         UUID cursorId = null;
 
+        // stateKey -> lastEventHash
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
 
         while (true) {
@@ -151,7 +152,7 @@ public class AdminAuditQueryService {
 
             Page<AdminAuditEvent> batch = repository.findAll(spec, pageable);
             if (batch.isEmpty()) {
-                recordSensitiveAccess(tenantId);
+                recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
                 return AuditVerificationResultDTO.success(verified);
             }
 
@@ -163,53 +164,27 @@ public class AdminAuditQueryService {
                                 ? AuditPartition.tenant(STREAM, eventTenantId.toString())
                                 : AuditPartition.global(STREAM);
 
-                String stateKey = partition.toStateKey();
-                String actualPrev = normalizeHash(event.getPrevEventHash());
-                String expectedPrev = lastHashByPartitionStateKey.getOrDefault(stateKey, "-");
+                String material = canonicalMaterialBuilder.buildCanonicalMaterial(
+                        canonicalMaterialBuilder.fromEvent(event)
+                );
 
-                if (event.getChainVersion() > 0) {
+                AuditVerificationResultDTO failure = GoldAuditSupport.verifyEvent(
+                        event.getId(),
+                        partition,
+                        event.getChainVersion(),
+                        event.getPrevEventHash(),
+                        event.getEventHash(),
+                        material,
+                        auditChainService,
+                        lastHashByPartitionStateKey,
+                        verified
+                );
 
-                    if (!Objects.equals(expectedPrev, actualPrev)) {
-                        recordSensitiveAccess(tenantId);
-                        return AuditVerificationResultDTO.failure(
-                                verified,
-                                event.getId(),
-                                "CONTINUITY_MISMATCH_PREV_EVENT_HASH"
-                        );
-                    }
-
-                    String storedHash = normalizeHash(event.getEventHash());
-                    if ("-".equals(storedHash)) {
-                        recordSensitiveAccess(tenantId);
-                        return AuditVerificationResultDTO.failure(
-                                verified,
-                                event.getId(),
-                                "MISSING_EVENT_HASH_FOR_CHAINED_EVENT"
-                        );
-                    }
-
-                    String material = canonicalMaterialBuilder.buildCanonicalMaterial(
-                            canonicalMaterialBuilder.fromEvent(event)
-                    );
-
-                    String expected = auditChainService.computeEventHash(
-                            partition,
-                            event.getChainVersion(),
-                            actualPrev,
-                            material
-                    );
-
-                    if (!Objects.equals(expected, storedHash)) {
-                        recordSensitiveAccess(tenantId);
-                        return AuditVerificationResultDTO.failure(
-                                verified,
-                                event.getId(),
-                                "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED"
-                        );
-                    }
+                if (failure != null) {
+                    recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
+                    return failure;
                 }
 
-                lastHashByPartitionStateKey.put(stateKey, normalizeHash(event.getEventHash()));
                 verified++;
 
                 cursorTimestamp = event.getTimestamp();
@@ -219,7 +194,7 @@ public class AdminAuditQueryService {
     }
 
     /* =====================================================
-       FORENSIC EXPORT – JSONL
+       EXPORT JSONL + CSV (ASC timestamp, ASC id)
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -229,66 +204,115 @@ public class AdminAuditQueryService {
             Instant to,
             UUID tenantId
     ) {
+        streamExport(response, from, to, tenantId, false);
+    }
 
-        validateRangeRequired(from, to);
+    @Transactional(readOnly = true)
+    public void streamForensicExportCsv(
+            HttpServletResponse response,
+            Instant from,
+            Instant to,
+            UUID tenantId
+    ) {
+        streamExport(response, from, to, tenantId, true);
+    }
 
-        long exported = 0;
-        Instant cursorTimestamp = null;
-        UUID cursorId = null;
+    private void streamExport(
+            HttpServletResponse response,
+            Instant from,
+            Instant to,
+            UUID tenantId,
+            boolean csv
+    ) {
 
-        Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
-        Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
+        GoldAuditSupport.validateRangeRequired(from, to);
 
-        try (PrintWriter w = new PrintWriter(new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
-
-            while (true) {
-
-                Specification<AdminAuditEvent> spec = Specification.allOf(
-                        AdminAuditSpecifications.timestampFrom(from),
-                        AdminAuditSpecifications.timestampTo(to),
-                        tenantId != null ? AdminAuditSpecifications.hasTenantId(tenantId) : null,
-                        (cursorTimestamp != null && cursorId != null)
-                                ? AdminAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
-                                : null
-                );
-
-                Page<AdminAuditEvent> page = repository.findAll(spec, pageable);
-                if (page.isEmpty()) break;
-
-                for (AdminAuditEvent e : page.getContent()) {
-
-                    w.println(objectMapper.writeValueAsString(
-                            AdminAuditForensicExportDTO.from(e)
+        GoldAuditSupport.streamExportAsc(
+                response,
+                EXPORT_BATCH_SIZE,
+                EXPORT_MAX_ROWS,
+                pageable -> {
+                    Specification<AdminAuditEvent> spec = Specification.allOf(
+                            AdminAuditSpecifications.timestampFrom(from),
+                            AdminAuditSpecifications.timestampTo(to),
+                            tenantId != null ? AdminAuditSpecifications.hasTenantId(tenantId) : null
+                    );
+                    return repository.findAll(spec, pageable);
+                },
+                (PrintWriter w) -> {
+                    if (!csv) return;
+                    w.println(String.join(",",
+                            "id",
+                            "timestamp",
+                            "tenantId",
+                            "actorUserId",
+                            "subjectId",
+                            "actionType",
+                            "result",
+                            "correlationId",
+                            "correlationSource",
+                            "executionContext",
+                            "ip",
+                            "userAgent",
+                            "targetUserId",
+                            "metadata",
+                            "eventFingerprint",
+                            "chainVersion",
+                            "prevEventHash",
+                            "eventHash"
                     ));
-
-                    exported++;
-                    if (exported >= EXPORT_MAX_ROWS) {
-                        recordSensitiveAccess(tenantId);
-                        w.flush();
-                        return;
+                },
+                (PrintWriter w, AdminAuditEvent e) -> {
+                    if (csv) {
+                        writeCsvLine(w, e);
+                    } else {
+                        w.println(objectMapper.writeValueAsString(
+                                AdminAuditForensicExportDTO.from(e)
+                        ));
                     }
+                },
+                () -> recordSensitiveAccess(tenantId, "AUDIT_EXPORT")
+        );
+    }
 
-                    cursorTimestamp = e.getTimestamp();
-                    cursorId = e.getId();
-                }
+    private void writeCsvLine(PrintWriter w, AdminAuditEvent e) {
+        w.println(String.join(",",
+                GoldAuditSupport.csv(e.getId()),
+                GoldAuditSupport.csv(e.getTimestamp()),
+                GoldAuditSupport.csv(e.getTenantId()),
+                GoldAuditSupport.csv(e.getActorUserId()),
+                GoldAuditSupport.csv(e.getSubjectId()),
+                GoldAuditSupport.csv(e.getActionType()),
+                GoldAuditSupport.csv(e.getResult()),
+                GoldAuditSupport.csv(e.getCorrelationId()),
+                GoldAuditSupport.csv(e.getCorrelationSource()),
+                GoldAuditSupport.csv(e.getExecutionContext()),
+                GoldAuditSupport.csv(e.getIp()),
+                GoldAuditSupport.csv(e.getUserAgent()),
+                GoldAuditSupport.csv(e.getTargetUserId()),
+                GoldAuditSupport.csv(e.getMetadata() != null ? safeJson(e.getMetadata()) : ""),
+                GoldAuditSupport.csv(e.getEventFingerprint()),
+                GoldAuditSupport.csv(e.getChainVersion()),
+                GoldAuditSupport.csv(e.getPrevEventHash()),
+                GoldAuditSupport.csv(e.getEventHash())
+        ));
+    }
 
-                if (!page.hasNext()) break;
-                pageable = page.nextPageable();
-            }
-
-            recordSensitiveAccess(tenantId);
-            w.flush();
-
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to stream admin audit forensic export", ex);
+    private String safeJson(Object o) {
+        try {
+            return objectMapper.writeValueAsString(o);
+        } catch (Exception e) {
+            // last-resort: avoid breaking export
+            return String.valueOf(o);
         }
     }
 
     /* =====================================================
-       SENSITIVE READ AUDIT
+       META AUDIT (Sensitive Access)
+       - keeps tenant-scoped vs global semantics
        ===================================================== */
 
-    private void recordSensitiveAccess(UUID requestedTenantId) {
+    private void recordSensitiveAccess(UUID requestedTenantId, String action) {
 
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
@@ -301,7 +325,7 @@ public class AdminAuditQueryService {
 
         String fingerprint = EventFingerprint.of(List.of(
                 "SENSITIVE_ACCESS",
-                "AUDIT_READ",
+                action,
                 STREAM,
                 scope,
                 actor.getId().toString(),
@@ -316,15 +340,15 @@ public class AdminAuditQueryService {
                 SensitiveAccessSubjectType.AUDIT_STREAM,
                 STREAM,
                 "AUDIT",
-                "READ",
+                action,
                 null,
                 ctx.correlationId(),
                 ctx.ip(),
                 ctx.userAgent(),
-                "AUDIT_READ",
+                action,
                 tenantScoped
-                        ? "Read admin audit stream (tenant-scoped)"
-                        : "Read admin audit stream (global)",
+                        ? "Admin audit stream operation (tenant-scoped)"
+                        : "Admin audit stream operation (global)",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );
@@ -334,30 +358,7 @@ public class AdminAuditQueryService {
        HELPERS
        ===================================================== */
 
-    private void validateRange(Instant from, Instant to) {
-        if (from != null && to != null && from.isAfter(to)) {
-            throw new IllegalArgumentException("'from' must be <= 'to'");
-        }
-    }
-
-    private void validateRangeRequired(Instant from, Instant to) {
-        if (from == null || to == null) {
-            throw new IllegalArgumentException("from and to are required");
-        }
-        validateRange(from, to);
-    }
-
-    private void validateCursorPair(Instant ts, UUID id) {
-        if ((ts == null) ^ (id == null)) {
-            throw new IllegalArgumentException("cursorTimestamp and cursorId must be provided together");
-        }
-    }
-
     private boolean hasText(String s) {
         return s != null && !s.isBlank();
-    }
-
-    private static String normalizeHash(String v) {
-        return (v == null || v.isBlank()) ? "-" : v;
     }
 }

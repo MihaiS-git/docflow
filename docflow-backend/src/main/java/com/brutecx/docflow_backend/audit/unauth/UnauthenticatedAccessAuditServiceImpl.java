@@ -31,7 +31,7 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
     private final UnauthenticatedAccessAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
-    private final UnauthenticatedAccessCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final UnauthenticatedAccessCanonicalMaterialBuilder canonicalBuilder;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -59,30 +59,36 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                 ));
 
         CorrelationSource correlationSource = resolveCorrelationSource();
+        ExecutionContext executionContext = ExecutionContext.HTTP;
+        AuditResult auditResult = AuditResult.FAILED;
 
         Instant ts = Instant.now();
 
-        UnauthenticatedAccessCanonicalInput input = new UnauthenticatedAccessCanonicalInput(
-                ts,
-                correlationId,
-                correlationSource,
-                ExecutionContext.HTTP,
-                AuditResult.FAILED,
-                resolvedMethod,
-                resolvedPath,
-                ctx.ip(),
-                ctx.userAgent(),
-                fingerprint
-        );
+        /*
+         * Build canonical input using STRICT GOLD builder model
+         */
+        UnauthenticatedAccessCanonicalMaterialBuilder.Input canonicalInput =
+                new UnauthenticatedAccessCanonicalMaterialBuilder.Input(
+                        ts,
+                        correlationId,
+                        correlationSource.name(),
+                        executionContext.name(),
+                        auditResult.name(),
+                        resolvedMethod,
+                        resolvedPath,
+                        ctx.ip(),
+                        ctx.userAgent(),
+                        fingerprint
+                );
 
-        String canonicalMaterial = canonicalMaterialBuilder.buildCanonicalMaterial(input);
+        String canonicalMaterial =
+                canonicalBuilder.buildCanonicalMaterial(canonicalInput);
 
         /*
          * Partition rule:
          * UnauthenticatedAccess → GLOBAL
          * CorrelationId must NEVER be used as partition.
          */
-
         AuditPartition partition = AuditPartition.global(STREAM);
 
         try {
@@ -97,8 +103,8 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                     ts,
                     correlationId,
                     correlationSource,
-                    ExecutionContext.HTTP,
-                    AuditResult.FAILED,
+                    executionContext,
+                    auditResult,
                     resolvedMethod,
                     resolvedPath,
                     ctx.ip(),
