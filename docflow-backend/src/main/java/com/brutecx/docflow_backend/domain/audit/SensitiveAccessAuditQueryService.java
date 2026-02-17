@@ -3,7 +3,7 @@ package com.brutecx.docflow_backend.domain.audit;
 import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -125,7 +125,7 @@ public class SensitiveAccessAuditQueryService {
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public SensitiveAccessAuditVerificationResultDTO verify(
+    public AuditVerificationResultDTO verify(
             Instant from,
             Instant to
     ) {
@@ -166,10 +166,9 @@ public class SensitiveAccessAuditQueryService {
                 UUID eventTenantId = event.getTenantId();
                 if (eventTenantId == null) {
                     recordMeta("AUDIT_VERIFY", buildScope("VERIFY_MISSING_TENANT", from, to, null, null, null, null));
-                    return SensitiveAccessAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             event.getId(),
-                            null,
                             "MISSING_TENANT_ID"
                     );
                 }
@@ -186,10 +185,9 @@ public class SensitiveAccessAuditQueryService {
 
                     if (!Objects.equals(expectedPrev, actualPrev)) {
                         recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null, null, null, null));
-                        return SensitiveAccessAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
-                                eventTenantId,
                                 "CONTINUITY_MISMATCH_PREV_EVENT_HASH"
                         );
                     }
@@ -197,10 +195,9 @@ public class SensitiveAccessAuditQueryService {
                     String storedHash = normalizeHash(event.getEventHash());
                     if ("-".equals(storedHash)) {
                         recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null, null, null, null));
-                        return SensitiveAccessAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
-                                eventTenantId,
                                 "MISSING_EVENT_HASH_FOR_CHAINED_EVENT"
                         );
                     }
@@ -218,10 +215,9 @@ public class SensitiveAccessAuditQueryService {
 
                     if (!Objects.equals(expected, storedHash)) {
                         recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null, null, null, null));
-                        return SensitiveAccessAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
-                                eventTenantId,
                                 "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED"
                         );
                     }
@@ -236,7 +232,7 @@ public class SensitiveAccessAuditQueryService {
         }
 
         recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null, null, null, null));
-        return SensitiveAccessAuditVerificationResultDTO.success(verified);
+        return AuditVerificationResultDTO.success(verified);
     }
 
     /* =====================================================

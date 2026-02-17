@@ -2,7 +2,7 @@ package com.brutecx.docflow_backend.domain.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditForensicDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AdminAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -198,7 +198,7 @@ public class AdminTenantAuditQueryService {
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public AdminAuditVerificationResultDTO verify(
+    public AuditVerificationResultDTO verify(
             UUID tenantId,
             Instant from,
             Instant to
@@ -254,7 +254,7 @@ public class AdminTenantAuditQueryService {
 
                     recordSensitiveAccessTenantScoped(tenantId);
 
-                    return AdminAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             event.getId(),
                             "Chain continuity mismatch (prevEventHash)"
@@ -278,7 +278,7 @@ public class AdminTenantAuditQueryService {
 
                         recordSensitiveAccessTenantScoped(tenantId);
 
-                        return AdminAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "Event hash mismatch (recomputed != stored)"
@@ -295,7 +295,7 @@ public class AdminTenantAuditQueryService {
         }
 
         recordSensitiveAccessTenantScoped(tenantId);
-        return AdminAuditVerificationResultDTO.success(verified);
+        return AuditVerificationResultDTO.success(verified);
     }
 
     /* =====================================================

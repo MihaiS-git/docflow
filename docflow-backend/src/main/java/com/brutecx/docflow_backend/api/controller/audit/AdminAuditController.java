@@ -1,8 +1,8 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditCursorPageDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AdminAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
-import com.brutecx.docflow_backend.domain.audit.OnboardingAuditQueryService;
+import com.brutecx.docflow_backend.domain.audit.AdminAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -16,16 +16,20 @@ import java.time.Instant;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/audit/onboarding")
+@RequestMapping("/api/audit/admin-actions")
 @RequiredArgsConstructor
 @Validated
 @PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
-public class OnboardingAuditController {
+public class AdminAuditController {
 
-    private final OnboardingAuditQueryService queryService;
+    private final AdminAuditQueryService queryService;
+
+    /* =====================================================
+       CURSOR QUERY
+       ===================================================== */
 
     @GetMapping
-    public ResponseEntity<OnboardingAuditCursorPageDTO> query(
+    public ResponseEntity<AdminAuditCursorPageDTO> query(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
@@ -38,13 +42,10 @@ public class OnboardingAuditController {
             String correlationId,
 
             @RequestParam(required = false)
-            String subjectId,
+            UUID actorUserId,
 
             @RequestParam(required = false)
             UUID tenantId,
-
-            @RequestParam(required = false)
-            UUID inviteId,
 
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
@@ -61,15 +62,18 @@ public class OnboardingAuditController {
                         from,
                         to,
                         correlationId,
-                        subjectId,
+                        actorUserId,
                         tenantId,
-                        inviteId,
                         cursorTimestamp,
                         cursorId,
                         size
                 )
         );
     }
+
+    /* =====================================================
+       VERIFY CHAIN
+       ===================================================== */
 
     @GetMapping("/verify")
     public ResponseEntity<AuditVerificationResultDTO> verify(
@@ -84,24 +88,37 @@ public class OnboardingAuditController {
             @RequestParam(required = false)
             UUID tenantId
     ) {
-        return ResponseEntity.ok(queryService.verify(from, to, tenantId));
+        return ResponseEntity.ok(
+                queryService.verify(from, to, tenantId)
+        );
     }
 
-    @GetMapping(value = "/export", produces = "application/x-ndjson")
+    /* =====================================================
+       FORENSIC EXPORT — JSONL
+       ===================================================== */
+
+    @GetMapping(value = "/export", produces = "application/json")
     public void exportJsonl(
             HttpServletResponse response,
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
+
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant to,
+
             @RequestParam(required = false)
             UUID tenantId
     ) {
-        response.setHeader(HttpHeaders.CONTENT_TYPE, "application/x-ndjson");
-        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"onboarding-audit-export.jsonl\"");
+
+        response.setContentType("application/json");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"admin-audit-export.jsonl\""
+        );
         response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
 
         queryService.streamForensicExportJsonl(response, from, to, tenantId);
     }

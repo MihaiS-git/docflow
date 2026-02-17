@@ -1,7 +1,7 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.domain.audit.UnauthenticatedAccessAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -59,7 +59,7 @@ public class UnauthenticatedAccessAuditController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<UnauthenticatedAccessAuditVerificationResultDTO> verify(
+    public ResponseEntity<AuditVerificationResultDTO> verify(
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,

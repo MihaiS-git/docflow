@@ -1,8 +1,7 @@
-// src/main/java/com/brutecx/docflow_backend/api/controller/audit/LifecycleDeniedAuditController.java
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.domain.audit.LifecycleDeniedAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -64,7 +63,7 @@ public class LifecycleDeniedAuditController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<LifecycleDeniedAuditVerificationResultDTO> verify(
+    public ResponseEntity<AuditVerificationResultDTO> verify(
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,

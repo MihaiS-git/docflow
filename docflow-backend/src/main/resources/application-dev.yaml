@@ -58,17 +58,14 @@ docflow:
     email: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
     first-name: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
     last-name: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
-audit:
-  canonical:
-    version: 1
-  chain:
-    enabled: true
-    # legacy (still supported)
-#    secret: ${AUDIT_CHAIN_SECRET:}
-    secret:
-      part-a: ${DOCFLOW_AUDIT_CHAIN_SECRET_PART_A:}
-      part-b-path: ${DOCFLOW_AUDIT_CHAIN_SECRET_PART_B_PATH:}
-
+  audit:
+    canonical:
+      version: 1
+    chain:
+      enabled: true
+      secret:
+        part-a: ${DOCFLOW_AUDIT_CHAIN_SECRET_PART_A:}
+        part-b-path: /run/secrets/audit_chain_part_b
   security:
     allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
     keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI:http://localhost:8085/realms/docflow/protocol/openid-connect/logout}

@@ -3,7 +3,7 @@ package com.brutecx.docflow_backend.domain.audit;
 import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.UnauthenticatedAccessAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -120,7 +120,7 @@ public class UnauthenticatedAccessAuditQueryService {
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public UnauthenticatedAccessAuditVerificationResultDTO verify(
+    public AuditVerificationResultDTO verify(
             Instant from,
             Instant to
     ) {
@@ -159,7 +159,7 @@ public class UnauthenticatedAccessAuditQueryService {
 
             if (batch.isEmpty()) {
                 recordMeta("AUDIT_VERIFY", buildScope("VERIFY", from, to, null));
-                return UnauthenticatedAccessAuditVerificationResultDTO.success(verified);
+                return AuditVerificationResultDTO.success(verified);
             }
 
             for (UnauthenticatedAccessAuditEvent e : batch.getContent()) {
@@ -169,7 +169,7 @@ public class UnauthenticatedAccessAuditQueryService {
 
                 if (!Objects.equals(lastHash, prev)) {
                     recordMeta("AUDIT_VERIFY", buildScope("VERIFY_CONTINUITY_MISMATCH", from, to, null));
-                    return UnauthenticatedAccessAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             e.getId(),
                             "CONTINUITY_MISMATCH_PREV_EVENT_HASH"
@@ -191,7 +191,7 @@ public class UnauthenticatedAccessAuditQueryService {
 
                     if (!Objects.equals(expected, current)) {
                         recordMeta("AUDIT_VERIFY", buildScope("VERIFY_EVENT_HASH_MISMATCH", from, to, null));
-                        return UnauthenticatedAccessAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 e.getId(),
                                 "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED"

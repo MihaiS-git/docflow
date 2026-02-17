@@ -3,7 +3,7 @@ package com.brutecx.docflow_backend.domain.audit;
 import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -57,7 +57,6 @@ public class RbacDeniedAuditQueryService {
 
     private final AuditChainService auditChainService;
     private final RbacDeniedCanonicalMaterialBuilder canonicalMaterialBuilder;
-    private final ObjectMapper objectMapper;
 
     /* =====================================================
        CURSOR QUERY – timestamp DESC, id DESC
@@ -126,7 +125,7 @@ public class RbacDeniedAuditQueryService {
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public RbacDeniedAuditVerificationResultDTO verify(
+    public AuditVerificationResultDTO verify(
             Instant from,
             Instant to
     ) {
@@ -162,7 +161,7 @@ public class RbacDeniedAuditQueryService {
             Page<RbacDeniedAuditEvent> batch = repository.findAll(spec, pageable);
             if (batch.isEmpty()) {
                 recordSensitiveAccess("VERIFY", "Verify RBAC denied audit stream (global)");
-                return RbacDeniedAuditVerificationResultDTO.success(verified);
+                return AuditVerificationResultDTO.success(verified);
             }
 
             for (RbacDeniedAuditEvent event : batch.getContent()) {
@@ -177,7 +176,7 @@ public class RbacDeniedAuditQueryService {
 
                     if (!Objects.equals(expectedPrev, actualPrev)) {
                         recordSensitiveAccess("VERIFY", "Verify RBAC denied audit stream (continuity mismatch)");
-                        return RbacDeniedAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "CONTINUITY_MISMATCH_PREV_EVENT_HASH partition=" + partition.partitionValue()
@@ -187,7 +186,7 @@ public class RbacDeniedAuditQueryService {
                     String storedEventHash = normalizeHash(event.getEventHash());
                     if ("-".equals(storedEventHash)) {
                         recordSensitiveAccess("VERIFY", "Verify RBAC denied audit stream (missing event hash)");
-                        return RbacDeniedAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "MISSING_EVENT_HASH_FOR_CHAINED_EVENT partition=" + partition.partitionValue()
@@ -207,7 +206,7 @@ public class RbacDeniedAuditQueryService {
 
                     if (!Objects.equals(expected, storedEventHash)) {
                         recordSensitiveAccess("VERIFY", "Verify RBAC denied audit stream (event hash mismatch)");
-                        return RbacDeniedAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "EVENT_HASH_MISMATCH partition=" + partition.partitionValue()

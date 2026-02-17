@@ -1,7 +1,7 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.CredentialLifecycleAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.CredentialLifecycleAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.domain.audit.CredentialLifecycleAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -68,7 +68,7 @@ public class CredentialLifecycleAuditController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<CredentialLifecycleAuditVerificationResultDTO> verify(
+    public ResponseEntity<AuditVerificationResultDTO> verify(
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,

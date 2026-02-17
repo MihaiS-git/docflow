@@ -3,7 +3,7 @@ package com.brutecx.docflow_backend.domain.audit;
 import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -132,7 +132,7 @@ public class OnboardingAuditQueryService {
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public OnboardingAuditVerificationResultDTO verify(
+    public AuditVerificationResultDTO verify(
             Instant from,
             Instant to,
             UUID tenantId
@@ -167,7 +167,7 @@ public class OnboardingAuditQueryService {
             Page<OnboardingAuditEvent> batch = repository.findAll(spec, pageable);
             if (batch.isEmpty()) {
                 recordSensitiveAccess(tenantId);
-                return OnboardingAuditVerificationResultDTO.success(verified);
+                return AuditVerificationResultDTO.success(verified);
             }
 
             for (OnboardingAuditEvent event : batch.getContent()) {
@@ -175,7 +175,7 @@ public class OnboardingAuditQueryService {
                 UUID eventTenantId = event.getTenantId();
                 if (eventTenantId == null) {
                     recordSensitiveAccess(tenantId);
-                    return OnboardingAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             event.getId(),
                             "MISSING_TENANT_ID"
@@ -192,7 +192,7 @@ public class OnboardingAuditQueryService {
 
                     if (!Objects.equals(expectedPrev, actualPrev)) {
                         recordSensitiveAccess(tenantId);
-                        return OnboardingAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "CONTINUITY_MISMATCH_PREV_EVENT_HASH tenantId=" + eventTenantId
@@ -202,7 +202,7 @@ public class OnboardingAuditQueryService {
                     String storedEventHash = normalizeHash(event.getEventHash());
                     if ("-".equals(storedEventHash)) {
                         recordSensitiveAccess(tenantId);
-                        return OnboardingAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "MISSING_EVENT_HASH_FOR_CHAINED_EVENT tenantId=" + eventTenantId
@@ -222,7 +222,7 @@ public class OnboardingAuditQueryService {
 
                     if (!Objects.equals(expectedHash, storedEventHash)) {
                         recordSensitiveAccess(tenantId);
-                        return OnboardingAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "EVENT_HASH_MISMATCH tenantId=" + eventTenantId

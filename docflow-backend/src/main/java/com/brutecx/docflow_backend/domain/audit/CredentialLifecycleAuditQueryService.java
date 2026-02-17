@@ -112,7 +112,7 @@ public class CredentialLifecycleAuditQueryService {
     /* ================= VERIFY ================= */
 
     @Transactional(readOnly = true)
-    public CredentialLifecycleAuditVerificationResultDTO verify(
+    public AuditVerificationResultDTO verify(
             Instant from,
             Instant to
     ) {
@@ -164,7 +164,7 @@ public class CredentialLifecycleAuditQueryService {
                         !Objects.equals(previousHash, normalizeHash(event.getPrevEventHash()))) {
 
                     recordMeta("AUDIT_VERIFY");
-                    return CredentialLifecycleAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             event.getId(),
                             "CONTINUITY_MISMATCH_PREV_EVENT_HASH"
@@ -185,7 +185,7 @@ public class CredentialLifecycleAuditQueryService {
                 if (!Objects.equals(expectedHash, event.getEventHash())) {
 
                     recordMeta("AUDIT_VERIFY");
-                    return CredentialLifecycleAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             event.getId(),
                             "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED"
@@ -201,7 +201,7 @@ public class CredentialLifecycleAuditQueryService {
         }
 
         recordMeta("AUDIT_VERIFY");
-        return CredentialLifecycleAuditVerificationResultDTO.success(verified);
+        return AuditVerificationResultDTO.success(verified);
     }
 
     /* ================= EXPORT JSONL ================= */

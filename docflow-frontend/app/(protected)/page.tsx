@@ -35,6 +35,12 @@ export default function Home() {
           </>
         )}
 
+        {identity?.roles.includes("AUDITOR") && (
+          <>
+            <a href="/console/audit">Audit</a>
+          </>
+        )}
+
         {isAuthenticated && (
           <div className="flex items-center gap-4">
             <button onClick={logout}>Logout</button>

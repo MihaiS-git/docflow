@@ -3,7 +3,7 @@ package com.brutecx.docflow_backend.domain.audit;
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AdminAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -118,7 +118,7 @@ public class AdminAuditQueryService {
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public AdminAuditVerificationResultDTO verify(
+    public AuditVerificationResultDTO verify(
             Instant from,
             Instant to,
             UUID tenantId
@@ -152,7 +152,7 @@ public class AdminAuditQueryService {
             Page<AdminAuditEvent> batch = repository.findAll(spec, pageable);
             if (batch.isEmpty()) {
                 recordSensitiveAccess(tenantId);
-                return AdminAuditVerificationResultDTO.success(verified);
+                return AuditVerificationResultDTO.success(verified);
             }
 
             for (AdminAuditEvent event : batch.getContent()) {
@@ -171,7 +171,7 @@ public class AdminAuditQueryService {
 
                     if (!Objects.equals(expectedPrev, actualPrev)) {
                         recordSensitiveAccess(tenantId);
-                        return AdminAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "CONTINUITY_MISMATCH_PREV_EVENT_HASH"
@@ -181,7 +181,7 @@ public class AdminAuditQueryService {
                     String storedHash = normalizeHash(event.getEventHash());
                     if ("-".equals(storedHash)) {
                         recordSensitiveAccess(tenantId);
-                        return AdminAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "MISSING_EVENT_HASH_FOR_CHAINED_EVENT"
@@ -201,7 +201,7 @@ public class AdminAuditQueryService {
 
                     if (!Objects.equals(expected, storedHash)) {
                         recordSensitiveAccess(tenantId);
-                        return AdminAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED"

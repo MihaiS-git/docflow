@@ -3,7 +3,7 @@ package com.brutecx.docflow_backend.domain.audit;
 import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.LifecycleDeniedAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -119,7 +119,7 @@ public class LifecycleDeniedAuditQueryService {
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public LifecycleDeniedAuditVerificationResultDTO verify(
+    public AuditVerificationResultDTO verify(
             Instant from,
             Instant to
     ) {
@@ -151,7 +151,7 @@ public class LifecycleDeniedAuditQueryService {
             Page<LifecycleDeniedAuditEvent> batch = repository.findAll(spec, pageable);
             if (batch.isEmpty()) {
                 recordSensitiveAccess();
-                return LifecycleDeniedAuditVerificationResultDTO.success(verified);
+                return AuditVerificationResultDTO.success(verified);
             }
 
             for (LifecycleDeniedAuditEvent event : batch.getContent()) {
@@ -164,7 +164,7 @@ public class LifecycleDeniedAuditQueryService {
 
                 if (event.getChainVersion() > 0 && !Objects.equals(expectedPrev, actualPrev)) {
                     recordSensitiveAccess();
-                    return LifecycleDeniedAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             event.getId(),
                             "CONTINUITY_MISMATCH_PREV_EVENT_HASH partition=" + partition.partitionValue()
@@ -186,7 +186,7 @@ public class LifecycleDeniedAuditQueryService {
 
                     if (!Objects.equals(expected, normalizeHash(event.getEventHash()))) {
                         recordSensitiveAccess();
-                        return LifecycleDeniedAuditVerificationResultDTO.failure(
+                        return AuditVerificationResultDTO.failure(
                                 verified,
                                 event.getId(),
                                 "EVENT_HASH_MISMATCH partition=" + partition.partitionValue()

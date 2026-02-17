@@ -1,9 +1,8 @@
-// src/main/java/com/brutecx/docflow_backend/api/controller/audit/AdminTenantAuditController.java
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditForensicDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AdminAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.domain.audit.AdminTenantAuditQueryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
@@ -180,7 +179,7 @@ public class AdminTenantAuditController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<AdminAuditVerificationResultDTO> verify(
+    public ResponseEntity<AuditVerificationResultDTO> verify(
             @PathVariable UUID tenantId,
 
             @RequestParam

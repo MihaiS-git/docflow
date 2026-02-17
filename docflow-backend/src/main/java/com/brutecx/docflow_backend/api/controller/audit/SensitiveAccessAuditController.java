@@ -1,7 +1,7 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.SensitiveAccessAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.domain.audit.SensitiveAccessAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -71,7 +71,7 @@ public class SensitiveAccessAuditController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<SensitiveAccessAuditVerificationResultDTO> verify(
+    public ResponseEntity<AuditVerificationResultDTO> verify(
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,

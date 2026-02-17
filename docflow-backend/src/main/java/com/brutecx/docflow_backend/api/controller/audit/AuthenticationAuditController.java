@@ -1,12 +1,12 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditCursorPageDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditVerificationResultDTO;
-import com.brutecx.docflow_backend.api.controller.audit.support.AuditExportSupport;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.domain.audit.AuthenticationAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -72,7 +72,7 @@ public class AuthenticationAuditController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<AuthenticationAuditVerificationResultDTO> verify(
+    public ResponseEntity<AuditVerificationResultDTO> verify(
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
@@ -84,7 +84,11 @@ public class AuthenticationAuditController {
         return ResponseEntity.ok(queryService.verify(from, to));
     }
 
-    @GetMapping(value = "/export", produces = AuditExportSupport.NDJSON)
+    /**
+     * JSONL export (NDJSON format).
+     * Content-Type changed to application/json to ensure proper browser download completion.
+     */
+    @GetMapping(value = "/export", produces = "application/json")
     public void exportJsonl(
             HttpServletResponse response,
             @RequestParam
@@ -95,11 +99,18 @@ public class AuthenticationAuditController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant to
     ) {
-        AuditExportSupport.prepareNdjson(response, "authentication-audit-export.jsonl");
+        response.setContentType("application/json");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"authentication-audit-export.jsonl\""
+        );
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+
         queryService.streamForensicExportJsonl(response, from, to);
     }
 
-    @GetMapping(value = "/export/csv", produces = AuditExportSupport.CSV)
+    @GetMapping(value = "/export/csv", produces = "text/csv")
     public void exportCsv(
             HttpServletResponse response,
             @RequestParam
@@ -110,7 +121,14 @@ public class AuthenticationAuditController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant to
     ) {
-        AuditExportSupport.prepareCsv(response, "authentication-audit-export.csv");
+        response.setContentType("text/csv");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"authentication-audit-export.csv\""
+        );
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+
         queryService.streamForensicExportCsv(response, from, to);
     }
 }

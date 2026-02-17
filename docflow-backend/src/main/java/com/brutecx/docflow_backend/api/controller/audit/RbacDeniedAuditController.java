@@ -1,9 +1,8 @@
-// src/main/java/com/brutecx/docflow_backend/api/controller/audit/RbacDeniedAuditController.java
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.RbacDeniedAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.domain.audit.RbacDeniedAuditQueryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
@@ -70,7 +69,7 @@ public class RbacDeniedAuditController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<RbacDeniedAuditVerificationResultDTO> verify(
+    public ResponseEntity<AuditVerificationResultDTO> verify(
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,

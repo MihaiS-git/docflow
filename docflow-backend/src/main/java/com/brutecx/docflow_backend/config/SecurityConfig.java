@@ -147,6 +147,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/users/me")
                         .access(authenticatedAuthorizationManager)
 
+                        // -------- BOOTSTRAP --------
+                        .requestMatchers("/api/bootstrap/**")
+                        .access(AuthorityAuthorizationManager.hasRole("ADMIN"))
+
                         // -------- ADMIN --------
                         .requestMatchers("/api/admin/**")
                         .access(AuthorizationManagers.allOf(

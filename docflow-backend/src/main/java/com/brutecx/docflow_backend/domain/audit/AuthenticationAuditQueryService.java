@@ -3,7 +3,7 @@ package com.brutecx.docflow_backend.domain.audit;
 import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditForensicExportDTO;
-import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
@@ -23,6 +23,8 @@ import com.brutecx.docflow_backend.domain.user.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -33,7 +35,6 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
-import java.util.function.Consumer;
 
 @Service
 @RequiredArgsConstructor
@@ -62,6 +63,9 @@ public class AuthenticationAuditQueryService {
     private final AuditChainService auditChainService;
     private final AuthenticationCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final ObjectMapper objectMapper;
+
+    private static final Logger log = LoggerFactory.getLogger(AuthenticationAuditQueryService.class);
+
 
     /* =====================================================
        CURSOR QUERY – timestamp DESC, id DESC
@@ -134,7 +138,7 @@ public class AuthenticationAuditQueryService {
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public AuthenticationAuditVerificationResultDTO verify(Instant from, Instant to) {
+    public AuditVerificationResultDTO verify(Instant from, Instant to) {
 
         validateRangeRequired(from, to);
 
@@ -173,7 +177,7 @@ public class AuthenticationAuditQueryService {
                         !Objects.equals(previousHash, normalizeHash(e.getPrevEventHash()))) {
 
                     recordMeta("AUDIT_VERIFY");
-                    return AuthenticationAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             e.getId(),
                             "CONTINUITY_MISMATCH_PREV_EVENT_HASH partition=" + partition.partitionValue()
@@ -210,7 +214,7 @@ public class AuthenticationAuditQueryService {
                 if (!Objects.equals(expectedHash, e.getEventHash())) {
 
                     recordMeta("AUDIT_VERIFY");
-                    return AuthenticationAuditVerificationResultDTO.failure(
+                    return AuditVerificationResultDTO.failure(
                             verified,
                             e.getId(),
                             "EVENT_HASH_MISMATCH_RECOMPUTED_VS_STORED partition=" + partition.partitionValue()
@@ -227,7 +231,7 @@ public class AuthenticationAuditQueryService {
         }
 
         recordMeta("AUDIT_VERIFY");
-        return AuthenticationAuditVerificationResultDTO.success(verified);
+        return AuditVerificationResultDTO.success(verified);
     }
 
     /* =====================================================
@@ -269,6 +273,9 @@ public class AuthenticationAuditQueryService {
         Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
         Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
 
+        // Smaller buffer helps flush earlier through proxies/clients.
+        response.setBufferSize(16 * 1024);
+
         try (PrintWriter w = new PrintWriter(new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
 
             if (csv) {
@@ -291,6 +298,8 @@ public class AuthenticationAuditQueryService {
                         "prevEventHash",
                         "eventHash"
                 ));
+                w.flush();
+                response.flushBuffer();
             }
 
             while (true) {
@@ -308,17 +317,27 @@ public class AuthenticationAuditQueryService {
 
                 for (AuthenticationEvent e : page.getContent()) {
 
-                    if (csv) {
-                        writeCsvLine(w, e);
-                    } else {
-                        AuthenticationAuditForensicExportDTO dto = AuthenticationAuditForensicExportDTO.from(e);
-                        w.println(objectMapper.writeValueAsString(dto));
+                    try {
+                        if (csv) {
+                            writeCsvLine(w, e);
+                        } else {
+                            AuthenticationAuditForensicExportDTO dto = AuthenticationAuditForensicExportDTO.from(e);
+                            w.println(objectMapper.writeValueAsString(dto));
+                        }
+                    } catch (Exception ex) {
+                        // If we haven't committed yet, reset so the client gets a proper 500 instead of a broken download.
+                        if (!response.isCommitted()) {
+                            response.resetBuffer();
+                        }
+                        log.error("Authentication export failed at eventId={} csv={}", e.getId(), csv, ex);
+                        throw ex;
                     }
 
                     exported++;
                     if (exported >= EXPORT_MAX_ROWS) {
                         recordMeta("AUDIT_EXPORT");
                         w.flush();
+                        response.flushBuffer();
                         return;
                     }
 
@@ -326,13 +345,17 @@ public class AuthenticationAuditQueryService {
                     cursorId = e.getId();
                 }
 
+                // Critical for long downloads: flush each batch so proxies/clients see progress.
+                w.flush();
+                response.flushBuffer();
+
                 if (!page.hasNext()) break;
                 pageable = page.nextPageable();
             }
 
             recordMeta("AUDIT_EXPORT");
             w.flush();
-
+            response.flushBuffer();
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to stream authentication export", ex);
         }
@@ -404,10 +427,10 @@ public class AuthenticationAuditQueryService {
 
     private AuditPartition resolvePartition(AuthenticationEvent e) {
         if (hasText(e.getSubjectId())) {
-            return AuditPartition.subject(STREAM, "SUBJECT:" + e.getSubjectId().trim());
+            return AuditPartition.subject(STREAM, e.getSubjectId().trim());
         }
         if (hasText(e.getUsername())) {
-            return AuditPartition.subject(STREAM, "USERNAME:" + e.getUsername().trim().toLowerCase(Locale.ROOT));
+            return AuditPartition.subject(STREAM, e.getUsername().trim().toLowerCase(Locale.ROOT));
         }
         return AuditPartition.subject(STREAM, PARTITION_ANON);
     }
