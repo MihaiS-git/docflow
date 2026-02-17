@@ -1,6 +1,8 @@
 secrets:
   soc_password:
     file: ./secrets/soc_password.txt
+  audit_chain_part_b:
+    file: ./secrets/audit_chain_part_b.txt
 services:
   nginx:
     image: nginx:1.27-alpine
@@ -84,8 +86,12 @@ services:
       DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
       DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
 
-      AUDIT_CHAIN_SECRET: ${AUDIT_CHAIN_SECRET}
-      
+      # --- Audit Chain Secret ---
+      DOCFLOW_AUDIT_CHAIN_SECRET_PART_A: ${DOCFLOW_AUDIT_CHAIN_SECRET_PART_A}
+      DOCFLOW_AUDIT_CHAIN_SECRET_PART_B_PATH: /run/secrets/audit_chain_part_b
+    
+    secrets:
+      - audit_chain_part_b
     networks:
       - edge_net
       - app_net
@@ -133,6 +139,8 @@ services:
       - app_net
     volumes:
       - ./postgres/scripts/apply-audit-grants.sh:/apply-audit-grants.sh:ro
+    tmpfs:
+      - /var/lib/postgresql/data
     entrypoint: ["/bin/sh", "/apply-audit-grants.sh"]
     restart: "no"
 
