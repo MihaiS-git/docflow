@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -75,8 +76,11 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                 correlationId
         );
 
+        Instant eventTimestamp = Instant.now();
+
         String canonicalMaterial = canonicalMaterialBuilder.buildCanonicalMaterial(
                 new AdminAuditCanonicalMaterialBuilder.Input(
+                        eventTimestamp,
                         actorUserId,
                         subjectId,
                         tenantId,
@@ -96,7 +100,6 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
 
         AuditPartition partition =
                 AuditPartition.tenant(STREAM, tenantId.toString());
-
         try {
 
             AuditChainService.ChainHash chain =
@@ -106,6 +109,7 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                     );
 
             repository.save(new AdminAuditEvent(
+                    eventTimestamp,
                     actorUserId,
                     ctx.ip(),
                     ctx.userAgent(),

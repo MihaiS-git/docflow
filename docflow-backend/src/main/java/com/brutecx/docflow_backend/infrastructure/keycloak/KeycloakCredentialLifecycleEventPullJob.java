@@ -2,6 +2,7 @@ package com.brutecx.docflow_backend.infrastructure.keycloak;
 
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.credential.*;
+import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -28,12 +29,14 @@ import java.util.List;
 public class KeycloakCredentialLifecycleEventPullJob {
 
     private static final String CHECKPOINT_ID = "KEYCLOAK_CREDENTIAL_EVENTS";
+    private static final String STREAM = CredentialLifecycleCanonicalMaterialBuilder.STREAM;
 
     private final KeycloakAdminClient keycloak;
     private final KeycloakEventCheckpointRepository checkpointRepo;
     private final CredentialLifecycleAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final CredentialLifecycleCanonicalMaterialBuilder canonicalBuilder;
+    private final AuditWriteFailureMetrics metrics;
 
     @Scheduled(
             initialDelayString = "${docflow.security.keycloak.admin.initial-delay-ms:30000}",
@@ -51,7 +54,6 @@ public class KeycloakCredentialLifecycleEventPullJob {
                 keycloak.fetchEvents(since);
 
         for (var e : events) {
-
             CredentialLifecycleEventType type = mapEventType(e);
             if (type == CredentialLifecycleEventType.UNKNOWN) {
                 continue;
@@ -76,17 +78,13 @@ public class KeycloakCredentialLifecycleEventPullJob {
             }
 
             String fingerprint = EventFingerprint.of(List.of(
-                    "CREDENTIAL",
+                    STREAM,
                     type.name(),
                     e.userId(),
                     e.clientId(),
                     sessionId,
                     String.valueOf(e.time())
             ));
-
-            /*
-             * GOLD: use canonical builder Input directly.
-             */
 
             CredentialLifecycleCanonicalMaterialBuilder.Input input =
                     new CredentialLifecycleCanonicalMaterialBuilder.Input(
@@ -98,7 +96,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             type,
                             extractRequiredAction(e),
                             correlationId,
-                            correlationSource != null ? correlationSource.name() : null,
+                            correlationSource.name(),
                             ExecutionContext.SCHEDULED_JOB.name(),
                             AuditResult.SUCCESS.name(),
                             "CREDENTIAL_" + type.name(),
@@ -111,41 +109,56 @@ public class KeycloakCredentialLifecycleEventPullJob {
 
             AuditPartition partition =
                     (e.userId() != null && !e.userId().isBlank())
-                            ? AuditPartition.subject(canonicalBuilder.stream(), e.userId())
-                            : AuditPartition.global(canonicalBuilder.stream());
-
-            AuditChainService.ChainHash chain =
-                    auditChainService.nextHash(
-                            partition,
-                            canonicalMaterial
-                    );
-
-            CredentialLifecycleAuditEvent entity =
-                    new CredentialLifecycleAuditEvent(
-                            input.timestamp(),
-                            input.subjectExternalId(),
-                            input.clientId(),
-                            input.sessionId(),
-                            input.ip(),
-                            input.eventType(),
-                            input.requiredAction(),
-                            input.correlationId(),
-                            CorrelationSource.valueOf(input.correlationSource()),
-                            ExecutionContext.valueOf(input.executionContext()),
-                            AuditResult.valueOf(input.result()),
-                            input.reasonCode(),
-                            input.reasonDetail(),
-                            input.fingerprint(),
-                            chain.chainVersion(),
-                            chain.prevHash(),
-                            chain.eventHash()
-                    );
+                            ? AuditPartition.subject(STREAM, e.userId())
+                            : AuditPartition.global(STREAM);
 
             try {
+                AuditChainService.ChainHash chain =
+                        auditChainService.nextHash(partition, canonicalMaterial);
+
+                CredentialLifecycleAuditEvent entity =
+                        new CredentialLifecycleAuditEvent(
+                                input.timestamp(),
+                                input.subjectExternalId(),
+                                input.clientId(),
+                                input.sessionId(),
+                                input.ip(),
+                                input.eventType(),
+                                input.requiredAction(),
+                                input.correlationId(),
+                                CorrelationSource.valueOf(input.correlationSource()),
+                                ExecutionContext.valueOf(input.executionContext()),
+                                AuditResult.valueOf(input.result()),
+                                input.reasonCode(),
+                                input.reasonDetail(),
+                                input.fingerprint(),
+                                chain.chainVersion(),
+                                chain.prevHash(),
+                                chain.eventHash()
+                        );
+
                 repository.save(entity);
                 maxTime = Math.max(maxTime, e.time());
             } catch (DataIntegrityViolationException ignored) {
-                // idempotency: fingerprint unique constraint
+                log.debug(
+                        "CREDENTIAL AUDIT DEDUPLICATED userId={} type={} correlationId={}",
+                        e.userId(),
+                        type,
+                        correlationId
+                );
+            } catch (Exception ex) {
+                metrics.increment(
+                        STREAM,
+                        ExecutionContext.SCHEDULED_JOB.name(),
+                        ex
+                );
+                log.error(
+                        "CREDENTIAL AUDIT FAILURE userId={} type={} correlationId={}",
+                        e.userId(),
+                        type,
+                        correlationId,
+                        ex
+                );
             }
         }
 

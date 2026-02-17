@@ -133,7 +133,7 @@ public class RbacDeniedAuditEvent {
     @PrePersist
     protected void onCreate() {
         if (this.timestamp == null) {
-            this.timestamp = Instant.now();
+            throw new IllegalStateException("RbacDeniedAuditEvent timestamp must be set by audit writer before persist");
         }
         if (this.prevEventHash == null) {
             this.prevEventHash = "-";

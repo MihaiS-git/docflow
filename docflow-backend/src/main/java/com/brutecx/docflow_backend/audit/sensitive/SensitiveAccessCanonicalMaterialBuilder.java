@@ -10,7 +10,6 @@ import java.util.UUID;
 
 /**
  * STRICT GOLD canonical material builder for SENSITIVE_ACCESS stream.
- *
  * Used by writer + verifier.
  * Entity->Input mapping is the single source of truth.
  * Versioned.

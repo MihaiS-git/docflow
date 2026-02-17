@@ -127,4 +127,11 @@ public class CredentialLifecycleAuditEvent {
         this.prevEventHash = prevEventHash;
         this.eventHash = eventHash;
     }
+
+    @PrePersist
+    private void prePersist() {
+        if(this.timestamp == null) {
+            throw new IllegalStateException("CredentialLifecycleAuditEvent timestamp must be set by writer before persist");
+        }
+    }
 }

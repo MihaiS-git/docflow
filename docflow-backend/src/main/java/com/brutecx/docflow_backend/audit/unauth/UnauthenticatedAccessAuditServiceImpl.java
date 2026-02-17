@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.unauth;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
+import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -32,6 +33,7 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
     private final UnauthenticatedAccessCanonicalMaterialBuilder canonicalBuilder;
+    private final AuditWriteFailureMetrics metrics;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -48,6 +50,8 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
         String resolvedMethod = normalizeOr(httpMethod, "UNKNOWN");
         String resolvedPath = normalizeOr(path, "UNKNOWN");
 
+        Instant eventTimestamp = Instant.now();
+
         String fingerprint =
                 (eventFingerprint != null && !eventFingerprint.isBlank())
                         ? eventFingerprint
@@ -55,21 +59,17 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                         STREAM,
                         resolvedMethod,
                         resolvedPath,
-                        correlationId
+                        correlationId,
+                        String.valueOf(eventTimestamp.toEpochMilli())
                 ));
 
         CorrelationSource correlationSource = resolveCorrelationSource();
         ExecutionContext executionContext = ExecutionContext.HTTP;
         AuditResult auditResult = AuditResult.FAILED;
 
-        Instant ts = Instant.now();
-
-        /*
-         * Build canonical input using STRICT GOLD builder model
-         */
         UnauthenticatedAccessCanonicalMaterialBuilder.Input canonicalInput =
                 new UnauthenticatedAccessCanonicalMaterialBuilder.Input(
-                        ts,
+                        eventTimestamp,
                         correlationId,
                         correlationSource.name(),
                         executionContext.name(),
@@ -84,15 +84,9 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
         String canonicalMaterial =
                 canonicalBuilder.buildCanonicalMaterial(canonicalInput);
 
-        /*
-         * Partition rule:
-         * UnauthenticatedAccess → GLOBAL
-         * CorrelationId must NEVER be used as partition.
-         */
         AuditPartition partition = AuditPartition.global(STREAM);
 
         try {
-
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
                             partition,
@@ -100,7 +94,7 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                     );
 
             repository.saveAndFlush(new UnauthenticatedAccessAuditEvent(
-                    ts,
+                    eventTimestamp,
                     correlationId,
                     correlationSource,
                     executionContext,
@@ -114,23 +108,26 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                     chain.prevHash(),
                     chain.eventHash()
             ));
-
-        } catch (DataIntegrityViolationException ex) {
+        } catch (DataIntegrityViolationException ignored) {
             log.debug(
-                    "UNAUTH AUDIT DEDUPLICATED correlationId={} method={} path={}",
+                    "UNAUTH_AUDIT_DEDUP correlationId={} method={} path={}",
                     correlationId,
                     resolvedMethod,
                     resolvedPath
             );
         } catch (Exception ex) {
+            metrics.increment(
+                    STREAM,
+                    ExecutionContext.HTTP.name(),
+                    ex
+            );
             log.error(
-                    "UNAUTH AUDIT FAILURE correlationId={} method={} path={}",
+                    "UNAUTH_AUDIT_WRITE_FAILED correlationId={} method={} path={}",
                     correlationId,
                     resolvedMethod,
                     resolvedPath,
                     ex
             );
-            throw ex;
         }
     }
 

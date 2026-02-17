@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.lifecycle;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
+import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +33,7 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
     private final AuditRequestContextExtractor contextExtractor;
     private final LifecycleDeniedCanonicalMaterialBuilder canonicalBuilder;
     private final AuditChainService auditChainService;
+    private final AuditWriteFailureMetrics metrics;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -41,7 +44,6 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
             String path,
             String eventFingerprint
     ) {
-
         ensureHttpContext();
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
@@ -52,6 +54,8 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
         String resolvedMethod = normalizeOr(httpMethod, "UNKNOWN");
         String resolvedPath = normalizeOr(path, "UNKNOWN");
 
+        Instant eventTimestamp = Instant.now();
+
         String fingerprint =
                 (eventFingerprint != null && !eventFingerprint.isBlank())
                         ? eventFingerprint
@@ -61,25 +65,17 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                         resolvedReason,
                         resolvedMethod,
                         resolvedPath,
-                        correlationId
+                        correlationId,
+                        String.valueOf(eventTimestamp.toEpochMilli())
                 ));
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        /*
-         * Canonical material must mirror verifier mapping.
-         * Timestamp must match entity timestamp semantics.
-         * Since entity sets timestamp in @PrePersist,
-         * we use Instant.now() for canonical material.
-         */
-
-        Instant now = Instant.now();
-
         LifecycleDeniedCanonicalMaterialBuilder.Input input =
                 new LifecycleDeniedCanonicalMaterialBuilder.Input(
-                        now,
+                        eventTimestamp,
                         correlationId,
-                        correlationSource != null ? correlationSource.name() : null,
+                        correlationSource.name(),
                         ExecutionContext.HTTP.name(),
                         AuditResult.DENIED.name(),
                         resolvedSubject,
@@ -99,13 +95,12 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                         ? AuditPartition.subject(STREAM, resolvedSubject.trim())
                         : AuditPartition.global(STREAM);
 
-        AuditChainService.ChainHash chain =
-                auditChainService.nextHash(
-                        partition,
-                        canonicalMaterial
-                );
-
         try {
+            AuditChainService.ChainHash chain =
+                    auditChainService.nextHash(
+                            partition,
+                            canonicalMaterial
+                    );
 
             repository.save(new LifecycleDeniedAuditEvent(
                     correlationId,
@@ -123,9 +118,18 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                     chain.prevHash(),
                     chain.eventHash()
             ));
-
+        } catch (DataIntegrityViolationException ignored) {
+            log.debug(
+                    "LIFECYCLE_DENIED_AUDIT_DEDUP correlationId={} subjectId={}",
+                    correlationId,
+                    resolvedSubject
+            );
         } catch (Exception ex) {
-
+            metrics.increment(
+                    STREAM,
+                    ExecutionContext.HTTP.name(),
+                    ex
+            );
             log.error(
                     "LIFECYCLE_DENIED_AUDIT_WRITE_FAILED correlationId={} subjectId={} reasonCode={} method={} path={}",
                     correlationId,
@@ -135,8 +139,6 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                     resolvedPath,
                     ex
             );
-
-            throw ex;
         }
     }
 

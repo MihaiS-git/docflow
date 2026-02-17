@@ -176,4 +176,11 @@ public class SensitiveAccessAuditEvent {
         this.prevEventHash = prevEventHash;
         this.eventHash = eventHash;
     }
+
+    @PrePersist
+    private void prePersist() {
+        if(this.timestamp == null) {
+            throw new IllegalStateException("SensitiveAccessAuditEvent timestamp must be set by audit writer before persist");
+        }
+    }
 }

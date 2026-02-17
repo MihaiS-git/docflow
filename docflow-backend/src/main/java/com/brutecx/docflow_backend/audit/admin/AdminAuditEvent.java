@@ -107,6 +107,7 @@ public class AdminAuditEvent {
     private String eventHash;
 
     public AdminAuditEvent(
+            Instant timestamp,
             UUID actorUserId,
             String ip,
             String userAgent,
@@ -124,6 +125,7 @@ public class AdminAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
+        this.timestamp = timestamp;
         this.actorUserId = actorUserId;
         this.ip = ip;
         this.userAgent = userAgent;
@@ -145,7 +147,7 @@ public class AdminAuditEvent {
     @PrePersist
     private void prePersist() {
         if (this.timestamp == null) {
-            this.timestamp = Instant.now();
+            throw new IllegalStateException("AdminAuditEvent timestamp must be set by writer before persist");
         }
     }
 }

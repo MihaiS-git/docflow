@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.rbac;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
+import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -31,6 +32,7 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
     private final AuditRequestContextExtractor contextExtractor;
     private final RbacDeniedCanonicalMaterialBuilder canonicalBuilder;
     private final AuditChainService auditChainService;
+    private final AuditWriteFailureMetrics writeFailureMetrics; // ✅ ADDED
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -63,19 +65,13 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
         CorrelationSource correlationSource = resolveCorrelationSource();
         Instant eventTimestamp = Instant.now();
 
-        /*
-         * IMPORTANT:
-         * Canonical material must use the SAME mapping semantics as verifier.
-         * So we construct an Input via canonicalBuilder Input record directly.
-         */
-
         RbacDeniedCanonicalMaterialBuilder.Input input =
                 new RbacDeniedCanonicalMaterialBuilder.Input(
                         eventTimestamp,
                         correlationId,
                         correlationSource != null ? correlationSource.name() : null,
-                        ExecutionContext.HTTP != null ? ExecutionContext.HTTP.name() : null,
-                        AuditResult.DENIED != null ? AuditResult.DENIED.name() : null,
+                        ExecutionContext.HTTP.name(),
+                        AuditResult.DENIED.name(),
                         resolvedSubject,
                         resolvedMethod,
                         resolvedPath,
@@ -87,11 +83,6 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
         String canonicalMaterial =
                 canonicalBuilder.buildCanonicalMaterial(input);
 
-        /*
-         * Partition rules:
-         * SUBJECT if meaningful
-         * GLOBAL otherwise
-         */
         AuditPartition partition =
                 (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank())
                         ? AuditPartition.subject(STREAM, resolvedSubject.trim())
@@ -121,6 +112,12 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
                     chain.eventHash()
             ));
         } catch (Exception ex) {
+            // ✅ METRIC INCREMENT (non-blocking instrumentation)
+            writeFailureMetrics.increment(
+                    STREAM,
+                    ExecutionContext.HTTP.name(),
+                    ex
+            );
             log.error(
                     "RBAC_DENIED_AUDIT_WRITE_FAILED correlationId={} subjectId={} method={} path={}",
                     correlationId,

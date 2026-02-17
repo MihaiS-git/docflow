@@ -99,12 +99,8 @@ public class OnboardingAuditEvent {
     @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
     private String eventHash;
 
-    @PrePersist
-    void prePersist() {
-        this.timestamp = Instant.now();
-    }
-
     public OnboardingAuditEvent(
+            Instant timestamp,
             UUID actorUserId,
             String subjectId,
             UUID tenantId,
@@ -123,6 +119,7 @@ public class OnboardingAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
+        this.timestamp = timestamp;
         this.actorUserId = actorUserId;
         this.subjectId = subjectId;
         this.tenantId = tenantId;
@@ -140,5 +137,13 @@ public class OnboardingAuditEvent {
         this.chainVersion = chainVersion;
         this.prevEventHash = prevEventHash;
         this.eventHash = eventHash;
+    }
+
+
+    @PrePersist
+    void prePersist() {
+        if(this.timestamp == null) {
+            throw new IllegalStateException("CredentialLifecycleAuditEvent timestamp must be set by writer before persist");
+        }
     }
 }

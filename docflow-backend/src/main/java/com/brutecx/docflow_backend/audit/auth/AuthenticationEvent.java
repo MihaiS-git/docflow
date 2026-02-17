@@ -139,7 +139,7 @@ public class AuthenticationEvent {
     @PrePersist
     private void prePersist() {
         if (this.timestamp == null) {
-            this.timestamp = Instant.now();
+            throw new IllegalStateException("AuthenticationEvent timestamp must be set by writer before persist");
         }
         if (this.subjectId == null || this.subjectId.isBlank()) {
             this.subjectId = "UNKNOWN";

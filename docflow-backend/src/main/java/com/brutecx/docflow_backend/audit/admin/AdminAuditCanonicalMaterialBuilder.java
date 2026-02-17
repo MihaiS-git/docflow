@@ -6,6 +6,7 @@ import com.brutecx.docflow_backend.audit.canonical.CanonicalJsonService;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -48,6 +49,7 @@ public final class AdminAuditCanonicalMaterialBuilder
      * Any structural change requires canonical version bump.
      */
     public record Input(
+            Instant timestamp,
             UUID actorUserId,
             String subjectId,
             UUID tenantId,
@@ -67,6 +69,7 @@ public final class AdminAuditCanonicalMaterialBuilder
         Objects.requireNonNull(event, "event must not be null");
 
         return new Input(
+                event.getTimestamp(),
                 event.getActorUserId(),
                 event.getSubjectId(),
                 event.getTenantId(),
@@ -81,8 +84,8 @@ public final class AdminAuditCanonicalMaterialBuilder
 
     @Override
     public String buildCanonicalMaterial(Input in) {
-
         Objects.requireNonNull(in, "canonical input must not be null");
+        Objects.requireNonNull(in.timestamp(), "timestamp must not be null");
         Objects.requireNonNull(in.actionType(), "actionType must not be null");
         Objects.requireNonNull(in.result(), "result must not be null");
 
@@ -91,6 +94,8 @@ public final class AdminAuditCanonicalMaterialBuilder
         return String.join("|",
                 "cv=" + cv,
                 "stream=" + STREAM,
+
+                "timestamp=" + in.timestamp().toEpochMilli(),
 
                 "actorUserId=" + normalize(in.actorUserId()),
                 "subjectId=" + normalize(in.subjectId()),

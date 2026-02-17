@@ -90,8 +90,4 @@ public class AuditChainService {
 
         return new ChainHash(prev, eventHash, version);
     }
-
-    private static String normalizeTenant(String tenantIdOrNull) {
-        return (tenantIdOrNull == null || tenantIdOrNull.isBlank()) ? "NULL" : tenantIdOrNull;
-    }
 }

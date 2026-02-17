@@ -10,7 +10,6 @@ import java.util.UUID;
 
 /**
  * STRICT GOLD canonical material builder for ONBOARDING stream.
- *
  * RULES:
  *  - Single canonical definition per stream.
  *  - Used by writer + verifier.

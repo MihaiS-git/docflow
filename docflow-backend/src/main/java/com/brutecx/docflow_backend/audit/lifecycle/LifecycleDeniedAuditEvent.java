@@ -178,7 +178,7 @@ public class LifecycleDeniedAuditEvent {
     @PrePersist
     protected void onCreate() {
         if (this.timestamp == null) {
-            this.timestamp = Instant.now();
+            throw new IllegalStateException("LifecycleDeniedAuditEvent timestamp  must be set by writer before persist");
         }
         if (this.prevEventHash == null) {
             this.prevEventHash = "-";

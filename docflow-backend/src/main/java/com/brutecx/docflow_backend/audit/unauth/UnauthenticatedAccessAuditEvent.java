@@ -119,7 +119,7 @@ public class UnauthenticatedAccessAuditEvent {
     @PrePersist
     void prePersist() {
         if (this.timestamp == null) {
-            this.timestamp = Instant.now();
+            throw new IllegalStateException("UnauthenticatedAccessAuditEvent timestamp must be set by audit writer before persist");
         }
     }
 }

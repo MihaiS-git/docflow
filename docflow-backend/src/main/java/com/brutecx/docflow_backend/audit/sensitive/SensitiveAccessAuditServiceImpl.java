@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.sensitive;
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
+import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -34,6 +35,7 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
     private final SensitiveAccessCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final AuditWriteFailureMetrics metrics;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -76,6 +78,8 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
                         ? dataClassification
                         : SensitiveDataClassification.INTERNAL;
 
+        Instant eventTimestamp = Instant.now();
+
         String fingerprint =
                 (eventFingerprint != null && !eventFingerprint.isBlank())
                         ? eventFingerprint
@@ -90,18 +94,15 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
                         resolvedPath,
                         resolvedReason,
                         classification.name(),
-                        correlationId
+                        correlationId,
+                        String.valueOf(eventTimestamp.toEpochMilli())
                 ));
 
         CorrelationSource correlationSource = resolveCorrelationSource();
 
-        // One timestamp used consistently (canonical + persisted row)
-        Instant now = Instant.now();
-
-        // 1) Build canonical builder Input directly (no extra canonical-input type, no fromInput needed)
         SensitiveAccessCanonicalMaterialBuilder.Input canonicalInput =
                 new SensitiveAccessCanonicalMaterialBuilder.Input(
-                        now,
+                        eventTimestamp,
 
                         actorUserId,
                         actorExternalSubjectId,
@@ -114,7 +115,7 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
                         resolvedPath,
 
                         correlationId,
-                        (correlationSource != null ? correlationSource.name() : null),
+                        correlationSource.name(),
                         ExecutionContext.HTTP.name(),
                         AuditResult.SUCCESS.name(),
                         ctx.ip(),
@@ -143,7 +144,7 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
 
             SensitiveAccessAuditEvent entity =
                     new SensitiveAccessAuditEvent(
-                            now,
+                            eventTimestamp,
 
                             actorUserId,
                             actorExternalSubjectId,
@@ -175,19 +176,30 @@ public class SensitiveAccessAuditServiceImpl implements ISensitiveAccessAuditSer
 
             repository.saveAndFlush(entity);
 
-        } catch (DataIntegrityViolationException ex) {
+        } catch (DataIntegrityViolationException ignored) {
+
             log.debug(
-                    "SensitiveAccessAudit deduplicated correlationId={} fingerprint={}",
+                    "SENSITIVE_ACCESS_AUDIT_DEDUP correlationId={} fingerprint={}",
                     correlationId,
                     fingerprint
             );
+
         } catch (Exception ex) {
-            log.error(
-                    "SensitiveAccessAudit failure correlationId={}",
-                    correlationId,
+
+            metrics.increment(
+                    STREAM,
+                    ExecutionContext.HTTP.name(),
                     ex
             );
-            throw ex;
+
+            log.error(
+                    "SENSITIVE_ACCESS_AUDIT_WRITE_FAILED correlationId={} tenantId={}",
+                    correlationId,
+                    tenantId,
+                    ex
+            );
+
+            // business flow continues
         }
     }
 

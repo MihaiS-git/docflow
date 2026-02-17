@@ -4,6 +4,7 @@ import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.identity.IUserIdentityProjectionService;
+import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
@@ -38,6 +39,7 @@ public class AuthenticationEventListener {
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
     private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final AuditWriteFailureMetrics metrics;
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
@@ -90,7 +92,6 @@ public class AuthenticationEventListener {
                 correlationId
         ));
 
-        // 🔒 STRICT GOLD: Build canonical input for builder
         AuthenticationAuditCanonicalMaterialBuilder.Input canonicalInput =
                 new AuthenticationAuditCanonicalMaterialBuilder.Input(
                         eventTime,
@@ -115,7 +116,6 @@ public class AuthenticationEventListener {
                 AuditPartition.subject(STREAM, subjectId);
 
         try {
-
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(partition, canonicalMaterial);
 
@@ -137,7 +137,6 @@ public class AuthenticationEventListener {
                     chain.prevHash(),
                     chain.eventHash()
             ));
-
         } catch (DataIntegrityViolationException ex) {
             log.debug(
                     "AUTH AUDIT DEDUPLICATED result={} username={} correlationId={}",
@@ -146,6 +145,11 @@ public class AuthenticationEventListener {
                     correlationId
             );
         } catch (Exception ex) {
+            metrics.increment(
+                    STREAM,
+                    ExecutionContext.AUTH_FLOW.name(),
+                    ex
+            );
             log.error(
                     "AUTH AUDIT FAILURE result={} username={} correlationId={}",
                     result,
@@ -153,7 +157,6 @@ public class AuthenticationEventListener {
                     correlationId,
                     ex
             );
-            throw ex;
         }
     }
 
