@@ -9,5 +9,5 @@ public record LifecycleDeniedAuditCursorPageDTO(
         boolean hasMore,
         Instant nextCursorTimestamp,
         UUID nextCursorId
-) {
+) implements BaseAuditCursorPageDTO<LifecycleDeniedAuditDTO> {
 }

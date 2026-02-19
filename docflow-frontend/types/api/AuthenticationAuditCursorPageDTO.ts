@@ -1,4 +1,4 @@
-import { AuthenticationAuditRow } from "./auditApi";
+import { AuthenticationAuditRow } from "./AuthenticationAuditRow";
 
 export type AuthenticationAuditCursorPageDTO = {
   items: AuthenticationAuditRow[];

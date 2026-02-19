@@ -10,7 +10,7 @@ import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import java.time.Instant;
 import java.util.UUID;
 
-public record AdminAuditDTO(
+public record AdminAuditDTO (
         UUID id,
         Instant timestamp,
         UUID actorUserId,
@@ -29,7 +29,7 @@ public record AdminAuditDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditDTO {
     public static AdminAuditDTO from(AdminAuditEvent event) {
         return new AdminAuditDTO(
                 event.getId(),

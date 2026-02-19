@@ -24,7 +24,7 @@ public record RbacDeniedAuditForensicExportDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditForensicExportDTO {
 
     public static RbacDeniedAuditForensicExportDTO from(RbacDeniedAuditEvent e) {
         return new RbacDeniedAuditForensicExportDTO(

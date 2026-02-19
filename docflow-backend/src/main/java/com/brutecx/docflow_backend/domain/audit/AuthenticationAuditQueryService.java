@@ -277,7 +277,7 @@ public class AuthenticationAuditQueryService {
                 GoldAuditSupport.csv(e.getCorrelationId()),
                 GoldAuditSupport.csv(e.getCorrelationSource()),
                 GoldAuditSupport.csv(e.getExecutionContext()),
-                GoldAuditSupport.csv(e.getAuditResult()),
+                GoldAuditSupport.csv(e.getResult()),
                 GoldAuditSupport.csv(e.getEventFingerprint()),
                 GoldAuditSupport.csv(e.getChainVersion()),
                 GoldAuditSupport.csv(e.getPrevEventHash()),

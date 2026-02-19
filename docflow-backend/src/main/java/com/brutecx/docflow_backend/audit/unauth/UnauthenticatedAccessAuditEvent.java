@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -19,12 +20,15 @@ import java.util.UUID;
 @Table(
         name = "unauthenticated_access_audit_events",
         indexes = {
-                @Index(name = "idx_unauth_access_timestamp", columnList = "timestamp"),
+                @Index(name = "idx_unauth_access_timestamp", columnList = "timestamp,id"),
                 @Index(name = "idx_unauth_access_correlation_id", columnList = "correlation_id"),
                 @Index(name = "idx_unauth_access_path", columnList = "path")
         },
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_unauth_access_event_fingerprint", columnNames = "event_fingerprint")
+                @UniqueConstraint(
+                        name = "uk_unauth_access_event_fingerprint",
+                        columnNames = "event_fingerprint"
+                )
         }
 )
 public class UnauthenticatedAccessAuditEvent {
@@ -35,12 +39,16 @@ public class UnauthenticatedAccessAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
+    /* =========================
+       CORE
+       ========================= */
+
     @NotNull
     @Column(name = "timestamp", nullable = false, updatable = false)
     private Instant timestamp;
 
     @Column(name = "correlation_id", updatable = false, length = 128)
-    private String correlationId;
+    private String correlationId; // may be null if no correlation established
 
     @NotNull
     @Enumerated(EnumType.STRING)
@@ -57,6 +65,10 @@ public class UnauthenticatedAccessAuditEvent {
     @Column(name = "result", nullable = false, updatable = false, length = 16)
     private AuditResult result;
 
+    /* =========================
+       REQUEST DATA
+       ========================= */
+
     @NotNull
     @Column(name = "http_method", nullable = false, updatable = false, length = 16)
     private String httpMethod;
@@ -66,10 +78,14 @@ public class UnauthenticatedAccessAuditEvent {
     private String path;
 
     @Column(name = "ip", updatable = false, length = 128)
-    private String ip;
+    private String ip; // optional
 
     @Column(name = "user_agent", updatable = false, length = 512)
-    private String userAgent;
+    private String userAgent; // optional
+
+    /* =========================
+       INTEGRITY
+       ========================= */
 
     @NotNull
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
@@ -79,12 +95,17 @@ public class UnauthenticatedAccessAuditEvent {
     @Column(name = "chain_version", nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(name = "prev_event_hash", updatable = false, length = 64)
+    @NotNull
+    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 64)
     private String prevEventHash;
 
     @NotNull
     @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
     private String eventHash;
+
+    /* =========================
+       STRICT CONSTRUCTOR
+       ========================= */
 
     public UnauthenticatedAccessAuditEvent(
             Instant timestamp,
@@ -101,25 +122,35 @@ public class UnauthenticatedAccessAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-        this.timestamp = timestamp;
-        this.correlationId = correlationId;
-        this.correlationSource = correlationSource;
-        this.executionContext = executionContext;
-        this.result = result;
-        this.httpMethod = httpMethod;
-        this.path = path;
+
+        this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
+        this.correlationId = correlationId; // allowed to be null
+
+        this.correlationSource = Objects.requireNonNull(correlationSource, "correlationSource must not be null");
+        this.executionContext = Objects.requireNonNull(executionContext, "executionContext must not be null");
+        this.result = Objects.requireNonNull(result, "result must not be null");
+
+        this.httpMethod = requireNonBlank(httpMethod, "httpMethod");
+        this.path = requireNonBlank(path, "path");
+
         this.ip = ip;
         this.userAgent = userAgent;
-        this.eventFingerprint = eventFingerprint;
+
+        this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
+        this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
+        this.eventHash = requireNonBlank(eventHash, "eventHash");
+
+        if (chainVersion <= 0) {
+            throw new IllegalArgumentException("chainVersion must be > 0");
+        }
+
         this.chainVersion = chainVersion;
-        this.prevEventHash = prevEventHash;
-        this.eventHash = eventHash;
     }
 
-    @PrePersist
-    void prePersist() {
-        if (this.timestamp == null) {
-            throw new IllegalStateException("UnauthenticatedAccessAuditEvent timestamp must be set by audit writer before persist");
+    private static String requireNonBlank(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
         }
+        return value;
     }
 }

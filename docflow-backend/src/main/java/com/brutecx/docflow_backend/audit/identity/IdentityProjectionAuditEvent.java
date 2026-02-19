@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -18,8 +19,8 @@ import java.util.UUID;
 @Table(
         name = "identity_projection_audit_events",
         indexes = {
-                @Index(name = "idx_identity_proj_subject", columnList = "subject_id"),
-                @Index(name = "idx_identity_proj_ts", columnList = "timestamp"),
+                @Index(name = "idx_identity_proj_subject", columnList = "subject_id,timestamp,id"),
+                @Index(name = "idx_identity_proj_ts_id", columnList = "timestamp,id"),
                 @Index(name = "idx_identity_proj_corr", columnList = "correlation_id")
         },
         uniqueConstraints = {
@@ -34,7 +35,12 @@ public class IdentityProjectionAuditEvent {
     @Id
     @GeneratedValue
     @UuidGenerator
+    @Column(nullable = false, updatable = false)
     private UUID id;
+
+    /* =========================
+       CORE
+       ========================= */
 
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
@@ -46,31 +52,39 @@ public class IdentityProjectionAuditEvent {
     private String correlationId;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false, length = 32)
+    @Column(nullable = false, updatable = false, name = "execution_context", length = 32)
     private ExecutionContext executionContext;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false, length = 32)
+    @Column(nullable = false, updatable = false, name = "correlation_source", length = 32)
     private CorrelationSource correlationSource;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 16)
     private AuditResult result;
 
-    @Column(nullable = false, updatable = false, length = 64)
+    @Column(nullable = false, updatable = false, name = "reason_code", length = 64)
     private String reasonCode;
 
-    @Column(nullable = false, updatable = false, length = 128)
+    /* =========================
+       INTEGRITY
+       ========================= */
+
+    @Column(nullable = false, updatable = false, unique = true, name = "event_fingerprint", length = 128)
     private String eventFingerprint;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name = "chain_version")
     private int chainVersion;
 
-    @Column(nullable = false, updatable = false, length = 128)
-    private String prevHash;
+    @Column(nullable = false, updatable = false, name = "prev_event_hash", length = 128)
+    private String prevEventHash;
 
-    @Column(nullable = false, updatable = false, length = 128)
+    @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
     private String eventHash;
+
+    /* =========================
+       STRICT CONSTRUCTOR
+       ========================= */
 
     public IdentityProjectionAuditEvent(
             Instant timestamp,
@@ -82,30 +96,31 @@ public class IdentityProjectionAuditEvent {
             String reasonCode,
             String eventFingerprint,
             int chainVersion,
-            String prevHash,
+            String prevEventHash,
             String eventHash
     ) {
-        if (timestamp == null) {
-            throw new IllegalArgumentException("timestamp must be set by writer");
+        this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
+        this.subjectId = requireNonBlank(subjectId, "subjectId");
+        this.correlationId = requireNonBlank(correlationId, "correlationId");
+        this.executionContext = Objects.requireNonNull(executionContext, "executionContext must not be null");
+        this.correlationSource = Objects.requireNonNull(correlationSource, "correlationSource must not be null");
+        this.result = Objects.requireNonNull(result, "result must not be null");
+        this.reasonCode = requireNonBlank(reasonCode, "reasonCode");
+        this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
+        this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
+        this.eventHash = requireNonBlank(eventHash, "eventHash");
+
+        if (chainVersion <= 0) {
+            throw new IllegalArgumentException("chainVersion must be > 0");
         }
 
-        this.timestamp = timestamp;
-        this.subjectId = subjectId;
-        this.correlationId = correlationId;
-        this.executionContext = executionContext;
-        this.correlationSource = correlationSource;
-        this.result = result;
-        this.reasonCode = reasonCode;
-        this.eventFingerprint = eventFingerprint;
         this.chainVersion = chainVersion;
-        this.prevHash = prevHash;
-        this.eventHash = eventHash;
     }
 
-    @PrePersist
-    void prePersist() {
-        if (this.timestamp == null) {
-            throw new IllegalStateException("timestamp must be provided before persist");
+    private static String requireNonBlank(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
         }
+        return value;
     }
 }

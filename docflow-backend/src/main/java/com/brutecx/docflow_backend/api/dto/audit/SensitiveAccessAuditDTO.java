@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record SensitiveAccessAuditDTO(
+        UUID id,
         Instant timestamp,
 
         UUID actorUserId,
@@ -27,6 +28,7 @@ public record SensitiveAccessAuditDTO(
         CorrelationSource correlationSource,
         ExecutionContext executionContext,
         AuditResult result,
+
         String ip,
         String userAgent,
 
@@ -34,35 +36,37 @@ public record SensitiveAccessAuditDTO(
         String reasonDetail,
         SensitiveDataClassification dataClassification,
 
-        String eventFingerprint
-) {
+        String eventFingerprint,
+        int chainVersion,
+        String prevEventHash,
+        String eventHash
+) implements BaseAuditDTO {
 
-    public static SensitiveAccessAuditDTO from(SensitiveAccessAuditEvent event) {
+    public static SensitiveAccessAuditDTO from(SensitiveAccessAuditEvent e) {
         return new SensitiveAccessAuditDTO(
-                event.getTimestamp(),
-
-                event.getActorUserId(),
-                event.getActorExternalSubjectId(),
-                event.getTenantId(),
-
-                event.getSubjectType(),
-                event.getSubjectId(),
-                event.getResource(),
-                event.getAction(),
-                event.getResourcePath(),
-
-                event.getCorrelationId(),
-                event.getCorrelationSource(),
-                event.getExecutionContext(),
-                event.getResult(),
-                event.getIp(),
-                event.getUserAgent(),
-
-                event.getReasonCode(),
-                event.getReasonDetail(),
-                event.getDataClassification(),
-
-                event.getEventFingerprint()
+                e.getId(),
+                e.getTimestamp(),
+                e.getActorUserId(),
+                e.getActorExternalSubjectId(),
+                e.getTenantId(),
+                e.getSubjectType(),
+                e.getSubjectId(),
+                e.getResource(),
+                e.getAction(),
+                e.getResourcePath(),
+                e.getCorrelationId(),
+                e.getCorrelationSource(),
+                e.getExecutionContext(),
+                e.getResult(),
+                e.getIp(),
+                e.getUserAgent(),
+                e.getReasonCode(),
+                e.getReasonDetail(),
+                e.getDataClassification(),
+                e.getEventFingerprint(),
+                e.getChainVersion(),
+                e.getPrevEventHash(),
+                e.getEventHash()
         );
     }
 }

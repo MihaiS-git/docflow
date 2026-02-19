@@ -1,6 +1,9 @@
 package com.brutecx.docflow_backend.api.dto.audit;
 
 import com.brutecx.docflow_backend.audit.identity.IdentityProjectionAuditEvent;
+import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -9,18 +12,22 @@ public record IdentityProjectionAuditForensicExportDTO(
 
         UUID id,
         Instant timestamp,
+
         String subjectId,
+
         String correlationId,
-        String executionContext,
-        String correlationSource,
-        String result,
+        CorrelationSource correlationSource,
+        ExecutionContext executionContext,
+        AuditResult result,
+
         String reasonCode,
+
         String eventFingerprint,
         int chainVersion,
-        String prevHash,
+        String prevEventHash,
         String eventHash
 
-) {
+) implements BaseAuditForensicExportDTO {
 
     public static IdentityProjectionAuditForensicExportDTO from(
             IdentityProjectionAuditEvent e
@@ -30,13 +37,13 @@ public record IdentityProjectionAuditForensicExportDTO(
                 e.getTimestamp(),
                 e.getSubjectId(),
                 e.getCorrelationId(),
-                e.getExecutionContext() != null ? e.getExecutionContext().name() : null,
-                e.getCorrelationSource() != null ? e.getCorrelationSource().name() : null,
-                e.getResult() != null ? e.getResult().name() : null,
+                e.getCorrelationSource(),
+                e.getExecutionContext(),
+                e.getResult(),
                 e.getReasonCode(),
                 e.getEventFingerprint(),
                 e.getChainVersion(),
-                e.getPrevHash(),
+                e.getPrevEventHash(),
                 e.getEventHash()
         );
     }

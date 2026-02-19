@@ -29,7 +29,7 @@ public record OnboardingAuditForensicExportDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditForensicExportDTO {
     public static OnboardingAuditForensicExportDTO from(OnboardingAuditEvent e) {
         return new OnboardingAuditForensicExportDTO(
                 e.getId(),

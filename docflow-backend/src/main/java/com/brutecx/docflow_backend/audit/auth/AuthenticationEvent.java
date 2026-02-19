@@ -4,13 +4,15 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -33,71 +35,63 @@ public class AuthenticationEvent {
     @Id
     @GeneratedValue
     @UuidGenerator
-    @Column(nullable = false, updatable = false)
     private UUID id;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 64)
     private AuthenticationEventSource source;
 
-    @NotNull
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
-    @NotNull
     @Column(nullable = false, updatable = false, length = 128)
     private String username;
 
     @Column(name = "subject_id", nullable = false, updatable = false, length = 128)
     private String subjectId;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 32)
-    private AuthenticationResult result;
+    private AuthenticationResult authenticationResult;
 
-    @NotNull
     @Column(nullable = false, updatable = false, length = 64)
     private String idp;
 
-    @NotNull
     @Column(nullable = false, updatable = false, length = 128)
     private String ip;
 
-    @NotNull
     @Column(name = "user_agent", nullable = false, updatable = false, length = 512)
     private String userAgent;
 
     @Column(name = "correlation_id", updatable = false, length = 128)
     private String correlationId;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "correlation_source", nullable = false, updatable = false, length = 32)
     private CorrelationSource correlationSource;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "execution_context", nullable = false, updatable = false, length = 32)
     private ExecutionContext executionContext;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "audit_result", nullable = false, updatable = false, length = 16)
-    private AuditResult auditResult;
+    private AuditResult result;
 
-    @NotNull
-    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb", updatable = false)
+    private AuthenticationAuditMetadata metadata;
+
+    @Column(nullable = false, updatable = false, unique = true)
     private String eventFingerprint;
 
-    @Column(name = "chain_version", nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 128)
+    @Column(nullable = false, updatable = false)
     private String prevEventHash;
 
-    @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
+    @Column(nullable = false, updatable = false)
     private String eventHash;
 
     public AuthenticationEvent(
@@ -105,44 +99,46 @@ public class AuthenticationEvent {
             Instant timestamp,
             String username,
             String subjectId,
-            AuthenticationResult result,
+            AuthenticationResult authenticationResult,
             String idp,
             String ip,
             String userAgent,
             String correlationId,
             CorrelationSource correlationSource,
             ExecutionContext executionContext,
-            AuditResult auditResult,
+            AuditResult result,
+            AuthenticationAuditMetadata metadata,
             String eventFingerprint,
             int chainVersion,
             String prevEventHash,
             String eventHash
     ) {
-        this.source = source;
-        this.timestamp = timestamp;
-        this.username = username;
-        this.subjectId = subjectId;
-        this.result = result;
-        this.idp = idp;
-        this.ip = ip;
-        this.userAgent = userAgent;
+        this.source = Objects.requireNonNull(source);
+        this.timestamp = Objects.requireNonNull(timestamp);
+        this.username = requireNonBlank(username);
+        this.subjectId = requireNonBlank(subjectId);
+        this.authenticationResult = Objects.requireNonNull(authenticationResult);
+        this.idp = requireNonBlank(idp);
+        this.ip = requireNonBlank(ip);
+        this.userAgent = requireNonBlank(userAgent);
+        this.correlationSource = Objects.requireNonNull(correlationSource);
+        this.executionContext = Objects.requireNonNull(executionContext);
+        this.result = Objects.requireNonNull(result);
+        this.metadata = metadata;
+        this.eventFingerprint = requireNonBlank(eventFingerprint);
+        this.prevEventHash = requireNonBlank(prevEventHash);
+        this.eventHash = requireNonBlank(eventHash);
+
+        if (chainVersion <= 0) {
+            throw new IllegalArgumentException("chainVersion must be > 0");
+        }
+
         this.correlationId = correlationId;
-        this.correlationSource = correlationSource;
-        this.executionContext = executionContext;
-        this.auditResult = auditResult;
-        this.eventFingerprint = eventFingerprint;
         this.chainVersion = chainVersion;
-        this.prevEventHash = prevEventHash;
-        this.eventHash = eventHash;
     }
 
-    @PrePersist
-    private void prePersist() {
-        if (this.timestamp == null) {
-            throw new IllegalStateException("AuthenticationEvent timestamp must be set by writer before persist");
-        }
-        if (this.subjectId == null || this.subjectId.isBlank()) {
-            this.subjectId = "UNKNOWN";
-        }
+    private static String requireNonBlank(String v) {
+        if (v == null || v.isBlank()) throw new IllegalArgumentException();
+        return v;
     }
 }

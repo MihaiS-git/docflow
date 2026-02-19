@@ -5,9 +5,9 @@ import java.util.List;
 import java.util.UUID;
 
 public record IdentityProjectionAuditCursorPageDTO(
-        List<IdentityProjectionAuditDTO> content,
-        boolean hasNext,
-        Instant nextTimestamp,
-        UUID nextId
-) {
+        List<IdentityProjectionAuditDTO> items,
+        boolean hasMore,
+        Instant nextCursorTimestamp,
+        UUID nextCursorId
+) implements BaseAuditCursorPageDTO<IdentityProjectionAuditDTO> {
 }

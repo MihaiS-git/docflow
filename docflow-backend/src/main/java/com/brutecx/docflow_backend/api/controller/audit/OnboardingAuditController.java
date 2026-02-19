@@ -26,113 +26,60 @@ public class OnboardingAuditController {
 
     @GetMapping
     public ResponseEntity<OnboardingAuditCursorPageDTO> query(
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to,
-
-            @RequestParam(required = false)
-            String correlationId,
-
-            @RequestParam(required = false)
-            String subjectId,
-
-            @RequestParam(required = false)
-            UUID tenantId,
-
-            @RequestParam(required = false)
-            UUID inviteId,
-
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant cursorTimestamp,
-
-            @RequestParam(required = false)
-            UUID cursorId,
-
-            @RequestParam(defaultValue = "20")
-            int size
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) String correlationId,
+            @RequestParam(required = false) String subjectId,
+            @RequestParam(required = false) UUID tenantId,
+            @RequestParam(required = false) UUID inviteId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant cursorTimestamp,
+            @RequestParam(required = false) UUID cursorId,
+            @RequestParam(defaultValue = "20") int size
     ) {
         return ResponseEntity.ok(
                 queryService.query(
-                        from,
-                        to,
-                        correlationId,
-                        subjectId,
-                        tenantId,
-                        inviteId,
-                        cursorTimestamp,
-                        cursorId,
-                        size
+                        from, to, correlationId, subjectId,
+                        tenantId, inviteId,
+                        cursorTimestamp, cursorId, size
                 )
         );
     }
 
     @GetMapping("/verify")
     public ResponseEntity<AuditVerificationResultDTO> verify(
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to,
-
-            @RequestParam(required = false)
-            UUID tenantId
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) UUID tenantId
     ) {
         return ResponseEntity.ok(queryService.verify(from, to, tenantId));
     }
 
-    /* ================= JSONL ================= */
-
-    @GetMapping(value = "/export", produces = "application/json")
+    @GetMapping(value = "/export", produces = "application/x-ndjson")
     public void exportJsonl(
             HttpServletResponse response,
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to,
-            @RequestParam(required = false)
-            UUID tenantId
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) UUID tenantId
     ) {
-
-        response.setContentType("application/json");
-        response.setHeader(
-                HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=\"onboarding-audit-export.jsonl\""
-        );
+        response.setContentType("application/x-ndjson");
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"onboarding-audit-export.jsonl\"");
         response.setCharacterEncoding("UTF-8");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
 
         queryService.streamForensicExportJsonl(response, from, to, tenantId);
     }
 
-    /* ================= CSV ================= */
-
     @GetMapping(value = "/export/csv", produces = "text/csv")
     public void exportCsv(
             HttpServletResponse response,
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to,
-            @RequestParam(required = false)
-            UUID tenantId
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) UUID tenantId
     ) {
-
         response.setContentType("text/csv");
-        response.setHeader(
-                HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=\"onboarding-audit-export.csv\""
-        );
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"onboarding-audit-export.csv\"");
         response.setCharacterEncoding("UTF-8");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
 

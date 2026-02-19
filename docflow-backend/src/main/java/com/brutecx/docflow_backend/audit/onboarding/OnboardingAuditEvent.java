@@ -4,13 +4,13 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -20,8 +20,14 @@ import java.util.UUID;
                 @Index(name = "idx_onboarding_invite_id", columnList = "invite_id"),
                 @Index(name = "idx_onboarding_subject_id", columnList = "subject_id"),
                 @Index(name = "idx_onboarding_tenant_id", columnList = "tenant_id"),
-                @Index(name = "idx_onboarding_timestamp", columnList = "timestamp"),
+                @Index(name = "idx_onboarding_timestamp", columnList = "timestamp,id"),
                 @Index(name = "idx_onboarding_correlation_id", columnList = "correlation_id")
+        },
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_onboarding_event_fingerprint",
+                        columnNames = "event_fingerprint"
+                )
         }
 )
 @Getter
@@ -31,32 +37,35 @@ public class OnboardingAuditEvent {
     @Id
     @GeneratedValue
     @UuidGenerator
+    @Column(nullable = false, updatable = false)
     private UUID id;
+
+    /* =========================
+       CORE
+       ========================= */
 
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
-    @Column(updatable = false, name = "actor_user_id")
-    private UUID actorUserId;
+    @Column(name = "actor_user_id", updatable = false)
+    private UUID actorUserId; // optional by design
 
-    @Column(updatable = false, name = "subject_id", length = 128)
+    @Column(name = "subject_id", nullable = false, updatable = false, length = 128)
     private String subjectId;
 
-    @Column(nullable = false, updatable = false, name = "tenant_id")
+    @Column(name = "tenant_id", nullable = false, updatable = false)
     private UUID tenantId;
 
-    @Column(nullable = false, updatable = false, name = "invite_id")
+    @Column(name = "invite_id", nullable = false, updatable = false)
     private UUID inviteId;
 
-    @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
+    @Column(name = "correlation_id", nullable = false, updatable = false, length = 128)
     private String correlationId;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "correlation_source", nullable = false, updatable = false, length = 32)
     private CorrelationSource correlationSource;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "execution_context", nullable = false, updatable = false, length = 32)
     private ExecutionContext executionContext;
@@ -64,40 +73,42 @@ public class OnboardingAuditEvent {
     @Column(nullable = false, updatable = false, length = 128)
     private String ip;
 
-    @Column(nullable = false, updatable = false, name = "user_agent", length = 512)
+    @Column(name = "user_agent", nullable = false, updatable = false, length = 512)
     private String userAgent;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "result", nullable = false, updatable = false, length = 16)
+    @Column(nullable = false, updatable = false, length = 16)
     private AuditResult result;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 32)
     private OnboardingOutcome outcome;
 
-    @NotNull
     @Column(name = "reason_code", nullable = false, updatable = false, length = 64)
     private String reasonCode;
 
     @Column(name = "reason_detail", updatable = false, length = 512)
-    private String reasonDetail;
+    private String reasonDetail; // optional
 
-    @NotNull
+    /* =========================
+       INTEGRITY
+       ========================= */
+
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
-    @NotNull
     @Column(name = "chain_version", nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(name = "prev_event_hash", updatable = false, length = 64)
+    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 64)
     private String prevEventHash;
 
-    @NotNull
     @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
     private String eventHash;
+
+    /* =========================
+       STRICT CONSTRUCTOR
+       ========================= */
 
     public OnboardingAuditEvent(
             Instant timestamp,
@@ -119,31 +130,43 @@ public class OnboardingAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-        this.timestamp = timestamp;
-        this.actorUserId = actorUserId;
-        this.subjectId = subjectId;
-        this.tenantId = tenantId;
-        this.inviteId = inviteId;
-        this.correlationId = correlationId;
-        this.correlationSource = correlationSource;
-        this.executionContext = executionContext;
-        this.ip = ip;
-        this.userAgent = userAgent;
-        this.result = result;
-        this.outcome = outcome;
-        this.reasonCode = reasonCode;
-        this.reasonDetail = reasonDetail;
-        this.eventFingerprint = eventFingerprint;
+
+        this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
+
+        this.actorUserId = actorUserId; // optional
+
+        this.subjectId = requireNonBlank(subjectId, "subjectId");
+        this.tenantId = Objects.requireNonNull(tenantId, "tenantId must not be null");
+        this.inviteId = Objects.requireNonNull(inviteId, "inviteId must not be null");
+
+        this.correlationId = requireNonBlank(correlationId, "correlationId");
+        this.correlationSource = Objects.requireNonNull(correlationSource, "correlationSource must not be null");
+        this.executionContext = Objects.requireNonNull(executionContext, "executionContext must not be null");
+
+        this.ip = requireNonBlank(ip, "ip");
+        this.userAgent = requireNonBlank(userAgent, "userAgent");
+
+        this.result = Objects.requireNonNull(result, "result must not be null");
+        this.outcome = Objects.requireNonNull(outcome, "outcome must not be null");
+
+        this.reasonCode = requireNonBlank(reasonCode, "reasonCode");
+        this.reasonDetail = reasonDetail; // optional
+
+        this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
+        this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
+        this.eventHash = requireNonBlank(eventHash, "eventHash");
+
+        if (chainVersion <= 0) {
+            throw new IllegalArgumentException("chainVersion must be > 0");
+        }
+
         this.chainVersion = chainVersion;
-        this.prevEventHash = prevEventHash;
-        this.eventHash = eventHash;
     }
 
-
-    @PrePersist
-    void prePersist() {
-        if(this.timestamp == null) {
-            throw new IllegalStateException("CredentialLifecycleAuditEvent timestamp must be set by writer before persist");
+    private static String requireNonBlank(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
         }
+        return value;
     }
 }

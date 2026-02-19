@@ -1,4 +1,5 @@
 export type LifecycleDeniedAuditRow = {
+  id: string;
   timestamp: string;
   subjectId: string | null;
   reasonCode: string | null;

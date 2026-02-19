@@ -35,7 +35,7 @@ public record AdminAuditForensicExportDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditForensicExportDTO  {
     public static AdminAuditForensicExportDTO from(AdminAuditEvent event) {
         return new AdminAuditForensicExportDTO(
                 event.getId(),

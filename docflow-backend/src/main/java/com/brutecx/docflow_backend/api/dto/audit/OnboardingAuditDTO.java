@@ -3,6 +3,8 @@ package com.brutecx.docflow_backend.api.dto.audit;
 import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditEvent;
 import com.brutecx.docflow_backend.audit.onboarding.OnboardingOutcome;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -10,21 +12,29 @@ import java.util.UUID;
 public record OnboardingAuditDTO(
         UUID id,
         Instant timestamp,
+
         UUID actorUserId,
         String subjectId,
         UUID tenantId,
         UUID inviteId,
+
         String correlationId,
-        com.brutecx.docflow_backend.audit.provenance.CorrelationSource correlationSource,
-        com.brutecx.docflow_backend.audit.provenance.ExecutionContext executionContext,
+        CorrelationSource correlationSource,
+        ExecutionContext executionContext,
+        AuditResult result,
+
         String ip,
         String userAgent,
-        AuditResult result,
+
         OnboardingOutcome outcome,
         String reasonCode,
         String reasonDetail,
-        String eventFingerprint
-) {
+
+        String eventFingerprint,
+        int chainVersion,
+        String prevEventHash,
+        String eventHash
+) implements BaseAuditDTO {
 
     public static OnboardingAuditDTO from(OnboardingAuditEvent e) {
         return new OnboardingAuditDTO(
@@ -37,13 +47,16 @@ public record OnboardingAuditDTO(
                 e.getCorrelationId(),
                 e.getCorrelationSource(),
                 e.getExecutionContext(),
+                e.getResult(),
                 e.getIp(),
                 e.getUserAgent(),
-                e.getResult(),
                 e.getOutcome(),
                 e.getReasonCode(),
                 e.getReasonDetail(),
-                e.getEventFingerprint()
+                e.getEventFingerprint(),
+                e.getChainVersion(),
+                e.getPrevEventHash(),
+                e.getEventHash()
         );
     }
 }

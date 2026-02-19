@@ -33,7 +33,7 @@ public record CredentialLifecycleAuditForensicExportDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditForensicExportDTO {
 
     public static CredentialLifecycleAuditForensicExportDTO from(CredentialLifecycleAuditEvent e) {
         return new CredentialLifecycleAuditForensicExportDTO(

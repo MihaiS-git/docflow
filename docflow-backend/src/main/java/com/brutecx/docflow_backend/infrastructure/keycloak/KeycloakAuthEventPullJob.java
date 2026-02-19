@@ -7,6 +7,8 @@ import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -34,19 +36,22 @@ public class KeycloakAuthEventPullJob {
     private final AuthenticationEventRepository authEventRepo;
     private final AuditChainService auditChainService;
     private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
+    private final ObjectMapper objectMapper;
 
     public KeycloakAuthEventPullJob(
             KeycloakAdminClient keycloak,
             KeycloakEventCheckpointRepository checkpointRepo,
             AuthenticationEventRepository authEventRepo,
             AuditChainService auditChainService,
-            AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder
+            AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder,
+            ObjectMapper objectMapper
     ) {
         this.keycloak = keycloak;
         this.checkpointRepo = checkpointRepo;
         this.authEventRepo = authEventRepo;
         this.auditChainService = auditChainService;
         this.canonicalMaterialBuilder = canonicalMaterialBuilder;
+        this.objectMapper = objectMapper;
     }
 
     @Scheduled(
@@ -114,6 +119,11 @@ public class KeycloakAuthEventPullJob {
                 correlationSource = CorrelationSource.PULL_RUN;
             }
 
+            AuthenticationFailureReason reason = mapKeycloakReason(e.error());
+
+            AuthenticationAuditMetadata metadata =
+                    new AuthenticationFailureMetadata(reason, e.error());
+
             String fingerprint = EventFingerprint.of(List.of(
                     AuthenticationAuditCanonicalMaterialBuilder.STREAM,
                     "KEYCLOAK_ADMIN",
@@ -131,6 +141,7 @@ public class KeycloakAuthEventPullJob {
                             username,
                             subjectId,
                             AuthenticationResult.FAILURE,
+                            metadata,
                             "KEYCLOAK",
                             ip,
                             userAgent,
@@ -143,11 +154,6 @@ public class KeycloakAuthEventPullJob {
 
             String canonicalMaterial =
                     canonicalMaterialBuilder.buildCanonicalMaterial(canonicalInput);
-
-
-            /*
-             * Authentication → SUBJECT partition (per final rules)
-             */
 
             AuditPartition partition =
                     AuditPartition.subject(
@@ -174,12 +180,12 @@ public class KeycloakAuthEventPullJob {
                     CorrelationSource.valueOf(canonicalInput.correlationSource()),
                     ExecutionContext.valueOf(canonicalInput.executionContext()),
                     AuditResult.valueOf(canonicalInput.auditResult()),
+                    metadata,
                     canonicalInput.fingerprint(),
                     chain.chainVersion(),
                     chain.prevHash(),
                     chain.eventHash()
             );
-
 
             try {
                 authEventRepo.save(entity);
@@ -207,6 +213,27 @@ public class KeycloakAuthEventPullJob {
             }
 
             checkpointRepo.save(cp);
+        }
+    }
+
+    private AuthenticationFailureReason mapKeycloakReason(String error) {
+        if (error == null) return AuthenticationFailureReason.UNKNOWN;
+        return switch (error) {
+            case "invalid_user_credentials" -> AuthenticationFailureReason.INVALID_CREDENTIALS;
+            case "user_disabled" -> AuthenticationFailureReason.ACCOUNT_DISABLED;
+            case "user_not_found" -> AuthenticationFailureReason.USER_NOT_FOUND;
+            default -> AuthenticationFailureReason.UNKNOWN;
+        };
+    }
+
+    private String toDeterministicJson(AuthenticationAuditMetadata metadata) {
+        try {
+            ObjectMapper m = objectMapper.copy()
+                    .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                    .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
+            return m.writeValueAsString(metadata);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to serialize AUTH metadata", ex);
         }
     }
 }

@@ -29,30 +29,22 @@ public class SensitiveAccessAuditController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
-
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant to,
-
             @RequestParam(required = false)
             String correlationId,
-
             @RequestParam(required = false)
             String subjectId,
-
             @RequestParam(required = false)
             UUID tenantId,
-
             @RequestParam(required = false)
             UUID actorUserId,
-
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant cursorTimestamp,
-
             @RequestParam(required = false)
             UUID cursorId,
-
             @RequestParam(defaultValue = "20")
             int size
     ) {
@@ -76,15 +68,12 @@ public class SensitiveAccessAuditController {
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant from,
-
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant to
     ) {
         return ResponseEntity.ok(queryService.verify(from, to));
     }
-
-    /* ================= JSONL ================= */
 
     @GetMapping(value = "/export", produces = "application/x-ndjson")
     public void exportJsonl(
@@ -104,7 +93,6 @@ public class SensitiveAccessAuditController {
             @RequestParam(required = false)
             UUID actorUserId
     ) {
-
         response.setContentType("application/x-ndjson");
         response.setHeader(
                 HttpHeaders.CONTENT_DISPOSITION,
@@ -124,8 +112,6 @@ public class SensitiveAccessAuditController {
         );
     }
 
-    /* ================= CSV ================= */
-
     @GetMapping(value = "/export/csv", produces = "text/csv")
     public void exportCsv(
             HttpServletResponse response,
@@ -144,7 +130,6 @@ public class SensitiveAccessAuditController {
             @RequestParam(required = false)
             UUID actorUserId
     ) {
-
         response.setContentType("text/csv");
         response.setHeader(
                 HttpHeaders.CONTENT_DISPOSITION,

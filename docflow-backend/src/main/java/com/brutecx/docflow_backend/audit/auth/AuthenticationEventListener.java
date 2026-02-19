@@ -10,6 +10,8 @@ import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,24 +42,28 @@ public class AuthenticationEventListener {
     private final AuditRequestContextExtractor contextExtractor;
     private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final AuditWriteFailureMetrics metrics;
+    private final ObjectMapper objectMapper;
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
-        persist(AuthenticationResult.SUCCESS, event.getAuthentication());
+        persist(AuthenticationResult.SUCCESS, event.getAuthentication(), null, null);
         identityProjectionService.ensureProjected(resolveSubjectId(event.getAuthentication()));
     }
 
     @EventListener
     public void onFailure(AbstractAuthenticationFailureEvent event) {
-        persist(AuthenticationResult.FAILURE, event.getAuthentication());
+        persistFailure(event);
     }
 
     @EventListener
     public void onLogout(LogoutSuccessEvent event) {
-        persist(AuthenticationResult.LOGOUT, event.getAuthentication());
+        persist(AuthenticationResult.LOGOUT, event.getAuthentication(), null, null);
     }
 
-    private void persist(AuthenticationResult result, Authentication authentication) {
+    private void persist(AuthenticationResult result,
+                         Authentication authentication,
+                         AuthenticationFailureReason failureReason,
+                         String failureDetail) {
 
         ensureHttpContext();
 
@@ -82,6 +88,19 @@ public class AuthenticationEventListener {
                         ? AuditResult.FAILED
                         : AuditResult.SUCCESS;
 
+        AuthenticationAuditMetadata metadata;
+
+        if (result == AuthenticationResult.FAILURE) {
+            metadata = new AuthenticationFailureMetadata(
+                    failureReason,
+                    failureDetail
+            );
+        } else if (result == AuthenticationResult.LOGOUT) {
+            metadata = new LogoutMetadata();
+        } else {
+            metadata = new AuthenticationSuccessMetadata("KEYCLOAK");
+        }
+
         String fingerprint = EventFingerprint.of(List.of(
                 STREAM,
                 result.name(),
@@ -92,6 +111,8 @@ public class AuthenticationEventListener {
                 correlationId
         ));
 
+
+
         AuthenticationAuditCanonicalMaterialBuilder.Input canonicalInput =
                 new AuthenticationAuditCanonicalMaterialBuilder.Input(
                         eventTime,
@@ -99,6 +120,7 @@ public class AuthenticationEventListener {
                         username,
                         subjectId,
                         result,
+                        metadata,   // <-- pass object, not JSON
                         "KEYCLOAK",
                         ctx.ip(),
                         ctx.userAgent(),
@@ -108,6 +130,7 @@ public class AuthenticationEventListener {
                         auditResult.name(),
                         fingerprint
                 );
+
 
         String canonicalMaterial =
                 canonicalMaterialBuilder.buildCanonicalMaterial(canonicalInput);
@@ -132,6 +155,7 @@ public class AuthenticationEventListener {
                     CorrelationSource.valueOf(canonicalInput.correlationSource()),
                     ExecutionContext.valueOf(canonicalInput.executionContext()),
                     AuditResult.valueOf(canonicalInput.auditResult()),
+                    metadata,
                     canonicalInput.fingerprint(),
                     chain.chainVersion(),
                     chain.prevHash(),
@@ -160,6 +184,19 @@ public class AuthenticationEventListener {
         }
     }
 
+    private String toDeterministicJson(AuthenticationAuditMetadata metadata) {
+        if (metadata == null) return null;
+        try {
+            ObjectMapper m = objectMapper.copy()
+                    .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                    .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
+            return m.writeValueAsString(metadata);
+        } catch (Exception ex) {
+            // fail-closed: if metadata cannot be serialized deterministically, don't write audit event
+            throw new IllegalStateException("Failed to serialize AUTH metadata", ex);
+        }
+    }
+
     private static void ensureHttpContext() {
         if (RequestContextHolder.getRequestAttributes() == null) {
             throw new IllegalStateException("Authentication audit invoked outside HTTP request context");
@@ -179,5 +216,27 @@ public class AuthenticationEventListener {
         Object principal = authentication.getPrincipal();
         if (principal instanceof OidcUser oidcUser) return oidcUser.getSubject();
         return "UNKNOWN";
+    }
+
+    private void persistFailure(AbstractAuthenticationFailureEvent event) {
+
+        AuthenticationFailureReason reason = mapReason(event.getException());
+        String detail = event.getException().getClass().getSimpleName();
+
+        persist(AuthenticationResult.FAILURE, event.getAuthentication(), reason, detail);
+    }
+
+    private AuthenticationFailureReason mapReason(Exception ex) {
+
+        String name = ex.getClass().getSimpleName();
+
+        return switch (name) {
+            case "BadCredentialsException" -> AuthenticationFailureReason.INVALID_CREDENTIALS;
+            case "UsernameNotFoundException" -> AuthenticationFailureReason.USER_NOT_FOUND;
+            case "LockedException" -> AuthenticationFailureReason.ACCOUNT_LOCKED;
+            case "DisabledException" -> AuthenticationFailureReason.ACCOUNT_DISABLED;
+            case "CredentialsExpiredException" -> AuthenticationFailureReason.PASSWORD_EXPIRED;
+            default -> AuthenticationFailureReason.UNKNOWN;
+        };
     }
 }

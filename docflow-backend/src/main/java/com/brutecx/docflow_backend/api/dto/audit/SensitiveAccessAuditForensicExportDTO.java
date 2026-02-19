@@ -40,7 +40,7 @@ public record SensitiveAccessAuditForensicExportDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditForensicExportDTO {
     public static SensitiveAccessAuditForensicExportDTO from(SensitiveAccessAuditEvent e) {
         return new SensitiveAccessAuditForensicExportDTO(
                 e.getId(),

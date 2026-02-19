@@ -2,21 +2,13 @@ package com.brutecx.docflow_backend.audit.auth;
 
 import com.brutecx.docflow_backend.audit.canonical.AuditCanonicalMaterialBuilder;
 import com.brutecx.docflow_backend.audit.canonical.AuditCanonicalVersionProvider;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.Objects;
 
-/**
- * STRICT GOLD canonical material builder for AUTH stream.
- * RULES:
- *  - Single canonical definition per stream.
- *  - Used by writer + verifier.
- *  - Entity->Input mapping is the single source of truth.
- *  - Explicit immutable field order.
- *  - Versioned.
- *  - Deterministic null handling.
- */
 @Component
 public final class AuthenticationAuditCanonicalMaterialBuilder
         implements AuditCanonicalMaterialBuilder<AuthenticationAuditCanonicalMaterialBuilder.Input> {
@@ -25,11 +17,14 @@ public final class AuthenticationAuditCanonicalMaterialBuilder
     private static final String NULL_TOKEN = "-";
 
     private final AuditCanonicalVersionProvider versionProvider;
+    private final ObjectMapper objectMapper;
 
     public AuthenticationAuditCanonicalMaterialBuilder(
-            AuditCanonicalVersionProvider versionProvider
+            AuditCanonicalVersionProvider versionProvider,
+            ObjectMapper objectMapper
     ) {
         this.versionProvider = versionProvider;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -37,16 +32,13 @@ public final class AuthenticationAuditCanonicalMaterialBuilder
         return STREAM;
     }
 
-    /**
-     * Canonical input aligned 1:1 with persisted AuthenticationEvent fields used for integrity.
-     * Any structural change requires canonical version bump.
-     */
     public record Input(
             Instant timestamp,
             AuthenticationEventSource source,
             String username,
             String subjectId,
             AuthenticationResult result,
+            AuthenticationAuditMetadata metadata,
             String idp,
             String ip,
             String userAgent,
@@ -55,12 +47,8 @@ public final class AuthenticationAuditCanonicalMaterialBuilder
             String executionContext,
             String auditResult,
             String fingerprint
-    ) {
-    }
+    ) {}
 
-    /**
-     * Entity → Canonical mapping. Single source of truth.
-     */
     public Input fromEvent(AuthenticationEvent event) {
         Objects.requireNonNull(event, "event must not be null");
 
@@ -69,14 +57,15 @@ public final class AuthenticationAuditCanonicalMaterialBuilder
                 event.getSource(),
                 event.getUsername(),
                 event.getSubjectId(),
-                event.getResult(),
+                event.getAuthenticationResult(),
+                event.getMetadata(), // <-- FIXED
                 event.getIdp(),
                 event.getIp(),
                 event.getUserAgent(),
                 event.getCorrelationId(),
                 event.getCorrelationSource() != null ? event.getCorrelationSource().name() : null,
                 event.getExecutionContext() != null ? event.getExecutionContext().name() : null,
-                event.getAuditResult() != null ? event.getAuditResult().name() : null,
+                event.getResult() != null ? event.getResult().name() : null,
                 event.getEventFingerprint()
         );
     }
@@ -100,6 +89,7 @@ public final class AuthenticationAuditCanonicalMaterialBuilder
                 "username=" + normalize(in.username()),
                 "subjectId=" + normalize(in.subjectId()),
                 "result=" + in.result().name(),
+                "metadata=" + normalize(toDeterministicJson(in.metadata())), // <-- FIXED
                 "idp=" + normalize(in.idp()),
                 "ip=" + normalize(in.ip()),
                 "userAgent=" + normalize(in.userAgent()),
@@ -109,6 +99,18 @@ public final class AuthenticationAuditCanonicalMaterialBuilder
                 "auditResult=" + normalize(in.auditResult()),
                 "fingerprint=" + normalize(in.fingerprint())
         );
+    }
+
+    private String toDeterministicJson(AuthenticationAuditMetadata metadata) {
+        if (metadata == null) return null;
+        try {
+            ObjectMapper m = objectMapper.copy()
+                    .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                    .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
+            return m.writeValueAsString(metadata);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to serialize AUTH metadata", ex);
+        }
     }
 
     private static String normalize(String v) {

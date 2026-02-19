@@ -13,19 +13,27 @@ import java.util.UUID;
 public record AuthenticationAuditDTO(
         UUID id,
         Instant timestamp,
+
         AuthenticationEventSource source,
         String username,
         String subjectId,
-        AuthenticationResult result,
         String idp,
+
+        AuthenticationResult authenticationResult,
+
         String ip,
         String userAgent,
+
         String correlationId,
         CorrelationSource correlationSource,
         ExecutionContext executionContext,
-        AuditResult auditResult,
-        String eventFingerprint
-) {
+        AuditResult result,
+
+        String eventFingerprint,
+        int chainVersion,
+        String prevEventHash,
+        String eventHash
+) implements BaseAuditDTO {
 
     public static AuthenticationAuditDTO from(AuthenticationEvent event) {
         return new AuthenticationAuditDTO(
@@ -34,15 +42,18 @@ public record AuthenticationAuditDTO(
                 event.getSource(),
                 event.getUsername(),
                 event.getSubjectId(),
-                event.getResult(),
                 event.getIdp(),
+                event.getAuthenticationResult(),
                 event.getIp(),
                 event.getUserAgent(),
                 event.getCorrelationId(),
                 event.getCorrelationSource(),
                 event.getExecutionContext(),
-                event.getAuditResult(),
-                event.getEventFingerprint()
+                event.getResult(),
+                event.getEventFingerprint(),
+                event.getChainVersion(),
+                event.getPrevEventHash(),
+                event.getEventHash()
         );
     }
 }

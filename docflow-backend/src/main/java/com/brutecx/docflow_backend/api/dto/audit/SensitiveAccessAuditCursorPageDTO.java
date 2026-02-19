@@ -9,5 +9,5 @@ public record SensitiveAccessAuditCursorPageDTO(
         boolean hasMore,
         Instant nextCursorTimestamp,
         UUID nextCursorId
-) {
+) implements BaseAuditCursorPageDTO<SensitiveAccessAuditDTO> {
 }

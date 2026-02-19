@@ -9,5 +9,5 @@ public record RbacDeniedAuditCursorPageDTO(
         boolean hasMore,
         Instant nextCursorTimestamp,
         UUID nextCursorId
-) {
+) implements BaseAuditCursorPageDTO<RbacDeniedAuditDTO> {
 }

@@ -4,7 +4,6 @@ import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -13,6 +12,7 @@ import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -32,53 +32,41 @@ public class AdminAuditEvent {
     @Id
     @GeneratedValue
     @UuidGenerator
-    @Column(nullable = false, updatable = false)
     private UUID id;
 
-    @NotNull
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
-    @NotNull
     @Column(nullable = false, updatable = false, name = "actor_user_id")
     private UUID actorUserId;
 
-    @NotNull
     @Column(nullable = false, updatable = false)
     private String ip;
 
-    @NotNull
     @Column(nullable = false, updatable = false, name = "user_agent")
     private String userAgent;
 
-    @NotNull
     @Column(nullable = false, updatable = false, name = "correlation_id")
     private String correlationId;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, name = "correlation_source")
     private CorrelationSource correlationSource;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, name = "execution_context")
     private ExecutionContext executionContext;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false)
     private AuditResult result;
 
-    @NotNull
     @Column(nullable = false, updatable = false, name = "subject_id")
     private String subjectId;
 
-    @NotNull
     @Column(nullable = false, updatable = false, name = "tenant_id")
     private UUID tenantId;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, name = "action_type")
     private AdminAuditActionType actionType;
@@ -90,19 +78,15 @@ public class AdminAuditEvent {
     @Column(columnDefinition = "jsonb", updatable = false)
     private AdminAuditMetadata metadata;
 
-    @NotNull
     @Column(nullable = false, updatable = false, unique = true)
     private String eventFingerprint;
 
-    @NotNull
     @Column(nullable = false, updatable = false)
     private int chainVersion;
 
-    @NotNull
     @Column(nullable = false, updatable = false)
     private String prevEventHash;
 
-    @NotNull
     @Column(nullable = false, updatable = false)
     private String eventHash;
 
@@ -125,29 +109,35 @@ public class AdminAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-        this.timestamp = timestamp;
-        this.actorUserId = actorUserId;
-        this.ip = ip;
-        this.userAgent = userAgent;
-        this.correlationId = correlationId;
-        this.correlationSource = correlationSource;
-        this.executionContext = executionContext;
-        this.result = result;
-        this.subjectId = subjectId;
-        this.tenantId = tenantId;
-        this.actionType = actionType;
+
+        this.timestamp = Objects.requireNonNull(timestamp);
+        this.actorUserId = Objects.requireNonNull(actorUserId);
+        this.ip = requireNonBlank(ip);
+        this.userAgent = requireNonBlank(userAgent);
+        this.correlationId = requireNonBlank(correlationId);
+        this.correlationSource = Objects.requireNonNull(correlationSource);
+        this.executionContext = Objects.requireNonNull(executionContext);
+        this.result = Objects.requireNonNull(result);
+        this.subjectId = requireNonBlank(subjectId);
+        this.tenantId = Objects.requireNonNull(tenantId);
+        this.actionType = Objects.requireNonNull(actionType);
+        this.eventFingerprint = requireNonBlank(eventFingerprint);
+        this.prevEventHash = requireNonBlank(prevEventHash);
+        this.eventHash = requireNonBlank(eventHash);
+
+        if (chainVersion <= 0) {
+            throw new IllegalArgumentException("chainVersion must be > 0");
+        }
+
+        this.chainVersion = chainVersion;
         this.targetUserId = targetUserId;
         this.metadata = metadata;
-        this.eventFingerprint = eventFingerprint;
-        this.chainVersion = chainVersion;
-        this.prevEventHash = prevEventHash;
-        this.eventHash = eventHash;
     }
 
-    @PrePersist
-    private void prePersist() {
-        if (this.timestamp == null) {
-            throw new IllegalStateException("AdminAuditEvent timestamp must be set by writer before persist");
+    private static String requireNonBlank(String v) {
+        if (v == null || v.isBlank()) {
+            throw new IllegalArgumentException("Field must not be blank");
         }
+        return v;
     }
 }

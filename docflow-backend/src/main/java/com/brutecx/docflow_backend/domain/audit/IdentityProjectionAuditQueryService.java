@@ -144,7 +144,7 @@ public class IdentityProjectionAuditQueryService {
                                 e.getId(),
                                 partition,
                                 e.getChainVersion(),
-                                e.getPrevHash(),
+                                e.getPrevEventHash(),
                                 e.getEventHash(),
                                 canonicalMaterial,
                                 auditChainService,
@@ -235,7 +235,7 @@ public class IdentityProjectionAuditQueryService {
                                 GoldAuditSupport.csv(e.getReasonCode()),
                                 GoldAuditSupport.csv(e.getEventFingerprint()),
                                 GoldAuditSupport.csv(e.getChainVersion()),
-                                GoldAuditSupport.csv(e.getPrevHash()),
+                                GoldAuditSupport.csv(e.getPrevEventHash()),
                                 GoldAuditSupport.csv(e.getEventHash())
                         ));
                     } else {

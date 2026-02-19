@@ -202,6 +202,7 @@ export default function CredentialLifecycleAuditClient() {
                   <th className="p-2 border-b">result</th>
                   <th className="p-2 border-b">ip</th>
                   <th className="p-2 border-b">eventFingerprint</th>
+                  <th className="p-2 border-b">correlationId</th>
                 </tr>
               </thead>
               <tbody>
@@ -216,6 +217,7 @@ export default function CredentialLifecycleAuditClient() {
                     <td className="p-2">{String(r.result)}</td>
                     <td className="p-2">{r.ip ?? ""}</td>
                     <td className="p-2 font-mono">{r.eventFingerprint}</td>
+                    <td className="p-2 font-mono break-all">{r.correlationId}</td>
                   </tr>
                 ))}
               </tbody>

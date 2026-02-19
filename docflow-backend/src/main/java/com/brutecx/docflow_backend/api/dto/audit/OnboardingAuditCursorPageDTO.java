@@ -9,5 +9,5 @@ public record OnboardingAuditCursorPageDTO(
         boolean hasMore,
         Instant nextCursorTimestamp,
         UUID nextCursorId
-) {
+) implements BaseAuditCursorPageDTO<OnboardingAuditDTO> {
 }

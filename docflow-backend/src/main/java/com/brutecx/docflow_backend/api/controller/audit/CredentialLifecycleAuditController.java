@@ -28,105 +28,57 @@ public class CredentialLifecycleAuditController {
 
     @GetMapping
     public ResponseEntity<CredentialLifecycleAuditCursorPageDTO> query(
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to,
-
-            @RequestParam(required = false)
-            String correlationId,
-
-            @RequestParam(required = false)
-            String subjectExternalId,
-
-            @RequestParam(required = false)
-            String result,
-
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant cursorTimestamp,
-
-            @RequestParam(required = false)
-            UUID cursorId,
-
-            @RequestParam(defaultValue = "20")
-            int size
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) String correlationId,
+            @RequestParam(required = false) String subjectExternalId,
+            @RequestParam(required = false) String result,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant cursorTimestamp,
+            @RequestParam(required = false) UUID cursorId,
+            @RequestParam(defaultValue = "20") int size
     ) {
         return ResponseEntity.ok(
                 queryService.query(
-                        from,
-                        to,
-                        correlationId,
-                        subjectExternalId,
+                        from, to, correlationId, subjectExternalId,
                         parseAuditResult(result),
-                        cursorTimestamp,
-                        cursorId,
-                        size
+                        cursorTimestamp, cursorId, size
                 )
         );
     }
 
     @GetMapping("/verify")
     public ResponseEntity<AuditVerificationResultDTO> verify(
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to
     ) {
         return ResponseEntity.ok(queryService.verify(from, to));
     }
 
-    /**
-     * JSONL export (NDJSON format).
-     * Content-Type changed to application/json to ensure proper browser download completion.
-     */
-    @GetMapping(value = "/export", produces = "application/json")
+    @GetMapping(value = "/export", produces = "application/x-ndjson")
     public void exportJsonl(
             HttpServletResponse response,
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to
     ) {
-        response.setContentType("application/json");
-        response.setHeader(
-                HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=\"credential-lifecycle-audit-export.jsonl\""
-        );
+        response.setContentType("application/x-ndjson");
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"credential-lifecycle-audit-export.jsonl\"");
         response.setCharacterEncoding("UTF-8");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-
         queryService.streamForensicExportJsonl(response, from, to);
     }
 
     @GetMapping(value = "/export/csv", produces = "text/csv")
     public void exportCsv(
             HttpServletResponse response,
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to
     ) {
         response.setContentType("text/csv");
-        response.setHeader(
-                HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=\"credential-lifecycle-audit-export.csv\""
-        );
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"credential-lifecycle-audit-export.csv\"");
         response.setCharacterEncoding("UTF-8");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-
         queryService.streamForensicExportCsv(response, from, to);
     }
 

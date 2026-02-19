@@ -28,7 +28,7 @@ public record CredentialLifecycleAuditDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditDTO {
     public static CredentialLifecycleAuditDTO from(CredentialLifecycleAuditEvent e) {
         return new CredentialLifecycleAuditDTO(
                 e.getId(),

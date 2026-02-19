@@ -10,22 +10,11 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
-@Table(
-        name = "credential_lifecycle_audit_events",
-        indexes = {
-                @Index(name = "idx_cred_lifecycle_ts", columnList = "timestamp"),
-                @Index(name = "idx_cred_lifecycle_subject", columnList = "subject_external_id"),
-                @Index(name = "idx_cred_lifecycle_correlation", columnList = "correlation_id"),
-                @Index(
-                        name = "ux_cred_lifecycle_fingerprint",
-                        columnList = "event_fingerprint",
-                        unique = true
-                )
-        }
-)
+@Table(name = "credential_lifecycle_audit_events")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CredentialLifecycleAuditEvent {
@@ -38,56 +27,49 @@ public class CredentialLifecycleAuditEvent {
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
-    @Column(name = "subject_external_id", length = 128, updatable = false)
     private String subjectExternalId;
-
-    @Column(name = "client_id", length = 128, updatable = false)
     private String clientId;
-
-    @Column(length = 128, updatable = false)
     private String sessionId;
 
-    @Column(nullable = false, updatable = false, length = 128)
+    @Column(nullable = false, updatable = false)
     private String ip;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false, length = 64)
+    @Column(nullable = false, updatable = false)
     private CredentialLifecycleEventType eventType;
 
-    @Column(length = 128, updatable = false)
     private String requiredAction;
 
-    @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
+    @Column(nullable = false, updatable = false)
     private String correlationId;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false, name = "correlation_source", length = 32)
+    @Column(nullable = false, updatable = false)
     private CorrelationSource correlationSource;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false, name = "execution_context", length = 32)
+    @Column(nullable = false, updatable = false)
     private ExecutionContext executionContext;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false, name = "result", length = 16)
+    @Column(nullable = false, updatable = false)
     private AuditResult result;
 
-    @Column(nullable = false, updatable = false, name = "reason_code", length = 64)
+    @Column(nullable = false, updatable = false)
     private String reasonCode;
 
-    @Column(name = "reason_detail", updatable = false, length = 512)
     private String reasonDetail;
 
-    @Column(nullable = false, updatable = false, name = "event_fingerprint", length = 128)
+    @Column(nullable = false, updatable = false)
     private String eventFingerprint;
 
-    @Column(name = "chain_version", nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(name = "prev_event_hash", updatable = false, length = 64)
+    @Column(nullable = false, updatable = false)
     private String prevEventHash;
 
-    @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
+    @Column(nullable = false, updatable = false)
     private String eventHash;
 
     public CredentialLifecycleAuditEvent(
@@ -109,29 +91,30 @@ public class CredentialLifecycleAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-        this.timestamp = timestamp;
+        this.timestamp = Objects.requireNonNull(timestamp);
+        this.ip = requireNonBlank(ip);
+        this.eventType = Objects.requireNonNull(eventType);
+        this.correlationId = requireNonBlank(correlationId);
+        this.correlationSource = Objects.requireNonNull(correlationSource);
+        this.executionContext = Objects.requireNonNull(executionContext);
+        this.result = Objects.requireNonNull(result);
+        this.reasonCode = requireNonBlank(reasonCode);
+        this.eventFingerprint = requireNonBlank(eventFingerprint);
+        this.prevEventHash = requireNonBlank(prevEventHash);
+        this.eventHash = requireNonBlank(eventHash);
         this.subjectExternalId = subjectExternalId;
         this.clientId = clientId;
         this.sessionId = sessionId;
-        this.ip = ip;
-        this.eventType = eventType;
         this.requiredAction = requiredAction;
-        this.correlationId = correlationId;
-        this.correlationSource = correlationSource;
-        this.executionContext = executionContext;
-        this.result = result;
-        this.reasonCode = reasonCode;
         this.reasonDetail = reasonDetail;
-        this.eventFingerprint = eventFingerprint;
+
+        if (chainVersion <= 0) throw new IllegalArgumentException("chainVersion must be > 0");
+
         this.chainVersion = chainVersion;
-        this.prevEventHash = prevEventHash;
-        this.eventHash = eventHash;
     }
 
-    @PrePersist
-    private void prePersist() {
-        if(this.timestamp == null) {
-            throw new IllegalStateException("CredentialLifecycleAuditEvent timestamp must be set by writer before persist");
-        }
+    private static String requireNonBlank(String v) {
+        if (v == null || v.isBlank()) throw new IllegalArgumentException();
+        return v;
     }
 }

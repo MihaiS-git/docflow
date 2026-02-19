@@ -10,12 +10,21 @@ export function createVerifyHandler(
     value: AuditVerificationResultDTO | null,
   ) => void,
   setVerifying: (value: boolean) => void,
+  extraParams?: Record<string, string>,
 ) {
   return async function handleVerify() {
     setVerifying(true);
 
     try {
       const qs = buildRangeQueryParams({ from, to });
+
+      if (extraParams) {
+        for (const [key, value] of Object.entries(extraParams)) {
+          if (value) {
+            qs.set(key, value);
+          }
+        }
+      }
 
       const data = await apiFetch<AuditVerificationResultDTO>(
         `${endpoint}/verify?${qs.toString()}`,

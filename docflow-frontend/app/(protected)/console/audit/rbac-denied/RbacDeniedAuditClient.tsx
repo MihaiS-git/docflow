@@ -2,19 +2,20 @@
 
 import { useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
+import { downloadAuditFile } from "@/lib/audit/auditDownload";
 import { buildRangeQueryParams } from "@/lib/audit/auditRange";
 import { useCursorPagination } from "@/lib/audit/useCursorPagination";
 import { useDefaultAuditRange } from "@/lib/audit/useDefaultAuditRange";
 import { adaptCursorPage } from "@/lib/audit/adaptCursorPage";
 import { createVerifyHandler } from "@/lib/audit/createVerifyHandler";
-import { createJsonlExportHandler } from "@/lib/audit/createJsonlExportHandler";
 import { AuditRangePanel } from "@/lib/audit/AuditRangePanel";
+import { AuditExportButtons } from "@/lib/audit/AuditExportButtons";
 import { AuditVerifyPanel } from "@/lib/audit/AuditVerifyPanel";
 import { AuditCursorPagination } from "@/lib/audit/AuditCursorPagination";
 import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { RbacDeniedAuditCursorPageDTO } from "@/types/api/RbacDeniedAuditCursorPageDTO";
-import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 import { RbacDeniedAuditRow } from "@/types/api/RbacDeniedAuditRow";
+import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 
 export default function RbacDeniedAuditClient() {
   const { from, to, size, setFrom, setTo, setSize } =
@@ -39,20 +40,16 @@ export default function RbacDeniedAuditClient() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [downloading, setDownloading] =
+    useState<"jsonl" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queried, setQueried] = useState(false);
 
   function buildParams(cursorTs?: string, cursorId?: string) {
     const qs = buildRangeQueryParams({ from, to });
 
-    if (correlationId.trim()) {
-      qs.set("correlationId", correlationId.trim());
-    }
-
-    if (subjectId.trim()) {
-      qs.set("subjectId", subjectId.trim());
-    }
+    if (correlationId.trim()) qs.set("correlationId", correlationId.trim());
+    if (subjectId.trim()) qs.set("subjectId", subjectId.trim());
 
     if (cursorTs) qs.set("cursorTimestamp", cursorTs);
     if (cursorId) qs.set("cursorId", cursorId);
@@ -87,7 +84,6 @@ export default function RbacDeniedAuditClient() {
     if (!hasNext || !nextCursorTimestamp || !nextCursorId) return;
 
     setLoadingMore(true);
-
     try {
       const data =
         await apiFetch<RbacDeniedAuditCursorPageDTO>(
@@ -111,22 +107,37 @@ export default function RbacDeniedAuditClient() {
     setVerifying
   );
 
-  const handleExportJsonl = createJsonlExportHandler(
-    "/api/audit/rbac-denied",
-    "rbac-denied-export.jsonl",
-    from,
-    to,
-    (qs) => {
-      if (correlationId.trim()) {
-        qs.set("correlationId", correlationId.trim());
-      }
-      if (subjectId.trim()) {
-        qs.set("subjectId", subjectId.trim());
-      }
-    },
-    setDownloading,
-    setError
-  );
+  async function handleExportJsonl() {
+    setDownloading("jsonl");
+    try {
+      const qs = buildRangeQueryParams({ from, to });
+      if (correlationId.trim()) qs.set("correlationId", correlationId.trim());
+      if (subjectId.trim()) qs.set("subjectId", subjectId.trim());
+
+      await downloadAuditFile({
+        path: `/api/audit/rbac-denied/export?${qs.toString()}`,
+        filename: "rbac-denied-audit-export.jsonl",
+      });
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  async function handleExportCsv() {
+    setDownloading("csv");
+    try {
+      const qs = buildRangeQueryParams({ from, to });
+      if (correlationId.trim()) qs.set("correlationId", correlationId.trim());
+      if (subjectId.trim()) qs.set("subjectId", subjectId.trim());
+
+      await downloadAuditFile({
+        path: `/api/audit/rbac-denied/export/csv?${qs.toString()}`,
+        filename: "rbac-denied-audit-export.csv",
+      });
+    } finally {
+      setDownloading(null);
+    }
+  }
 
   return (
     <div className="p-4 space-y-6">
@@ -167,16 +178,11 @@ export default function RbacDeniedAuditClient() {
           to={to}
         />
 
-        <div>
-          <button
-            type="button"
-            onClick={handleExportJsonl}
-            disabled={downloading}
-            className="px-3 py-1 rounded border disabled:opacity-50"
-          >
-            {downloading ? "Exporting…" : "Export JSONL"}
-          </button>
-        </div>
+        <AuditExportButtons
+          onExportJsonl={handleExportJsonl}
+          onExportCsv={handleExportCsv}
+          loading={downloading}
+        />
       </div>
 
       {error && (
@@ -190,30 +196,30 @@ export default function RbacDeniedAuditClient() {
               <thead>
                 <tr>
                   <th className="p-2 border-b">timestamp</th>
+                  <th className="p-2 border-b">id</th>
                   <th className="p-2 border-b">subjectId</th>
                   <th className="p-2 border-b">method</th>
                   <th className="p-2 border-b">path</th>
                   <th className="p-2 border-b">ip</th>
-                  <th className="p-2 border-b">result</th>
-                  <th className="p-2 border-b">fingerprint</th>
+                  <th className="p-2 border-b">eventFingerprint</th>
+                  <th className="p-2 border-b">correlationId</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, idx) => (
-                  <tr key={idx}>
+                {rows.map((r) => (
+                  <tr key={r.id}>
                     <td className="p-2 font-mono">
                       {formatAuditTimestamp(r.timestamp)}
                     </td>
+                    <td className="p-2">{r.id}</td>
                     <td className="p-2">{r.subjectId}</td>
                     <td className="p-2">{r.httpMethod}</td>
                     <td className="p-2">{r.path}</td>
                     <td className="p-2">{r.ip}</td>
-                    <td className="p-2">
-                      {String(r.result)}
-                    </td>
                     <td className="p-2 font-mono">
                       {r.eventFingerprint}
                     </td>
+                    <td className="p-2 font-mono break-all">{r.correlationId}</td>
                   </tr>
                 ))}
               </tbody>

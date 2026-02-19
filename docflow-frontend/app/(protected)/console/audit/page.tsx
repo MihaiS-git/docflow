@@ -10,6 +10,7 @@ export default function AuditConsolePage() {
     { name: "Admin", path: "admin" },
     { name: "Onboarding", path: "onboarding" },
     { name: "Unauthenticated Access", path: "unauthenticated" },
+    { name: "Identity Projection", path: "identity-projection" },
   ];
 
   return (

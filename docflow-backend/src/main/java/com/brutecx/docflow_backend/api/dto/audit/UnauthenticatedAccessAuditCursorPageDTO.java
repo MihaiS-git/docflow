@@ -9,4 +9,4 @@ public record UnauthenticatedAccessAuditCursorPageDTO(
         boolean hasMore,
         Instant nextCursorTimestamp,
         UUID nextCursorId
-) {}
+) implements BaseAuditCursorPageDTO<UnauthenticatedAccessAuditDTO> {}

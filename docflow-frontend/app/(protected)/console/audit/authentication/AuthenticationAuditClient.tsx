@@ -12,16 +12,13 @@ import { AuditRangePanel } from "@/lib/audit/AuditRangePanel";
 import { AuditExportButtons } from "@/lib/audit/AuditExportButtons";
 import { AuditVerifyPanel } from "@/lib/audit/AuditVerifyPanel";
 import { AuditCursorPagination } from "@/lib/audit/AuditCursorPagination";
-import {
-  formatAuditTimestamp,
-} from "@/lib/date/dateTimeLocal";
+import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { AuthenticationAuditCursorPageDTO } from "@/types/api/AuthenticationAuditCursorPageDTO";
-import { AuthenticationAuditRow } from "@/types/api/auditApi";
+import { AuthenticationAuditRow } from "@/types/api/AuthenticationAuditRow";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 
 export default function AuthenticationAuditClient() {
-  const { from, to, size, setFrom, setTo, setSize } =
-    useDefaultAuditRange();
+  const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
 
   const [correlationId, setCorrelationId] = useState("");
   const [username, setUsername] = useState("");
@@ -44,8 +41,7 @@ export default function AuthenticationAuditClient() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [downloading, setDownloading] =
-    useState<"jsonl" | "csv" | null>(null);
+  const [downloading, setDownloading] = useState<"jsonl" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queried, setQueried] = useState(false);
 
@@ -72,10 +68,9 @@ export default function AuthenticationAuditClient() {
     try {
       reset();
 
-      const data =
-        await apiFetch<AuthenticationAuditCursorPageDTO>(
-          `/api/audit/authentication?${buildParams().toString()}`
-        );
+      const data = await apiFetch<AuthenticationAuditCursorPageDTO>(
+        `/api/audit/authentication?${buildParams().toString()}`,
+      );
 
       applyFirstPage(adaptCursorPage(data));
       setQueried(true);
@@ -91,13 +86,12 @@ export default function AuthenticationAuditClient() {
 
     setLoadingMore(true);
     try {
-      const data =
-        await apiFetch<AuthenticationAuditCursorPageDTO>(
-          `/api/audit/authentication?${buildParams(
-            nextCursorTimestamp,
-            nextCursorId
-          ).toString()}`
-        );
+      const data = await apiFetch<AuthenticationAuditCursorPageDTO>(
+        `/api/audit/authentication?${buildParams(
+          nextCursorTimestamp,
+          nextCursorId,
+        ).toString()}`,
+      );
 
       appendPage(adaptCursorPage(data));
     } finally {
@@ -110,7 +104,7 @@ export default function AuthenticationAuditClient() {
     from,
     to,
     setVerifyResult,
-    setVerifying
+    setVerifying,
   );
 
   async function handleExportJsonl() {
@@ -157,22 +151,26 @@ export default function AuthenticationAuditClient() {
       />
 
       <div className="border rounded p-3 grid gap-3 md:grid-cols-4">
-        <input className="border rounded px-2 py-1"
+        <input
+          className="border rounded px-2 py-1"
           placeholder="Correlation ID"
           value={correlationId}
           onChange={(e) => setCorrelationId(e.target.value)}
         />
-        <input className="border rounded px-2 py-1"
+        <input
+          className="border rounded px-2 py-1"
           placeholder="Username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
-        <input className="border rounded px-2 py-1"
+        <input
+          className="border rounded px-2 py-1"
           placeholder="Subject ID"
           value={subjectId}
           onChange={(e) => setSubjectId(e.target.value)}
         />
-        <input className="border rounded px-2 py-1"
+        <input
+          className="border rounded px-2 py-1"
           placeholder="Result"
           value={result}
           onChange={(e) => setResult(e.target.value)}
@@ -209,6 +207,8 @@ export default function AuthenticationAuditClient() {
                   <th className="p-2 border-b">result</th>
                   <th className="p-2 border-b">ip</th>
                   <th className="p-2 border-b">eventFingerprint</th>
+                  <th className="p-2 border-b">subjectId</th>
+                  <th className="p-2 border-b">correlationId</th>
                 </tr>
               </thead>
               <tbody>
@@ -222,6 +222,10 @@ export default function AuthenticationAuditClient() {
                     <td className="p-2">{String(r.result)}</td>
                     <td className="p-2">{r.ip}</td>
                     <td className="p-2 font-mono">{r.eventFingerprint}</td>
+                    <td className="p-2 font-mono">{r.subjectId}</td>
+                    <td className="p-2 font-mono break-all">
+                      {r.correlationId}
+                    </td>
                   </tr>
                 ))}
               </tbody>

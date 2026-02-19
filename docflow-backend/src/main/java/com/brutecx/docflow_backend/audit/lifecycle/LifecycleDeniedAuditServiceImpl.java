@@ -95,6 +95,8 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                         ? AuditPartition.subject(STREAM, resolvedSubject.trim())
                         : AuditPartition.global(STREAM);
 
+        Instant timestamp = Instant.now();
+
         try {
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
@@ -103,6 +105,7 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                     );
 
             repository.save(new LifecycleDeniedAuditEvent(
+                    timestamp,
                     correlationId,
                     correlationSource,
                     ExecutionContext.HTTP,

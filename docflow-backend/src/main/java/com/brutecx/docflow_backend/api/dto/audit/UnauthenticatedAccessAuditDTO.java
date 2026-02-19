@@ -26,7 +26,7 @@ public record UnauthenticatedAccessAuditDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditDTO {
     public static UnauthenticatedAccessAuditDTO from(UnauthenticatedAccessAuditEvent e) {
         return new UnauthenticatedAccessAuditDTO(
                 e.getId(),

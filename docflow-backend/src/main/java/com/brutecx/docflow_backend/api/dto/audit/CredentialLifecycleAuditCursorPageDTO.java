@@ -9,4 +9,4 @@ public record CredentialLifecycleAuditCursorPageDTO(
         boolean hasMore,
         Instant nextCursorTimestamp,
         UUID nextCursorId
-) {}
+) implements BaseAuditCursorPageDTO<CredentialLifecycleAuditDTO> {}

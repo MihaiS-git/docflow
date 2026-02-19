@@ -25,7 +25,7 @@ public record LifecycleDeniedAuditForensicExportDTO(
         int chainVersion,
         String prevEventHash,
         String eventHash
-) {
+) implements BaseAuditForensicExportDTO {
     public static LifecycleDeniedAuditForensicExportDTO from(LifecycleDeniedAuditEvent e) {
         return new LifecycleDeniedAuditForensicExportDTO(
                 e.getId(),
