@@ -41,6 +41,10 @@ docflow:
     chain:
       enabled: true
       secret: ${AUDIT_CHAIN_SECRET}
+    export:
+      signing:
+        private-key-pkcs8-pem: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM}
+        key-id: ${DOCFLOW_AUDIT_EXPORT_SIGNING_KEY_ID}
   security:
     keycloak:
       admin:

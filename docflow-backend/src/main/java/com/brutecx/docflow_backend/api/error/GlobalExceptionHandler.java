@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.api.error;
 
+import com.brutecx.docflow_backend.domain.security.MissingActiveAuditSigningKeyException;
 import com.brutecx.docflow_backend.domain.tenant.TenantLifecycleViolationException;
 import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,6 +24,19 @@ import java.util.Map;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MissingActiveAuditSigningKeyException.class)
+    public ResponseEntity<ErrorResponse> handleMissingAuditSigningKey(
+            MissingActiveAuditSigningKeyException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.FAILED_DEPENDENCY,
+                ErrorCode.AUDIT_EXPORT_SIGNING_KEY_MISSING,
+                ex.getMessage(),
+                request
+        );
+    }
 
     @ExceptionHandler(LifecycleAccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleLifecycleAccessDenied(

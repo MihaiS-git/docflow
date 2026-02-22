@@ -165,6 +165,13 @@ public class SecurityConfig {
                                 AuthorityAuthorizationManager.hasAnyRole("AUDITOR", "ADMIN")
                         ))
 
+                        // -------- AUDIT KEY DISTRIBUTION (AUTHENTICATED) --------
+                        .requestMatchers("/api/security/audit-keys/**")
+                        .access(AuthorizationManagers.allOf(
+                                lifecycleAuthorizationManager,
+                                AuthorityAuthorizationManager.hasAnyRole("AUDITOR", "ADMIN")
+                        ))
+
                         // -------- TENANT INVITES (MANAGER) --------
                         .requestMatchers("/api/tenants/*/invites/**")
                         .access(AuthorizationManagers.allOf(

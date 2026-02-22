@@ -1,4 +1,3 @@
-// src/main/java/com/brutecx/docflow_backend/domain/audit/AdminAuditQueryService.java
 package com.brutecx.docflow_backend.domain.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditCursorPageDTO;
@@ -16,20 +15,27 @@ import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.domain.audit.export.SealedJsonlAuditExportService;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.PrintWriter;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -37,7 +43,7 @@ public class AdminAuditQueryService {
 
     private static final int MAX_PAGE_SIZE = 100;
     private static final int VERIFY_BATCH_SIZE = 1_000;
-    private static final int EXPORT_BATCH_SIZE = 2_000;
+    private static final int EXPORT_BATCH_SIZE = 1_000;
     private static final int EXPORT_MAX_ROWS = 200_000;
 
     private static final String STREAM = AdminAuditCanonicalMaterialBuilder.STREAM;
@@ -49,7 +55,7 @@ public class AdminAuditQueryService {
     private final TenantService tenantService;
     private final AuditChainService auditChainService;
     private final AdminAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
-    private final ObjectMapper objectMapper;
+    private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
     /* =====================================================
        CURSOR QUERY – DESC timestamp, DESC id
@@ -67,8 +73,8 @@ public class AdminAuditQueryService {
             int size
     ) {
 
-        GoldAuditSupport.validateRange(from, to);
-        GoldAuditSupport.validateCursorPair(cursorTimestamp, cursorId);
+        AuditStreamSupport.validateRange(from, to);
+        AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
@@ -114,7 +120,6 @@ public class AdminAuditQueryService {
 
     /* =====================================================
        VERIFY – timestamp ASC, id ASC
-       - strict continuity per partition (tenant partition OR global partition)
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -124,13 +129,12 @@ public class AdminAuditQueryService {
             UUID tenantId
     ) {
 
-        GoldAuditSupport.validateRangeRequired(from, to);
+        AuditStreamSupport.validateRangeRequired(from, to);
 
         long verified = 0;
         Instant cursorTimestamp = null;
         UUID cursorId = null;
 
-        // stateKey -> lastEventHash
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
 
         while (true) {
@@ -168,7 +172,7 @@ public class AdminAuditQueryService {
                         canonicalMaterialBuilder.fromEvent(event)
                 );
 
-                AuditVerificationResultDTO failure = GoldAuditSupport.verifyEvent(
+                AuditVerificationResultDTO failure = AuditStreamSupport.verifyEvent(
                         event.getId(),
                         partition,
                         event.getChainVersion(),
@@ -194,18 +198,52 @@ public class AdminAuditQueryService {
     }
 
     /* =====================================================
-       EXPORT JSONL + CSV (ASC timestamp, ASC id)
+       EXPORT JSONL (SEALED) – shared mechanism
        ===================================================== */
 
-    @Transactional(readOnly = true)
+    @Transactional
     public void streamForensicExportJsonl(
             HttpServletResponse response,
             Instant from,
             Instant to,
             UUID tenantId
     ) {
-        streamExport(response, from, to, tenantId, false);
+
+        AuditStreamSupport.validateRangeRequired(from, to);
+
+        sealedJsonlAuditExportService.exportSealedJsonl(
+                response,
+                STREAM,
+                from,
+                to,
+                tenantId,
+                EXPORT_MAX_ROWS,
+                (Instant cursorTs, UUID cursorId) -> {
+                    Pageable pageable = PageRequest.of(
+                            0,
+                            EXPORT_BATCH_SIZE,
+                            Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
+                    );
+
+                    Specification<AdminAuditEvent> spec = Specification.allOf(
+                            AdminAuditSpecifications.timestampFrom(from),
+                            AdminAuditSpecifications.timestampTo(to),
+                            tenantId != null ? AdminAuditSpecifications.hasTenantId(tenantId) : null,
+                            cursorTs != null
+                                    ? AdminAuditSpecifications.cursorAfter(cursorTs, cursorId, true)
+                                    : null
+                    );
+
+                    return repository.findAll(spec, pageable);
+                },
+                AdminAuditForensicExportDTO::from,
+                () -> recordSensitiveAccess(tenantId, "AUDIT_EXPORT")
+        );
     }
+
+    /* =====================================================
+       CSV EXPORT – FLAT SUMMARY (NO JSON)
+       ===================================================== */
 
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
@@ -214,102 +252,72 @@ public class AdminAuditQueryService {
             Instant to,
             UUID tenantId
     ) {
-        streamExport(response, from, to, tenantId, true);
-    }
 
-    private void streamExport(
-            HttpServletResponse response,
-            Instant from,
-            Instant to,
-            UUID tenantId,
-            boolean csv
-    ) {
+        AuditStreamSupport.validateRangeRequired(from, to);
 
-        GoldAuditSupport.validateRangeRequired(from, to);
-
-        GoldAuditSupport.streamExportAsc(
+        AuditStreamSupport.streamExportCsvAsc(
                 response,
+                STREAM,
+                from,
+                to,
                 EXPORT_BATCH_SIZE,
                 EXPORT_MAX_ROWS,
-                pageable -> {
-                    Specification<AdminAuditEvent> spec = Specification.allOf(
-                            AdminAuditSpecifications.timestampFrom(from),
-                            AdminAuditSpecifications.timestampTo(to),
-                            tenantId != null ? AdminAuditSpecifications.hasTenantId(tenantId) : null
-                    );
-                    return repository.findAll(spec, pageable);
-                },
-                (PrintWriter w) -> {
-                    if (!csv) return;
-                    w.println(String.join(",",
-                            "id",
-                            "timestamp",
-                            "tenantId",
-                            "actorUserId",
-                            "subjectId",
-                            "actionType",
-                            "result",
-                            "correlationId",
-                            "correlationSource",
-                            "executionContext",
-                            "ip",
-                            "userAgent",
-                            "targetUserId",
-                            "metadata",
-                            "eventFingerprint",
-                            "chainVersion",
-                            "prevEventHash",
-                            "eventHash"
-                    ));
-                },
+                pageable -> repository.findAll(
+                        Specification.allOf(
+                                AdminAuditSpecifications.timestampFrom(from),
+                                AdminAuditSpecifications.timestampTo(to),
+                                tenantId != null
+                                        ? AdminAuditSpecifications.hasTenantId(tenantId)
+                                        : null
+                        ),
+                        pageable
+                ),
+                (PrintWriter w) -> w.println(String.join(",",
+                        "id",
+                        "timestamp",
+                        "tenantId",
+                        "actorUserId",
+                        "subjectId",
+                        "actionType",
+                        "result",
+                        "correlationId",
+                        "correlationSource",
+                        "executionContext",
+                        "ip",
+                        "userAgent",
+                        "targetUserId",
+                        "eventFingerprint",
+                        "chainVersion",
+                        "prevEventHash",
+                        "eventHash"
+                )),
                 (PrintWriter w, AdminAuditEvent e) -> {
-                    if (csv) {
-                        writeCsvLine(w, e);
-                    } else {
-                        w.println(objectMapper.writeValueAsString(
-                                AdminAuditForensicExportDTO.from(e)
-                        ));
-                    }
+                    w.println(String.join(",",
+                            AuditStreamSupport.csv(e.getId()),
+                            AuditStreamSupport.csv(e.getTimestamp()),
+                            AuditStreamSupport.csv(e.getTenantId()),
+                            AuditStreamSupport.csv(e.getActorUserId()),
+                            AuditStreamSupport.csv(e.getSubjectId()),
+                            AuditStreamSupport.csv(e.getActionType()),
+                            AuditStreamSupport.csv(e.getResult()),
+                            AuditStreamSupport.csv(e.getCorrelationId()),
+                            AuditStreamSupport.csv(e.getCorrelationSource()),
+                            AuditStreamSupport.csv(e.getExecutionContext()),
+                            AuditStreamSupport.csv(e.getIp()),
+                            AuditStreamSupport.csv(e.getUserAgent()),
+                            AuditStreamSupport.csv(e.getTargetUserId()),
+                            AuditStreamSupport.csv(e.getEventFingerprint()),
+                            AuditStreamSupport.csv(e.getChainVersion()),
+                            AuditStreamSupport.csv(e.getPrevEventHash()),
+                            AuditStreamSupport.csv(e.getEventHash())
+                    ));
                 },
                 () -> recordSensitiveAccess(tenantId, "AUDIT_EXPORT")
         );
     }
 
-    private void writeCsvLine(PrintWriter w, AdminAuditEvent e) {
-        w.println(String.join(",",
-                GoldAuditSupport.csv(e.getId()),
-                GoldAuditSupport.csv(e.getTimestamp()),
-                GoldAuditSupport.csv(e.getTenantId()),
-                GoldAuditSupport.csv(e.getActorUserId()),
-                GoldAuditSupport.csv(e.getSubjectId()),
-                GoldAuditSupport.csv(e.getActionType()),
-                GoldAuditSupport.csv(e.getResult()),
-                GoldAuditSupport.csv(e.getCorrelationId()),
-                GoldAuditSupport.csv(e.getCorrelationSource()),
-                GoldAuditSupport.csv(e.getExecutionContext()),
-                GoldAuditSupport.csv(e.getIp()),
-                GoldAuditSupport.csv(e.getUserAgent()),
-                GoldAuditSupport.csv(e.getTargetUserId()),
-                GoldAuditSupport.csv(e.getMetadata() != null ? safeJson(e.getMetadata()) : ""),
-                GoldAuditSupport.csv(e.getEventFingerprint()),
-                GoldAuditSupport.csv(e.getChainVersion()),
-                GoldAuditSupport.csv(e.getPrevEventHash()),
-                GoldAuditSupport.csv(e.getEventHash())
-        ));
-    }
-
-    private String safeJson(Object o) {
-        try {
-            return objectMapper.writeValueAsString(o);
-        } catch (Exception e) {
-            // last-resort: avoid breaking export
-            return String.valueOf(o);
-        }
-    }
-
     /* =====================================================
-       META AUDIT (Sensitive Access)
-       - keeps tenant-scoped vs global semantics
+       META AUDIT
        ===================================================== */
 
     private void recordSensitiveAccess(UUID requestedTenantId, String action) {
@@ -353,10 +361,6 @@ public class AdminAuditQueryService {
                 fingerprint
         );
     }
-
-    /* =====================================================
-       HELPERS
-       ===================================================== */
 
     private boolean hasText(String s) {
         return s != null && !s.isBlank();

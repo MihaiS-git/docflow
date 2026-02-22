@@ -12,7 +12,7 @@ export function createJsonlExportHandler(
   setDownloading?: (value: boolean) => void,
   setError?: (value: string | null) => void,
 ) {
-  return function handleExportJsonl() {
+  return async function handleExportJsonl() {
     setDownloading?.(true);
     setError?.(null);
 
@@ -23,14 +23,12 @@ export function createJsonlExportHandler(
         extraParams(qs);
       }
 
-      downloadAuditFile({
+      await downloadAuditFile({
         path: `${endpoint}/export?${qs.toString()}`,
         filename,
       });
     } catch (e) {
-      setError?.(
-        e instanceof Error ? e.message : "Export failed",
-      );
+      setError?.(e instanceof Error ? e.message : "Export failed");
     } finally {
       setDownloading?.(false);
     }

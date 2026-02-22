@@ -13,10 +13,10 @@ import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.domain.audit.export.SealedJsonlAuditExportService;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -33,11 +33,13 @@ import java.util.*;
 public class AuthenticationAuditQueryService {
 
     private static final int MAX_PAGE_SIZE = 100;
-    private static final int VERIFY_BATCH_SIZE = 2_000;
-    private static final int EXPORT_BATCH_SIZE = 2_000;
+    private static final int VERIFY_BATCH_SIZE = 1_000;
+    private static final int EXPORT_BATCH_SIZE = 1_000;
     private static final int EXPORT_MAX_ROWS = 200_000;
 
-    private static final String STREAM = AuthenticationAuditCanonicalMaterialBuilder.STREAM;
+    private static final String STREAM =
+            AuthenticationAuditCanonicalMaterialBuilder.STREAM;
+
     private static final String PARTITION_ANON = "ANON";
 
     private final AuthenticationEventRepository repository;
@@ -47,7 +49,7 @@ public class AuthenticationAuditQueryService {
     private final TenantService tenantService;
     private final AuditChainService auditChainService;
     private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
-    private final ObjectMapper objectMapper;
+    private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
     /* =====================================================
        CURSOR QUERY – DESC timestamp, DESC id
@@ -66,8 +68,8 @@ public class AuthenticationAuditQueryService {
             int size
     ) {
 
-        GoldAuditSupport.validateRange(from, to);
-        GoldAuditSupport.validateCursorPair(cursorTimestamp, cursorId);
+        AuditStreamSupport.validateRange(from, to);
+        AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
         AuthenticationResult result = parseResult(resultRaw);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
@@ -115,13 +117,13 @@ public class AuthenticationAuditQueryService {
     }
 
     /* =====================================================
-       VERIFY – timestamp ASC, id ASC
+       VERIFY – ASC timestamp, ASC id
        ===================================================== */
 
     @Transactional(readOnly = true)
     public AuditVerificationResultDTO verify(Instant from, Instant to) {
 
-        GoldAuditSupport.validateRangeRequired(from, to);
+        AuditStreamSupport.validateRangeRequired(from, to);
 
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
         long verified = 0;
@@ -155,14 +157,13 @@ public class AuthenticationAuditQueryService {
 
                 AuditPartition partition = resolvePartition(e);
 
-                AuthenticationAuditCanonicalMaterialBuilder.Input input =
-                        canonicalMaterialBuilder.fromEvent(e);
-
                 String canonicalMaterial =
-                        canonicalMaterialBuilder.buildCanonicalMaterial(input);
+                        canonicalMaterialBuilder.buildCanonicalMaterial(
+                                canonicalMaterialBuilder.fromEvent(e)
+                        );
 
                 AuditVerificationResultDTO failure =
-                        GoldAuditSupport.verifyEvent(
+                        AuditStreamSupport.verifyEvent(
                                 e.getId(),
                                 partition,
                                 e.getChainVersion(),
@@ -187,17 +188,51 @@ public class AuthenticationAuditQueryService {
     }
 
     /* =====================================================
-       EXPORT JSONL + CSV (ASC timestamp, ASC id)
+       SEALED JSONL EXPORT
        ===================================================== */
 
-    @Transactional(readOnly = true)
+    @Transactional
     public void streamForensicExportJsonl(
             HttpServletResponse response,
             Instant from,
             Instant to
     ) {
-        streamExport(response, from, to, false);
+
+        AuditStreamSupport.validateRangeRequired(from, to);
+
+        sealedJsonlAuditExportService.exportSealedJsonl(
+                response,
+                STREAM,
+                from,
+                to,
+                null,
+                EXPORT_MAX_ROWS,
+                (Instant cursorTs, UUID cursorId) -> {
+
+                    Pageable pageable = PageRequest.of(
+                            0,
+                            EXPORT_BATCH_SIZE,
+                            Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
+                    );
+
+                    Specification<AuthenticationEvent> spec = Specification.allOf(
+                            AuthenticationAuditSpecifications.timestampFrom(from),
+                            AuthenticationAuditSpecifications.timestampTo(to),
+                            cursorTs != null
+                                    ? AuthenticationAuditSpecifications.afterCursor(cursorTs, cursorId, true)
+                                    : null
+                    );
+
+                    return repository.findAll(spec, pageable);
+                },
+                AuthenticationAuditForensicExportDTO::from,
+                () -> recordMeta("AUDIT_EXPORT")
+        );
     }
+
+    /* =====================================================
+       CSV EXPORT
+       ===================================================== */
 
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
@@ -205,20 +240,14 @@ public class AuthenticationAuditQueryService {
             Instant from,
             Instant to
     ) {
-        streamExport(response, from, to, true);
-    }
 
-    private void streamExport(
-            HttpServletResponse response,
-            Instant from,
-            Instant to,
-            boolean csv
-    ) {
+        AuditStreamSupport.validateRangeRequired(from, to);
 
-        GoldAuditSupport.validateRangeRequired(from, to);
-
-        GoldAuditSupport.streamExportAsc(
+        AuditStreamSupport.streamExportCsvAsc(
                 response,
+                STREAM,
+                from,
+                to,
                 EXPORT_BATCH_SIZE,
                 EXPORT_MAX_ROWS,
                 pageable -> {
@@ -229,7 +258,6 @@ public class AuthenticationAuditQueryService {
                     return repository.findAll(spec, pageable);
                 },
                 (PrintWriter w) -> {
-                    if (!csv) return;
                     w.println(String.join(",",
                             "id",
                             "timestamp",
@@ -243,45 +271,35 @@ public class AuthenticationAuditQueryService {
                             "correlationId",
                             "correlationSource",
                             "executionContext",
-                            "auditResult",
                             "eventFingerprint",
                             "chainVersion",
                             "prevEventHash",
                             "eventHash"
                     ));
                 },
-                (PrintWriter w, AuthenticationEvent e) -> {
-                    if (csv) {
-                        writeCsvLine(w, e);
-                    } else {
-                        w.println(objectMapper.writeValueAsString(
-                                AuthenticationAuditForensicExportDTO.from(e)
-                        ));
-                    }
-                },
+                (PrintWriter w, AuthenticationEvent e) -> writeCsvLine(w, e),
                 () -> recordMeta("AUDIT_EXPORT")
         );
     }
 
     private void writeCsvLine(PrintWriter w, AuthenticationEvent e) {
         w.println(String.join(",",
-                GoldAuditSupport.csv(e.getId()),
-                GoldAuditSupport.csv(e.getTimestamp()),
-                GoldAuditSupport.csv(e.getSource()),
-                GoldAuditSupport.csv(e.getUsername()),
-                GoldAuditSupport.csv(e.getSubjectId()),
-                GoldAuditSupport.csv(e.getResult()),
-                GoldAuditSupport.csv(e.getIdp()),
-                GoldAuditSupport.csv(e.getIp()),
-                GoldAuditSupport.csv(e.getUserAgent()),
-                GoldAuditSupport.csv(e.getCorrelationId()),
-                GoldAuditSupport.csv(e.getCorrelationSource()),
-                GoldAuditSupport.csv(e.getExecutionContext()),
-                GoldAuditSupport.csv(e.getResult()),
-                GoldAuditSupport.csv(e.getEventFingerprint()),
-                GoldAuditSupport.csv(e.getChainVersion()),
-                GoldAuditSupport.csv(e.getPrevEventHash()),
-                GoldAuditSupport.csv(e.getEventHash())
+                AuditStreamSupport.csv(e.getId()),
+                AuditStreamSupport.csv(e.getTimestamp()),
+                AuditStreamSupport.csv(e.getSource()),
+                AuditStreamSupport.csv(e.getUsername()),
+                AuditStreamSupport.csv(e.getSubjectId()),
+                AuditStreamSupport.csv(e.getResult()),
+                AuditStreamSupport.csv(e.getIdp()),
+                AuditStreamSupport.csv(e.getIp()),
+                AuditStreamSupport.csv(e.getUserAgent()),
+                AuditStreamSupport.csv(e.getCorrelationId()),
+                AuditStreamSupport.csv(e.getCorrelationSource()),
+                AuditStreamSupport.csv(e.getExecutionContext()),
+                AuditStreamSupport.csv(e.getEventFingerprint()),
+                AuditStreamSupport.csv(e.getChainVersion()),
+                AuditStreamSupport.csv(e.getPrevEventHash()),
+                AuditStreamSupport.csv(e.getEventHash())
         ));
     }
 
@@ -299,6 +317,7 @@ public class AuthenticationAuditQueryService {
                 "SENSITIVE_ACCESS",
                 action,
                 STREAM,
+                "SCOPE_GLOBAL",
                 actor.getId().toString(),
                 rootTenantId.toString(),
                 ctx.correlationId()
@@ -317,14 +336,14 @@ public class AuthenticationAuditQueryService {
                 ctx.ip(),
                 ctx.userAgent(),
                 action,
-                "Audit stream operation",
+                "Authentication audit stream operation",
                 SensitiveDataClassification.REGULATED,
                 fingerprint
         );
     }
 
     /* =====================================================
-       PARTITION RESOLUTION
+       PARTITION
        ===================================================== */
 
     private AuditPartition resolvePartition(AuthenticationEvent e) {
@@ -339,10 +358,6 @@ public class AuthenticationAuditQueryService {
         }
         return AuditPartition.subject(STREAM, PARTITION_ANON);
     }
-
-    /* =====================================================
-       UTIL
-       ===================================================== */
 
     private AuthenticationResult parseResult(String raw) {
         if (!hasText(raw)) return null;

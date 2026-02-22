@@ -2,6 +2,6 @@
 
 import AdminAuditClient from "./AdminAuditClient";
 
-export default function LifecycleDeniedAuditPage() {
+export default function AdminAuditPage() {
   return <AdminAuditClient />;
 }

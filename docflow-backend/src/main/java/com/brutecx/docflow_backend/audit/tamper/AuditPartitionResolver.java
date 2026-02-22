@@ -32,4 +32,8 @@ public class AuditPartitionResolver {
     public AuditPartition unauthenticatedAccess() {
         return AuditPartition.global("UNAUTHENTICATED_ACCESS");
     }
+
+    public AuditPartition auditExportSigningKeyRotation() {
+        return AuditPartition.global("AUDIT_EXPORT_SIGNING_KEY_ROTATION");
+    }
 }

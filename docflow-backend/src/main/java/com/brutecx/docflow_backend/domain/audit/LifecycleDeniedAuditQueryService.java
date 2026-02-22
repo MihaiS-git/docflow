@@ -10,22 +10,18 @@ import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.domain.audit.export.SealedJsonlAuditExportService;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 
@@ -35,10 +31,11 @@ public class LifecycleDeniedAuditQueryService {
 
     private static final int MAX_PAGE_SIZE = 100;
     private static final int VERIFY_BATCH_SIZE = 1_000;
-    private static final int EXPORT_BATCH_SIZE = 2_000;
+    private static final int EXPORT_BATCH_SIZE = 1_000;
     private static final int EXPORT_MAX_ROWS = 200_000;
 
-    private static final String STREAM = LifecycleDeniedCanonicalMaterialBuilder.STREAM;
+    private static final String STREAM =
+            LifecycleDeniedCanonicalMaterialBuilder.STREAM;
 
     private final LifecycleDeniedAuditEventRepository repository;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
@@ -47,12 +44,10 @@ public class LifecycleDeniedAuditQueryService {
     private final TenantService tenantService;
     private final AuditChainService auditChainService;
     private final LifecycleDeniedCanonicalMaterialBuilder canonicalMaterialBuilder;
-    private final ObjectMapper objectMapper;
-
-    private static final Logger log = LoggerFactory.getLogger(LifecycleDeniedAuditQueryService.class);
+    private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
     /* =====================================================
-       CURSOR QUERY
+       CURSOR QUERY – DESC
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -66,8 +61,8 @@ public class LifecycleDeniedAuditQueryService {
             int size
     ) {
 
-        validateRange(from, to);
-        validateCursorPair(cursorTimestamp, cursorId);
+        AuditStreamSupport.validateRange(from, to);
+        AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
@@ -112,22 +107,19 @@ public class LifecycleDeniedAuditQueryService {
     }
 
     /* =====================================================
-       VERIFY
+       VERIFY – ASC
        ===================================================== */
 
     @Transactional(readOnly = true)
-    public AuditVerificationResultDTO verify(
-            Instant from,
-            Instant to
-    ) {
+    public AuditVerificationResultDTO verify(Instant from, Instant to) {
 
-        validateRangeRequired(from, to);
+        AuditStreamSupport.validateRangeRequired(from, to);
 
+        Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
         long verified = 0;
+
         Instant cursorTimestamp = null;
         UUID cursorId = null;
-
-        Map<AuditPartition, String> lastHashByPartition = new HashMap<>();
 
         while (true) {
 
@@ -151,46 +143,31 @@ public class LifecycleDeniedAuditQueryService {
             for (LifecycleDeniedAuditEvent event : batch.getContent()) {
 
                 AuditPartition partition = resolvePartition(event);
-                String previousHash = lastHashByPartition.get(partition);
 
-                if (previousHash != null &&
-                        !Objects.equals(previousHash, normalizeHash(event.getPrevEventHash()))) {
-
-                    recordSensitiveAccess("AUDIT_VERIFY");
-                    return AuditVerificationResultDTO.failure(
-                            verified,
-                            event.getId(),
-                            "CONTINUITY_MISMATCH_PREV_EVENT_HASH partition=" + partition.partitionValue()
-                    );
-                }
-
-                if (event.getChainVersion() > 0) {
-
-                    String canonical = canonicalMaterialBuilder.buildCanonicalMaterial(
-                            canonicalMaterialBuilder.fromEvent(event)
-                    );
-
-                    String expected = auditChainService.computeEventHash(
-                            partition,
-                            event.getChainVersion(),
-                            normalizeHash(event.getPrevEventHash()),
-                            canonical
-                    );
-
-                    if (!Objects.equals(expected, normalizeHash(event.getEventHash()))) {
-
-                        recordSensitiveAccess("AUDIT_VERIFY");
-                        return AuditVerificationResultDTO.failure(
-                                verified,
-                                event.getId(),
-                                "EVENT_HASH_MISMATCH partition=" + partition.partitionValue()
+                String canonical =
+                        canonicalMaterialBuilder.buildCanonicalMaterial(
+                                canonicalMaterialBuilder.fromEvent(event)
                         );
-                    }
+
+                AuditVerificationResultDTO failure =
+                        AuditStreamSupport.verifyEvent(
+                                event.getId(),
+                                partition,
+                                event.getChainVersion(),
+                                event.getPrevEventHash(),
+                                event.getEventHash(),
+                                canonical,
+                                auditChainService,
+                                lastHashByPartitionStateKey,
+                                verified
+                        );
+
+                if (failure != null) {
+                    recordSensitiveAccess("AUDIT_VERIFY");
+                    return failure;
                 }
 
-                lastHashByPartition.put(partition, normalizeHash(event.getEventHash()));
                 verified++;
-
                 cursorTimestamp = event.getTimestamp();
                 cursorId = event.getId();
             }
@@ -201,10 +178,10 @@ public class LifecycleDeniedAuditQueryService {
     }
 
     /* =====================================================
-       EXPORT JSONL + CSV
+       SEALED JSONL EXPORT
        ===================================================== */
 
-    @Transactional(readOnly = true)
+    @Transactional
     public void streamForensicExportJsonl(
             HttpServletResponse response,
             Instant from,
@@ -212,8 +189,44 @@ public class LifecycleDeniedAuditQueryService {
             String correlationId,
             String subjectId
     ) {
-        streamExport(response, from, to, correlationId, subjectId, false);
+
+        AuditStreamSupport.validateRangeRequired(from, to);
+
+        sealedJsonlAuditExportService.exportSealedJsonl(
+                response,
+                STREAM,
+                from,
+                to,
+                null,
+                EXPORT_MAX_ROWS,
+                (Instant cursorTs, UUID cursorId) -> {
+
+                    Pageable pageable = PageRequest.of(
+                            0,
+                            EXPORT_BATCH_SIZE,
+                            Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
+                    );
+
+                    Specification<LifecycleDeniedAuditEvent> spec = Specification.allOf(
+                            LifecycleDeniedAuditSpecifications.timestampFrom(from),
+                            LifecycleDeniedAuditSpecifications.timestampTo(to),
+                            hasText(correlationId) ? LifecycleDeniedAuditSpecifications.hasCorrelationId(correlationId) : null,
+                            hasText(subjectId) ? LifecycleDeniedAuditSpecifications.hasSubjectId(subjectId) : null,
+                            cursorTs != null
+                                    ? LifecycleDeniedAuditSpecifications.cursorAfter(cursorTs, cursorId, true)
+                                    : null
+                    );
+
+                    return repository.findAll(spec, pageable);
+                },
+                LifecycleDeniedAuditForensicExportDTO::from,
+                () -> recordSensitiveAccess("AUDIT_EXPORT")
+        );
     }
+
+    /* =====================================================
+       CSV EXPORT
+       ===================================================== */
 
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
@@ -223,34 +236,26 @@ public class LifecycleDeniedAuditQueryService {
             String correlationId,
             String subjectId
     ) {
-        streamExport(response, from, to, correlationId, subjectId, true);
-    }
 
-    private void streamExport(
-            HttpServletResponse response,
-            Instant from,
-            Instant to,
-            String correlationId,
-            String subjectId,
-            boolean csv
-    ) {
+        AuditStreamSupport.validateRangeRequired(from, to);
 
-        validateRangeRequired(from, to);
-
-        long exported = 0;
-        Instant cursorTimestamp = null;
-        UUID cursorId = null;
-
-        Sort sortAsc = Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"));
-        Pageable pageable = PageRequest.of(0, EXPORT_BATCH_SIZE, sortAsc);
-
-        response.setBufferSize(16 * 1024);
-
-        try (PrintWriter w = new PrintWriter(
-                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
-
-            if (csv) {
-                w.println(String.join(",",
+        AuditStreamSupport.streamExportCsvAsc(
+                response,
+                STREAM,
+                from,
+                to,
+                EXPORT_BATCH_SIZE,
+                EXPORT_MAX_ROWS,
+                pageable -> repository.findAll(
+                        Specification.allOf(
+                                LifecycleDeniedAuditSpecifications.timestampFrom(from),
+                                LifecycleDeniedAuditSpecifications.timestampTo(to),
+                                hasText(correlationId) ? LifecycleDeniedAuditSpecifications.hasCorrelationId(correlationId) : null,
+                                hasText(subjectId) ? LifecycleDeniedAuditSpecifications.hasSubjectId(subjectId) : null
+                        ),
+                        pageable
+                ),
+                (PrintWriter w) -> w.println(String.join(",",
                         "id",
                         "timestamp",
                         "correlationId",
@@ -267,91 +272,29 @@ public class LifecycleDeniedAuditQueryService {
                         "chainVersion",
                         "prevEventHash",
                         "eventHash"
-                ));
-                w.flush();
-                response.flushBuffer();
-            }
-
-            while (true) {
-
-                Specification<LifecycleDeniedAuditEvent> spec = Specification.allOf(
-                        LifecycleDeniedAuditSpecifications.timestampFrom(from),
-                        LifecycleDeniedAuditSpecifications.timestampTo(to),
-                        hasText(correlationId) ? LifecycleDeniedAuditSpecifications.hasCorrelationId(correlationId) : null,
-                        hasText(subjectId) ? LifecycleDeniedAuditSpecifications.hasSubjectId(subjectId) : null,
-                        (cursorTimestamp != null && cursorId != null)
-                                ? LifecycleDeniedAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
-                                : null
-                );
-
-                Page<LifecycleDeniedAuditEvent> page = repository.findAll(spec, pageable);
-                if (page.isEmpty()) break;
-
-                for (LifecycleDeniedAuditEvent e : page.getContent()) {
-
-                    try {
-                        if (csv) {
-                            writeCsvLine(w, e);
-                        } else {
-                            w.println(objectMapper.writeValueAsString(
-                                    LifecycleDeniedAuditForensicExportDTO.from(e)
-                            ));
-                        }
-                    } catch (Exception ex) {
-                        if (!response.isCommitted()) {
-                            response.resetBuffer();
-                        }
-                        log.error("LifecycleDenied export failed at eventId={} csv={}", e.getId(), csv, ex);
-                        throw ex;
-                    }
-
-                    exported++;
-                    if (exported >= EXPORT_MAX_ROWS) {
-                        recordSensitiveAccess("AUDIT_EXPORT");
-                        w.flush();
-                        response.flushBuffer();
-                        return;
-                    }
-
-                    cursorTimestamp = e.getTimestamp();
-                    cursorId = e.getId();
-                }
-
-                w.flush();
-                response.flushBuffer();
-
-                if (!page.hasNext()) break;
-                pageable = page.nextPageable();
-            }
-
-            recordSensitiveAccess("AUDIT_EXPORT");
-            w.flush();
-            response.flushBuffer();
-
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to stream lifecycle denied export", ex);
-        }
-    }
-
-    private void writeCsvLine(PrintWriter w, LifecycleDeniedAuditEvent e) {
-        w.println(String.join(",",
-                csv(e.getId()),
-                csv(e.getTimestamp()),
-                csv(e.getCorrelationId()),
-                csv(e.getCorrelationSource()),
-                csv(e.getExecutionContext()),
-                csv(e.getResult()),
-                csv(e.getSubjectId()),
-                csv(e.getReasonCode()),
-                csv(e.getHttpMethod()),
-                csv(e.getPath()),
-                csv(e.getIp()),
-                csv(e.getUserAgent()),
-                csv(e.getEventFingerprint()),
-                csv(e.getChainVersion()),
-                csv(e.getPrevEventHash()),
-                csv(e.getEventHash())
-        ));
+                )),
+                (PrintWriter w, LifecycleDeniedAuditEvent e) -> {
+                    w.println(String.join(",",
+                            AuditStreamSupport.csv(e.getId()),
+                            AuditStreamSupport.csv(e.getTimestamp()),
+                            AuditStreamSupport.csv(e.getCorrelationId()),
+                            AuditStreamSupport.csv(e.getCorrelationSource()),
+                            AuditStreamSupport.csv(e.getExecutionContext()),
+                            AuditStreamSupport.csv(e.getResult()),
+                            AuditStreamSupport.csv(e.getSubjectId()),
+                            AuditStreamSupport.csv(e.getReasonCode()),
+                            AuditStreamSupport.csv(e.getHttpMethod()),
+                            AuditStreamSupport.csv(e.getPath()),
+                            AuditStreamSupport.csv(e.getIp()),
+                            AuditStreamSupport.csv(e.getUserAgent()),
+                            AuditStreamSupport.csv(e.getEventFingerprint()),
+                            AuditStreamSupport.csv(e.getChainVersion()),
+                            AuditStreamSupport.csv(e.getPrevEventHash()),
+                            AuditStreamSupport.csv(e.getEventHash())
+                    ));
+                },
+                () -> recordSensitiveAccess("AUDIT_EXPORT")
+        );
     }
 
     /* =====================================================
@@ -359,9 +302,8 @@ public class LifecycleDeniedAuditQueryService {
        ===================================================== */
 
     private AuditPartition resolvePartition(LifecycleDeniedAuditEvent e) {
-        String subject = e.getSubjectId();
-        if (subject != null && !subject.isBlank()) {
-            return AuditPartition.subject(STREAM, subject.trim());
+        if (hasText(e.getSubjectId())) {
+            return AuditPartition.subject(STREAM, e.getSubjectId().trim());
         }
         return AuditPartition.global(STREAM);
     }
@@ -405,38 +347,7 @@ public class LifecycleDeniedAuditQueryService {
         );
     }
 
-    private void validateRange(Instant from, Instant to) {
-        if (from != null && to != null && from.isAfter(to)) {
-            throw new IllegalArgumentException("'from' must be <= 'to'");
-        }
-    }
-
-    private void validateRangeRequired(Instant from, Instant to) {
-        if (from == null || to == null) {
-            throw new IllegalArgumentException("from and to are required");
-        }
-        validateRange(from, to);
-    }
-
-    private void validateCursorPair(Instant ts, UUID id) {
-        if ((ts == null) ^ (id == null)) {
-            throw new IllegalArgumentException("cursorTimestamp and cursorId must be provided together");
-        }
-    }
-
     private boolean hasText(String s) {
         return s != null && !s.isBlank();
-    }
-
-    private String csv(Object v) {
-        if (v == null) return "";
-        String s = String.valueOf(v);
-        boolean needsQuotes = s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r");
-        if (!needsQuotes) return s;
-        return "\"" + s.replace("\"", "\"\"") + "\"";
-    }
-
-    private static String normalizeHash(String v) {
-        return (v == null || v.isBlank()) ? "-" : v;
     }
 }

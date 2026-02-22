@@ -2,6 +2,6 @@
 
 import RbacDeniedAuditClient from "./RbacDeniedAuditClient";
 
-export default function LifecycleDeniedAuditPage() {
+export default function RbacDeniedAuditPage() {
   return <RbacDeniedAuditClient />;
 }

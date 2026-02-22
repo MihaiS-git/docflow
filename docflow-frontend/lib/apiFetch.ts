@@ -2,13 +2,28 @@ import { ErrorResponse } from "./api/ErrorResponse";
 import { ApiError, ForbiddenError, UnauthenticatedError } from "./apiErrors";
 import { emitAuthError } from "./auth/authEvents";
 
+function isBodyFormData(body: BodyInit | null | undefined): body is FormData {
+  return typeof FormData !== "undefined" && body instanceof FormData;
+}
+
+function isBodyBinary(body: BodyInit | null | undefined): boolean {
+  return (
+    body instanceof Blob ||
+    body instanceof ArrayBuffer ||
+    (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(body))
+  );
+}
+
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit & { csrfMode?: "default" | "anonymous"; } = {},
+  init: RequestInit & { csrfMode?: "default" | "anonymous" } = {},
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
 
-  if (init.csrfMode !== "anonymous" && !["GET", "HEAD", "OPTIONS"].includes(method)) {
+  if (
+    init.csrfMode !== "anonymous" &&
+    !["GET", "HEAD", "OPTIONS"].includes(method)
+  ) {
     await ensureCsrf();
   }
 
@@ -16,6 +31,13 @@ export async function apiFetch<T>(
   const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
 
   const csrfToken = getCookie("XSRF-TOKEN");
+  const body = init.body ?? null;
+
+  const shouldSetJsonContentType =
+    body != null &&
+    typeof body === "string" &&
+    !isBodyFormData(body) &&
+    !isBodyBinary(body);
 
   const res = await fetch(url, {
     ...init,
@@ -23,8 +45,9 @@ export async function apiFetch<T>(
     headers: {
       ...(init.headers ?? {}),
       ...(csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(shouldSetJsonContentType ? { "Content-Type": "application/json" } : {}),
     },
+    body: body ?? undefined,
   });
 
   if (res.status === 401) {
@@ -57,10 +80,19 @@ export async function apiFetch<T>(
   }
 
   if (!res.ok) {
-    throw new ApiError(`API error ${res.status}`, res.status);
+    let body: ErrorResponse | undefined;
+
+    try {
+      body = (await res.json()) as ErrorResponse;
+    } catch {}
+
+    throw new ApiError(
+      body?.message ?? `API error ${res.status}`,
+      res.status,
+      body,
+    );
   }
 
-  // support 204 No Content
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
 }

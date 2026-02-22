@@ -81,6 +81,15 @@ docflow:
     keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI}
     post-logout-redirect-uri: ${DOCFLOW_POST_LOGOUT_REDIRECT}
     frontend-base-url: ${FRONTEND_BASE_URL}
+  audit:
+    export:
+      signing:
+        private-key-pkcs8-pem: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM:}
+        private-key-pkcs8-pem-path: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM_PATH:}
+        key-id: ${DOCFLOW_AUDIT_EXPORT_SIGNING_KEY_ID}
+      bootstrap:
+        key-id: ${DOCFLOW_AUDIT_EXPORT_BOOTSTRAP_KEY_ID:}
+        public-key-path: ${DOCFLOW_AUDIT_EXPORT_BOOTSTRAP_PUBLIC_KEY_PATH:}
 # Otel configuration to disable tracing
 otel:
   traces:

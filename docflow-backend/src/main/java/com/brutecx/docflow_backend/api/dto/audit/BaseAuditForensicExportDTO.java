@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.api.dto.audit;
 
+import java.time.Instant;
+import java.util.UUID;
+
 /**
  * GOLD forensic export contract.
  * All forensic export DTOs must:
@@ -11,4 +14,6 @@ package com.brutecx.docflow_backend.api.dto.audit;
  * that the DTO fully complies with BaseAuditDTO.
  */
 public interface BaseAuditForensicExportDTO extends BaseAuditDTO {
+    UUID id();
+    Instant timestamp();
 }

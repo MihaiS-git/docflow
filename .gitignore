@@ -146,3 +146,8 @@ temp/
 # KEYCLOAK
 ############################################
 docflow-infra/keycloak/realm-*.json
+
+############################################
+# PUBLIC KEY EXCEPTION
+############################################
+!docflow-backend/src/main/resources/audit-keys/*.pem

@@ -3,6 +3,8 @@ secrets:
     file: ./secrets/soc_password.txt
   audit_chain_part_b:
     file: ./secrets/audit_chain_part_b.txt
+  audit_master:
+    file: ./secrets/audit_master.txt
 services:
   nginx:
     image: nginx:1.27-alpine
@@ -89,9 +91,11 @@ services:
       # --- Audit Chain Secret ---
       DOCFLOW_AUDIT_CHAIN_SECRET_PART_A: ${DOCFLOW_AUDIT_CHAIN_SECRET_PART_A}
       DOCFLOW_AUDIT_CHAIN_SECRET_PART_B_PATH: /run/secrets/audit_chain_part_b
-    
+      # --- Audit Export KEY ---
+      DOCFLOW_AUDIT_KEY_ENCRYPTION_MASTER_FILE: /run/secrets/audit_master
     secrets:
       - audit_chain_part_b
+      - audit_master
     networks:
       - edge_net
       - app_net

@@ -5,19 +5,27 @@ import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.data.domain.*;
+import org.springframework.http.HttpHeaders;
 
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 
-public final class GoldAuditSupport {
+public final class AuditStreamSupport {
 
-    private GoldAuditSupport() {}
+    private AuditStreamSupport() {}
+
+    private static final DateTimeFormatter FILENAME_TS_UTC =
+            DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
+                    .withZone(ZoneOffset.UTC);
 
     /* =====================================================
        VALIDATION
@@ -111,6 +119,10 @@ public final class GoldAuditSupport {
        EXPORT STREAM TEMPLATE (ASC)
        ===================================================== */
 
+    /**
+     * Existing low-level streamer. Does NOT set Content-Type / Content-Disposition.
+     * Keep this stable to avoid breaking current callers.
+     */
     public static <E> void streamExportAsc(
             HttpServletResponse response,
             int batchSize,
@@ -179,6 +191,70 @@ public final class GoldAuditSupport {
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to stream audit export", ex);
         }
+    }
+
+    /**
+     * CSV export helper with standardized headers and filename:
+     * <stream-slug>_from_<UTC>_to_<UTC>.csv
+     * IMPORTANT: call validateRangeRequired(from,to) BEFORE calling this if needed by your contract.
+     */
+    public static <E> void streamExportCsvAsc(
+            HttpServletResponse response,
+            String stream,
+            Instant from,
+            Instant to,
+            int batchSize,
+            long maxRows,
+            Function<Pageable, Page<E>> pageSupplier,
+            ThrowingConsumer<PrintWriter> beforeRows,
+            ThrowingBiConsumer<PrintWriter, E> rowWriter,
+            Runnable onComplete
+    ) {
+
+        if (stream == null || stream.isBlank()) {
+            throw new IllegalArgumentException("stream required");
+        }
+        if (from == null || to == null) {
+            throw new IllegalArgumentException("from/to required");
+        }
+
+        // Align with JSONL naming strategy (auditor-friendly).
+        String filename =
+                toSlug(stream) +
+                        "_from_" + formatInstantForFilename(from) +
+                        "_to_" + formatInstantForFilename(to) +
+                        ".csv";
+
+        // Set headers here so callers don't need to replicate this logic.
+        response.setContentType("text/csv");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + filename + "\""
+        );
+
+        streamExportAsc(
+                response,
+                batchSize,
+                maxRows,
+                pageSupplier,
+                beforeRows,
+                rowWriter,
+                onComplete
+        );
+    }
+
+    private static String formatInstantForFilename(Instant ts) {
+        return FILENAME_TS_UTC.format(ts);
+    }
+
+    /**
+     * Converts STREAM constant (e.g. ADMIN_ACTIONS) into kebab-case (admin-actions).
+     * This matches the naming scheme chosen for audit evidence files.
+     */
+    private static String toSlug(String stream) {
+        String lower = stream.toLowerCase(Locale.ROOT);
+        return lower.replace('_', '-');
     }
 
     /* =====================================================

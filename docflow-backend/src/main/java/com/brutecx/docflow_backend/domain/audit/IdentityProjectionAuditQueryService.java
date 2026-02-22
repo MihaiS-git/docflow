@@ -7,7 +7,7 @@ import com.brutecx.docflow_backend.api.dto.audit.IdentityProjectionAuditForensic
 import com.brutecx.docflow_backend.audit.identity.*;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.brutecx.docflow_backend.domain.audit.export.SealedJsonlAuditExportService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -24,19 +24,20 @@ import java.util.*;
 public class IdentityProjectionAuditQueryService {
 
     private static final int MAX_PAGE_SIZE = 100;
-    private static final int VERIFY_BATCH_SIZE = 2_000;
-    private static final int EXPORT_BATCH_SIZE = 2_000;
+    private static final int VERIFY_BATCH_SIZE = 1_000;
+    private static final int EXPORT_BATCH_SIZE = 1_000;
     private static final int EXPORT_MAX_ROWS = 200_000;
 
-    private static final String STREAM = IdentityProjectionCanonicalMaterialBuilder.STREAM;
+    private static final String STREAM =
+            IdentityProjectionCanonicalMaterialBuilder.STREAM;
 
     private final IdentityProjectionAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final IdentityProjectionCanonicalMaterialBuilder canonicalMaterialBuilder;
-    private final ObjectMapper objectMapper;
+    private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
     /* =====================================================
-       CURSOR QUERY
+       CURSOR QUERY – DESC
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -50,8 +51,8 @@ public class IdentityProjectionAuditQueryService {
             int size
     ) {
 
-        GoldAuditSupport.validateRange(from, to);
-        GoldAuditSupport.validateCursorPair(cursorTimestamp, cursorId);
+        AuditStreamSupport.validateRange(from, to);
+        AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
@@ -94,13 +95,13 @@ public class IdentityProjectionAuditQueryService {
     }
 
     /* =====================================================
-       VERIFY
+       VERIFY – ASC
        ===================================================== */
 
     @Transactional(readOnly = true)
     public AuditVerificationResultDTO verify(Instant from, Instant to) {
 
-        GoldAuditSupport.validateRangeRequired(from, to);
+        AuditStreamSupport.validateRangeRequired(from, to);
 
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
         long verified = 0;
@@ -140,7 +141,7 @@ public class IdentityProjectionAuditQueryService {
                         );
 
                 AuditVerificationResultDTO failure =
-                        GoldAuditSupport.verifyEvent(
+                        AuditStreamSupport.verifyEvent(
                                 e.getId(),
                                 partition,
                                 e.getChainVersion(),
@@ -164,17 +165,51 @@ public class IdentityProjectionAuditQueryService {
     }
 
     /* =====================================================
-       EXPORT
+       SEALED JSONL EXPORT
        ===================================================== */
 
-    @Transactional(readOnly = true)
+    @Transactional
     public void streamForensicExportJsonl(
             HttpServletResponse response,
             Instant from,
             Instant to
     ) {
-        streamExport(response, from, to, false);
+
+        AuditStreamSupport.validateRangeRequired(from, to);
+
+        sealedJsonlAuditExportService.exportSealedJsonl(
+                response,
+                STREAM,
+                from,
+                to,
+                null,
+                EXPORT_MAX_ROWS,
+                (Instant cursorTs, UUID cursorId) -> {
+
+                    Pageable pageable = PageRequest.of(
+                            0,
+                            EXPORT_BATCH_SIZE,
+                            Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
+                    );
+
+                    Specification<IdentityProjectionAuditEvent> spec = Specification.allOf(
+                            IdentityProjectionAuditSpecifications.timestampFrom(from),
+                            IdentityProjectionAuditSpecifications.timestampTo(to),
+                            cursorTs != null
+                                    ? IdentityProjectionAuditSpecifications.cursorAfter(cursorTs, cursorId, true)
+                                    : null
+                    );
+
+                    return repository.findAll(spec, pageable);
+                },
+                IdentityProjectionAuditForensicExportDTO::from,
+                () -> {}
+        );
     }
+
+    /* =====================================================
+       CSV EXPORT – FLAT SUMMARY
+       ===================================================== */
 
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
@@ -182,67 +217,52 @@ public class IdentityProjectionAuditQueryService {
             Instant from,
             Instant to
     ) {
-        streamExport(response, from, to, true);
-    }
 
-    private void streamExport(
-            HttpServletResponse response,
-            Instant from,
-            Instant to,
-            boolean csv
-    ) {
+        AuditStreamSupport.validateRangeRequired(from, to);
 
-        GoldAuditSupport.validateRangeRequired(from, to);
-
-        GoldAuditSupport.streamExportAsc(
+        AuditStreamSupport.streamExportCsvAsc(
                 response,
+                STREAM,
+                from,
+                to,
                 EXPORT_BATCH_SIZE,
                 EXPORT_MAX_ROWS,
-                pageable -> {
-                    Specification<IdentityProjectionAuditEvent> spec = Specification.allOf(
-                            IdentityProjectionAuditSpecifications.timestampFrom(from),
-                            IdentityProjectionAuditSpecifications.timestampTo(to)
-                    );
-                    return repository.findAll(spec, pageable);
-                },
-                (PrintWriter w) -> {
-                    if (!csv) return;
-                    w.println(String.join(",",
-                            "id",
-                            "timestamp",
-                            "subjectId",
-                            "correlationId",
-                            "executionContext",
-                            "correlationSource",
-                            "result",
-                            "reasonCode",
-                            "eventFingerprint",
-                            "chainVersion",
-                            "prevHash",
-                            "eventHash"
-                    ));
-                },
+                pageable -> repository.findAll(
+                        Specification.allOf(
+                                IdentityProjectionAuditSpecifications.timestampFrom(from),
+                                IdentityProjectionAuditSpecifications.timestampTo(to)
+                        ),
+                        pageable
+                ),
+                (PrintWriter w) -> w.println(String.join(",",
+                        "id",
+                        "timestamp",
+                        "subjectId",
+                        "correlationId",
+                        "executionContext",
+                        "correlationSource",
+                        "result",
+                        "reasonCode",
+                        "eventFingerprint",
+                        "chainVersion",
+                        "prevEventHash",
+                        "eventHash"
+                )),
                 (PrintWriter w, IdentityProjectionAuditEvent e) -> {
-                    if (csv) {
-                        w.println(String.join(",",
-                                GoldAuditSupport.csv(e.getId()),
-                                GoldAuditSupport.csv(e.getTimestamp()),
-                                GoldAuditSupport.csv(e.getSubjectId()),
-                                GoldAuditSupport.csv(e.getCorrelationId()),
-                                GoldAuditSupport.csv(e.getExecutionContext()),
-                                GoldAuditSupport.csv(e.getCorrelationSource()),
-                                GoldAuditSupport.csv(e.getResult()),
-                                GoldAuditSupport.csv(e.getReasonCode()),
-                                GoldAuditSupport.csv(e.getEventFingerprint()),
-                                GoldAuditSupport.csv(e.getChainVersion()),
-                                GoldAuditSupport.csv(e.getPrevEventHash()),
-                                GoldAuditSupport.csv(e.getEventHash())
-                        ));
-                    } else {
-                        w.println(objectMapper.writeValueAsString(
-                                IdentityProjectionAuditForensicExportDTO.from(e)
-                        ));
-                    }
+                    w.println(String.join(",",
+                            AuditStreamSupport.csv(e.getId()),
+                            AuditStreamSupport.csv(e.getTimestamp()),
+                            AuditStreamSupport.csv(e.getSubjectId()),
+                            AuditStreamSupport.csv(e.getCorrelationId()),
+                            AuditStreamSupport.csv(e.getExecutionContext()),
+                            AuditStreamSupport.csv(e.getCorrelationSource()),
+                            AuditStreamSupport.csv(e.getResult()),
+                            AuditStreamSupport.csv(e.getReasonCode()),
+                            AuditStreamSupport.csv(e.getEventFingerprint()),
+                            AuditStreamSupport.csv(e.getChainVersion()),
+                            AuditStreamSupport.csv(e.getPrevEventHash()),
+                            AuditStreamSupport.csv(e.getEventHash())
+                    ));
                 },
                 () -> {}
         );
