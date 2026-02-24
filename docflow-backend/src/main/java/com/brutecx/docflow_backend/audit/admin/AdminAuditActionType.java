@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.audit.admin;
 
 public enum AdminAuditActionType {
+
     ROLE_ASSIGNED,
     ROLE_REVOKED,
 
@@ -11,6 +12,7 @@ public enum AdminAuditActionType {
     USER_DISABLED,
 
     USER_INVITED,
+    INVITE_FAILED,
     INVITE_CLEANUP,
     INVITE_REVOKED,
 
@@ -18,5 +20,11 @@ public enum AdminAuditActionType {
     TENANT_CREATE_FAILED,
     TENANT_UPDATED,
     TENANT_SUSPENDED,
-    TENANT_MUTATION_DENIED
+    TENANT_MUTATION_DENIED,
+
+    LEGAL_HOLD_CREATE,
+    LEGAL_HOLD_DEACTIVATE,
+
+    RETENTION_POLICY_UPSERT,
+    RETENTION_POLICY_UPSERT_FAILED
 }

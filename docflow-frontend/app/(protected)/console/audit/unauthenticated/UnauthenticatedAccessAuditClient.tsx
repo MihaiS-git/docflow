@@ -16,6 +16,8 @@ import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 import { UnauthenticatedAccessAuditRow } from "@/types/api/UnauthenticatedAccessAuditRow";
 import { UnauthenticatedAccessAuditCursorPageDTO } from "@/types/api/UnauthenticatedAccessAuditCursorPageDTO";
+import { ResultBadge } from "@/components/audit/ResultBadge";
+import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 
 export default function UnauthenticatedAccessAuditClient() {
   const { from, to, size, setFrom, setTo, setSize } =
@@ -111,7 +113,8 @@ export default function UnauthenticatedAccessAuditClient() {
   async function handleExportJsonl() {
     setDownloading("jsonl");
     try {
-      const qs = buildRangeQueryParams({ from, to });
+            const qs = buildRangeQueryParams({ from, to });
+
       if (correlationId.trim()) {
         qs.set("correlationId", correlationId.trim());
       }
@@ -129,6 +132,7 @@ export default function UnauthenticatedAccessAuditClient() {
     setDownloading("csv");
     try {
       const qs = buildRangeQueryParams({ from, to });
+
       if (correlationId.trim()) {
         qs.set("correlationId", correlationId.trim());
       }
@@ -209,7 +213,11 @@ export default function UnauthenticatedAccessAuditClient() {
                     <td className="p-2">{r.httpMethod}</td>
                     <td className="p-2">{r.path}</td>
                     <td className="p-2">{r.ip}</td>
-                    <td className="p-2">{r.result}</td>
+                    <td className="p-2">
+                      <ResultBadge
+                        result={normalizeAuditResult(String(r.result))}
+                      />
+                    </td>
                     <td className="p-2 font-mono">
                       {r.eventFingerprint}
                     </td>

@@ -93,6 +93,8 @@ services:
       DOCFLOW_AUDIT_CHAIN_SECRET_PART_B_PATH: /run/secrets/audit_chain_part_b
       # --- Audit Export KEY ---
       DOCFLOW_AUDIT_KEY_ENCRYPTION_MASTER_FILE: /run/secrets/audit_master
+      # --- System Actor ID ---
+      DOCFLOW_AUDIT_RETENTION_SYSTEM_ACTOR_USER_ID: ${AUDIT_RETENTION_SYSTEM_ACTOR_USER_ID}
     secrets:
       - audit_chain_part_b
       - audit_master

@@ -59,6 +59,19 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, ErrorCode.LAST_MANAGER_VIOLATION, ex.getMessage(), request);
     }
 
+    @ExceptionHandler(AuditArchivedRangeVerificationException.class)
+    public ResponseEntity<ErrorResponse> handleAuditArchivedRangeVerification(
+            AuditArchivedRangeVerificationException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.CONFLICT,
+                ErrorCode.AUDIT_VERIFY_INCLUDES_ARCHIVED_DATA,
+                ex.getMessage(),
+                request
+        );
+    }
+
     @ExceptionHandler(BootstrapActivationDeniedException.class)
     public ResponseEntity<ErrorResponse> handleBootstrapActivationDenied(
             BootstrapActivationDeniedException ex,

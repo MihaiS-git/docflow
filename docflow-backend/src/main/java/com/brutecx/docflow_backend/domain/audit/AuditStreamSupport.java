@@ -5,6 +5,7 @@ import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpHeaders;
 
 import java.io.OutputStreamWriter;
@@ -21,7 +22,8 @@ import java.util.function.Function;
 
 public final class AuditStreamSupport {
 
-    private AuditStreamSupport() {}
+    private AuditStreamSupport() {
+    }
 
     private static final DateTimeFormatter FILENAME_TS_UTC =
             DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
@@ -48,6 +50,13 @@ public final class AuditStreamSupport {
         if ((ts == null) ^ (id == null)) {
             throw new IllegalArgumentException("cursorTimestamp and cursorId must be provided together");
         }
+    }
+
+    /* =====================================================
+       ARCHIVAL SUPPORT (generic)
+       ===================================================== */
+    public static <T> Specification<T> notArchived() {
+        return (root, query, cb) -> cb.isNull(root.get("archivedAt"));
     }
 
     public static String normalizeHash(String v) {

@@ -16,6 +16,8 @@ import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { AuthenticationAuditCursorPageDTO } from "@/types/api/AuthenticationAuditCursorPageDTO";
 import { AuthenticationAuditRow } from "@/types/api/AuthenticationAuditRow";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
+import { ResultBadge } from "@/components/audit/ResultBadge";
+import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 
 export default function AuthenticationAuditClient() {
   const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
@@ -219,7 +221,11 @@ export default function AuthenticationAuditClient() {
                     </td>
                     <td className="p-2">{r.id}</td>
                     <td className="p-2">{r.username}</td>
-                    <td className="p-2">{String(r.result)}</td>
+                    <td className="p-2">
+                      <ResultBadge
+                        result={normalizeAuditResult(String(r.result))}
+                      />
+                    </td>
                     <td className="p-2">{r.ip}</td>
                     <td className="p-2 font-mono">{r.eventFingerprint}</td>
                     <td className="p-2 font-mono">{r.subjectId}</td>

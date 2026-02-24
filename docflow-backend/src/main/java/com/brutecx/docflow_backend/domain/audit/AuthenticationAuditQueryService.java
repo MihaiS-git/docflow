@@ -52,7 +52,7 @@ public class AuthenticationAuditQueryService {
     private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
     /* =====================================================
-       CURSOR QUERY – DESC timestamp, DESC id
+       CURSOR QUERY – ACTIVE VIEW ONLY
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -117,7 +117,7 @@ public class AuthenticationAuditQueryService {
     }
 
     /* =====================================================
-       VERIFY – ASC timestamp, ASC id
+       VERIFY – FULL FORENSIC DATASET
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -188,7 +188,7 @@ public class AuthenticationAuditQueryService {
     }
 
     /* =====================================================
-       SEALED JSONL EXPORT
+       SEALED JSONL EXPORT – FULL DATASET
        ===================================================== */
 
     @Transactional
@@ -231,7 +231,7 @@ public class AuthenticationAuditQueryService {
     }
 
     /* =====================================================
-       CSV EXPORT
+       CSV EXPORT – FULL DATASET
        ===================================================== */
 
     @Transactional(readOnly = true)
@@ -250,37 +250,27 @@ public class AuthenticationAuditQueryService {
                 to,
                 EXPORT_BATCH_SIZE,
                 EXPORT_MAX_ROWS,
-                pageable -> {
-                    Specification<AuthenticationEvent> spec = Specification.allOf(
-                            AuthenticationAuditSpecifications.timestampFrom(from),
-                            AuthenticationAuditSpecifications.timestampTo(to)
-                    );
-                    return repository.findAll(spec, pageable);
-                },
+                pageable -> repository.findAll(
+                        Specification.allOf(
+                                AuthenticationAuditSpecifications.timestampFrom(from),
+                                AuthenticationAuditSpecifications.timestampTo(to)
+                        ),
+                        pageable
+                ),
                 (PrintWriter w) -> {
                     w.println(String.join(",",
-                            "id",
-                            "timestamp",
-                            "source",
-                            "username",
-                            "subjectId",
-                            "result",
-                            "idp",
-                            "ip",
-                            "userAgent",
-                            "correlationId",
-                            "correlationSource",
-                            "executionContext",
-                            "eventFingerprint",
-                            "chainVersion",
-                            "prevEventHash",
-                            "eventHash"
+                            "id", "timestamp", "source", "username", "subjectId", "result",
+                            "idp", "ip", "userAgent", "correlationId", "correlationSource",
+                            "executionContext", "eventFingerprint", "chainVersion",
+                            "prevEventHash", "eventHash"
                     ));
                 },
-                (PrintWriter w, AuthenticationEvent e) -> writeCsvLine(w, e),
+                this::writeCsvLine,
                 () -> recordMeta("AUDIT_EXPORT")
         );
     }
+
+    /* ===================================================== */
 
     private void writeCsvLine(PrintWriter w, AuthenticationEvent e) {
         w.println(String.join(",",
@@ -303,9 +293,7 @@ public class AuthenticationAuditQueryService {
         ));
     }
 
-    /* =====================================================
-       META AUDIT
-       ===================================================== */
+    /* ===================================================== */
 
     private void recordMeta(String action) {
 
@@ -341,10 +329,6 @@ public class AuthenticationAuditQueryService {
                 fingerprint
         );
     }
-
-    /* =====================================================
-       PARTITION
-       ===================================================== */
 
     private AuditPartition resolvePartition(AuthenticationEvent e) {
         if (hasText(e.getSubjectId())) {

@@ -23,12 +23,6 @@ import java.util.UUID;
                 @Index(name = "idx_unauth_access_timestamp", columnList = "timestamp,id"),
                 @Index(name = "idx_unauth_access_correlation_id", columnList = "correlation_id"),
                 @Index(name = "idx_unauth_access_path", columnList = "path")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_unauth_access_event_fingerprint",
-                        columnNames = "event_fingerprint"
-                )
         }
 )
 public class UnauthenticatedAccessAuditEvent {
@@ -88,7 +82,7 @@ public class UnauthenticatedAccessAuditEvent {
        ========================= */
 
     @NotNull
-    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, length = 64)
     private String eventFingerprint;
 
     @NotNull
@@ -153,4 +147,5 @@ public class UnauthenticatedAccessAuditEvent {
         }
         return value;
     }
+
 }

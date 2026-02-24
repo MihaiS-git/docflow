@@ -16,6 +16,8 @@ import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 import { SensitiveAccessAuditRow } from "@/types/api/SensitiveAccessAuditRow";
 import { SensitiveAccessAuditCursorPageDTO } from "@/types/api/SensitiveAccessAuditCursorPageDTO";
+import { ResultBadge } from "@/components/audit/ResultBadge";
+import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 
 export default function SensitiveAccessAuditClient() {
   const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
@@ -230,25 +232,20 @@ export default function SensitiveAccessAuditClient() {
                     <td className="p-2 font-mono">
                       {formatAuditTimestamp(r.timestamp)}
                     </td>
-
                     <td className="p-2 font-mono">{r.tenantId ?? "-"}</td>
-
                     <td className="p-2 font-mono">{r.actorUserId ?? "-"}</td>
-
                     <td className="p-2 font-mono">{r.subjectId}</td>
-
                     <td className="p-2">{r.resource}</td>
-
                     <td className="p-2">{r.action}</td>
-
                     <td className="p-2">{r.dataClassification}</td>
-
-                    <td className="p-2">{r.result}</td>
-
+                    <td className="p-2">
+                      <ResultBadge
+                        result={normalizeAuditResult(String(r.result))}
+                      />
+                    </td>
                     <td className="p-2 font-mono break-all">
                       {r.correlationId}
                     </td>
-
                     <td className="p-2 font-mono break-all">
                       {r.eventFingerprint}
                     </td>

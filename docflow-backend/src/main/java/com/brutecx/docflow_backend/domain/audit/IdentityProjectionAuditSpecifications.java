@@ -8,7 +8,8 @@ import java.util.UUID;
 
 public final class IdentityProjectionAuditSpecifications {
 
-    private IdentityProjectionAuditSpecifications() {}
+    private IdentityProjectionAuditSpecifications() {
+    }
 
     public static Specification<IdentityProjectionAuditEvent> timestampFrom(Instant from) {
         return (root, q, cb) -> cb.greaterThanOrEqualTo(root.get("timestamp"), from);

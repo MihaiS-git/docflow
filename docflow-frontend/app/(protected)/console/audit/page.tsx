@@ -11,6 +11,8 @@ export default function AuditConsolePage() {
     { name: "Onboarding", path: "onboarding" },
     { name: "Unauthenticated Access", path: "unauthenticated" },
     { name: "Identity Projection", path: "identity-projection" },
+    { name: "Retention Policies", path: "retention" },
+    { name: "Legal Holds", path: "legal-holds" },
   ];
 
   return (

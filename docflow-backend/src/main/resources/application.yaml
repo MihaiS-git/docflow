@@ -82,6 +82,8 @@ docflow:
     post-logout-redirect-uri: ${DOCFLOW_POST_LOGOUT_REDIRECT}
     frontend-base-url: ${FRONTEND_BASE_URL}
   audit:
+    retention:
+      system-actor-user-id: ${AUDIT_RETENTION_SYSTEM_ACTOR_USER_ID:}
     export:
       signing:
         private-key-pkcs8-pem: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM:}

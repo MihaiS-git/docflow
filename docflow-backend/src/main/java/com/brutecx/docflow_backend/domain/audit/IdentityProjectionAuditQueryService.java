@@ -230,7 +230,8 @@ public class IdentityProjectionAuditQueryService {
                 pageable -> repository.findAll(
                         Specification.allOf(
                                 IdentityProjectionAuditSpecifications.timestampFrom(from),
-                                IdentityProjectionAuditSpecifications.timestampTo(to)
+                                IdentityProjectionAuditSpecifications.timestampTo(to),
+                                AuditStreamSupport.notArchived()
                         ),
                         pageable
                 ),

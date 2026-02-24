@@ -18,8 +18,7 @@ import { LifecycleDeniedAuditRow } from "@/types/api/LifecycleDeniedAuditRow";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 
 export default function LifecycleDeniedAuditClient() {
-  const { from, to, size, setFrom, setTo, setSize } =
-    useDefaultAuditRange();
+  const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
 
   const [correlationId, setCorrelationId] = useState("");
   const [subjectId, setSubjectId] = useState("");
@@ -40,8 +39,7 @@ export default function LifecycleDeniedAuditClient() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [downloading, setDownloading] =
-    useState<"jsonl" | "csv" | null>(null);
+  const [downloading, setDownloading] = useState<"jsonl" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queried, setQueried] = useState(false);
 
@@ -66,10 +64,9 @@ export default function LifecycleDeniedAuditClient() {
     try {
       reset();
 
-      const data =
-        await apiFetch<LifecycleDeniedAuditCursorPageDTO>(
-          `/api/audit/lifecycle-denied?${buildParams().toString()}`
-        );
+      const data = await apiFetch<LifecycleDeniedAuditCursorPageDTO>(
+        `/api/audit/lifecycle-denied?${buildParams().toString()}`,
+      );
 
       applyFirstPage(adaptCursorPage(data));
       setQueried(true);
@@ -85,13 +82,12 @@ export default function LifecycleDeniedAuditClient() {
 
     setLoadingMore(true);
     try {
-      const data =
-        await apiFetch<LifecycleDeniedAuditCursorPageDTO>(
-          `/api/audit/lifecycle-denied?${buildParams(
-            nextCursorTimestamp,
-            nextCursorId
-          ).toString()}`
-        );
+      const data = await apiFetch<LifecycleDeniedAuditCursorPageDTO>(
+        `/api/audit/lifecycle-denied?${buildParams(
+          nextCursorTimestamp,
+          nextCursorId,
+        ).toString()}`,
+      );
 
       appendPage(adaptCursorPage(data));
     } finally {
@@ -104,13 +100,14 @@ export default function LifecycleDeniedAuditClient() {
     from,
     to,
     setVerifyResult,
-    setVerifying
+    setVerifying,
   );
 
   async function handleExportJsonl() {
     setDownloading("jsonl");
     try {
       const qs = buildRangeQueryParams({ from, to });
+
       if (correlationId.trim()) qs.set("correlationId", correlationId.trim());
       if (subjectId.trim()) qs.set("subjectId", subjectId.trim());
 
@@ -127,6 +124,7 @@ export default function LifecycleDeniedAuditClient() {
     setDownloading("csv");
     try {
       const qs = buildRangeQueryParams({ from, to });
+
       if (correlationId.trim()) qs.set("correlationId", correlationId.trim());
       if (subjectId.trim()) qs.set("subjectId", subjectId.trim());
 
@@ -141,9 +139,7 @@ export default function LifecycleDeniedAuditClient() {
 
   return (
     <div className="p-4 space-y-6">
-      <h1 className="text-lg font-semibold">
-        Lifecycle Denied Audit
-      </h1>
+      <h1 className="text-lg font-semibold">Lifecycle Denied Audit</h1>
 
       <AuditRangePanel
         from={from}
@@ -187,9 +183,7 @@ export default function LifecycleDeniedAuditClient() {
         />
       </div>
 
-      {error && (
-        <div className="text-sm text-red-600">{error}</div>
-      )}
+      {error && <div className="text-sm text-red-600">{error}</div>}
 
       {rows.length > 0 && (
         <>
@@ -220,10 +214,10 @@ export default function LifecycleDeniedAuditClient() {
                     <td className="p-2">{r.httpMethod}</td>
                     <td className="p-2">{r.path}</td>
                     <td className="p-2">{r.ip}</td>
-                    <td className="p-2 font-mono">
-                      {r.eventFingerprint}
+                    <td className="p-2 font-mono">{r.eventFingerprint}</td>
+                    <td className="p-2 font-mono break-all">
+                      {r.correlationId}
                     </td>
-                    <td className="p-2 font-mono break-all">{r.correlationId}</td>
                   </tr>
                 ))}
               </tbody>
@@ -239,9 +233,7 @@ export default function LifecycleDeniedAuditClient() {
       )}
 
       {queried && rows.length === 0 && !error && (
-        <div className="text-sm text-gray-600">
-          No results found.
-        </div>
+        <div className="text-sm text-gray-600">No results found.</div>
       )}
     </div>
   );

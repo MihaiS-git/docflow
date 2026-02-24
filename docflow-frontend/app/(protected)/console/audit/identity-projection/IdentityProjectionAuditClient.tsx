@@ -16,10 +16,11 @@ import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 import { IdentityProjectionAuditRow } from "@/types/api/IdentityProjectionAuditRow";
 import { IdentityProjectionAuditCursorPageDTO } from "@/types/api/IdentityProjectionAuditCursorPageDTO";
+import { ResultBadge } from "@/components/audit/ResultBadge";
+import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 
 export default function IdentityProjectionAuditClient() {
-  const { from, to, size, setFrom, setTo, setSize } =
-    useDefaultAuditRange();
+  const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
 
   const [subjectId, setSubjectId] = useState("");
   const [correlationId, setCorrelationId] = useState("");
@@ -66,10 +67,9 @@ export default function IdentityProjectionAuditClient() {
     try {
       reset();
 
-      const data =
-        await apiFetch<IdentityProjectionAuditCursorPageDTO>(
-          `/api/audit/identity-projection?${buildParams().toString()}`
-        );
+      const data = await apiFetch<IdentityProjectionAuditCursorPageDTO>(
+        `/api/audit/identity-projection?${buildParams().toString()}`
+      );
 
       applyFirstPage(adaptCursorPage(data));
       setQueried(true);
@@ -86,13 +86,12 @@ export default function IdentityProjectionAuditClient() {
     setLoadingMore(true);
 
     try {
-      const data =
-        await apiFetch<IdentityProjectionAuditCursorPageDTO>(
-          `/api/audit/identity-projection?${buildParams(
-            nextCursorTimestamp,
-            nextCursorId
-          ).toString()}`
-        );
+      const data = await apiFetch<IdentityProjectionAuditCursorPageDTO>(
+        `/api/audit/identity-projection?${buildParams(
+          nextCursorTimestamp,
+          nextCursorId
+        ).toString()}`
+      );
 
       appendPage(adaptCursorPage(data));
     } finally {
@@ -211,12 +210,18 @@ export default function IdentityProjectionAuditClient() {
                     </td>
                     <td className="p-2">{r.id}</td>
                     <td className="p-2">{r.subjectId}</td>
-                    <td className="p-2">{r.result}</td>
+                    <td className="p-2">
+                      <ResultBadge
+                        result={normalizeAuditResult(String(r.result))}
+                      />
+                    </td>
                     <td className="p-2">{r.reasonCode}</td>
                     <td className="p-2 font-mono">
                       {r.eventFingerprint}
                     </td>
-                    <td className="p-2 font-mono break-all">{r.correlationId}</td>
+                    <td className="p-2 font-mono break-all">
+                      {r.correlationId}
+                    </td>
                   </tr>
                 ))}
               </tbody>

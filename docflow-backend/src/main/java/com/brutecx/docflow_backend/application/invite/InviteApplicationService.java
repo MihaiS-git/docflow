@@ -129,24 +129,20 @@ public class InviteApplicationService {
 
         } finally {
 
-            AdminAuditMetadata metadata =
-                    new InviteAuditMetadata(
-                            normalizedEmail,
-                            invite != null ? invite.getId().toString() : null,
-                            success ? InviteOutcome.SUCCESS : InviteOutcome.FAILURE,
-                            success
-                                    ? null
-                                    : (failure != null
-                                    ? failure.getClass().getSimpleName()
-                                    : "UNKNOWN")
-                    );
+            AdminAuditActionType actionType =
+                    success
+                            ? AdminAuditActionType.USER_INVITED
+                            : AdminAuditActionType.INVITE_FAILED;
 
             adminAuditEventService.record(
-                    AdminAuditActionType.USER_INVITED,
+                    actionType,
                     tenant.getId(),
                     actor.getExternalSubjectId(),
                     null,
-                    metadata
+                    new InviteAuditMetadata(
+                            normalizedEmail,
+                            invite != null ? invite.getId().toString() : null
+                    )
             );
         }
     }
@@ -315,9 +311,7 @@ public class InviteApplicationService {
                 null,
                 new InviteAuditMetadata(
                         invite.getEmail(),
-                        invite.getId().toString(),
-                        InviteOutcome.SUCCESS,
-                        null
+                        invite.getId().toString()
                 )
         );
     }

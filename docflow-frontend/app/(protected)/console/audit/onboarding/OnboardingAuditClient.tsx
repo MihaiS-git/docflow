@@ -16,10 +16,11 @@ import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 import { OnboardingAuditRow } from "@/types/api/OnboardingAuditRow";
 import { OnboardingAuditCursorPageDTO } from "@/types/api/OnboardingAuditCursorPageDTO";
+import { ResultBadge } from "@/components/audit/ResultBadge";
+import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 
 export default function OnboardingAuditClient() {
-  const { from, to, size, setFrom, setTo, setSize } =
-    useDefaultAuditRange();
+  const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
 
   const [correlationId, setCorrelationId] = useState("");
   const [subjectId, setSubjectId] = useState("");
@@ -42,8 +43,7 @@ export default function OnboardingAuditClient() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [downloading, setDownloading] =
-    useState<"jsonl" | "csv" | null>(null);
+  const [downloading, setDownloading] = useState<"jsonl" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queried, setQueried] = useState(false);
 
@@ -70,10 +70,9 @@ export default function OnboardingAuditClient() {
     try {
       reset();
 
-      const data =
-        await apiFetch<OnboardingAuditCursorPageDTO>(
-          `/api/audit/onboarding?${buildParams().toString()}`
-        );
+      const data = await apiFetch<OnboardingAuditCursorPageDTO>(
+        `/api/audit/onboarding?${buildParams().toString()}`,
+      );
 
       applyFirstPage(adaptCursorPage(data));
       setQueried(true);
@@ -90,13 +89,12 @@ export default function OnboardingAuditClient() {
     setLoadingMore(true);
 
     try {
-      const data =
-        await apiFetch<OnboardingAuditCursorPageDTO>(
-          `/api/audit/onboarding?${buildParams(
-            nextCursorTimestamp,
-            nextCursorId
-          ).toString()}`
-        );
+      const data = await apiFetch<OnboardingAuditCursorPageDTO>(
+        `/api/audit/onboarding?${buildParams(
+          nextCursorTimestamp,
+          nextCursorId,
+        ).toString()}`,
+      );
 
       appendPage(adaptCursorPage(data));
     } finally {
@@ -110,13 +108,14 @@ export default function OnboardingAuditClient() {
     to,
     setVerifyResult,
     setVerifying,
-    tenantId ? { tenantId } : undefined
+    tenantId ? { tenantId } : undefined,
   );
 
   async function handleExportJsonl() {
     setDownloading("jsonl");
     try {
       const qs = buildRangeQueryParams({ from, to });
+
       if (tenantId.trim()) qs.set("tenantId", tenantId.trim());
 
       await downloadAuditFile({
@@ -132,6 +131,7 @@ export default function OnboardingAuditClient() {
     setDownloading("csv");
     try {
       const qs = buildRangeQueryParams({ from, to });
+
       if (tenantId.trim()) qs.set("tenantId", tenantId.trim());
 
       await downloadAuditFile({
@@ -145,9 +145,7 @@ export default function OnboardingAuditClient() {
 
   return (
     <div className="p-4 space-y-6">
-      <h1 className="text-lg font-semibold">
-        Onboarding Audit
-      </h1>
+      <h1 className="text-lg font-semibold">Onboarding Audit</h1>
 
       <AuditRangePanel
         from={from}
@@ -203,9 +201,7 @@ export default function OnboardingAuditClient() {
         />
       </div>
 
-      {error && (
-        <div className="text-sm text-red-600">{error}</div>
-      )}
+      {error && <div className="text-sm text-red-600">{error}</div>}
 
       {rows.length > 0 && (
         <>
@@ -234,10 +230,12 @@ export default function OnboardingAuditClient() {
                     <td className="p-2">{r.tenantId}</td>
                     <td className="p-2">{r.inviteId}</td>
                     <td className="p-2">{r.outcome}</td>
-                    <td className="p-2">{r.result}</td>
-                    <td className="p-2 font-mono">
-                      {r.eventFingerprint}
+                    <td className="p-2">
+                      <ResultBadge
+                        result={normalizeAuditResult(String(r.result))}
+                      />
                     </td>
+                    <td className="p-2 font-mono">{r.eventFingerprint}</td>
                   </tr>
                 ))}
               </tbody>
@@ -253,9 +251,7 @@ export default function OnboardingAuditClient() {
       )}
 
       {queried && rows.length === 0 && !error && (
-        <div className="text-sm text-gray-600">
-          No results found.
-        </div>
+        <div className="text-sm text-gray-600">No results found.</div>
       )}
     </div>
   );

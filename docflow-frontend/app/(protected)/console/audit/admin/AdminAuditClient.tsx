@@ -16,6 +16,7 @@ import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { AdminAuditRow } from "@/types/api/AdminAuditRow";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
 import { AdminAuditCursorPageDTO } from "@/types/api/AdminAuditCursorPageDTO";
+import { ResultBadge } from "@/components/audit/ResultBadge";
 
 export default function AdminAuditClient() {
   const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
@@ -48,9 +49,7 @@ export default function AdminAuditClient() {
     const qs = buildRangeQueryParams({ from, to });
 
     if (correlationId.trim()) qs.set("correlationId", correlationId.trim());
-
     if (actorUserId.trim()) qs.set("actorUserId", actorUserId.trim());
-
     if (tenantId.trim()) qs.set("tenantId", tenantId.trim());
 
     if (cursorTs) qs.set("cursorTimestamp", cursorTs);
@@ -69,7 +68,7 @@ export default function AdminAuditClient() {
       reset();
 
       const data = await apiFetch<AdminAuditCursorPageDTO>(
-        `/api/audit/admin-actions?${buildParams().toString()}`,
+        `/api/audit/admin-actions?${buildParams().toString()}`
       );
 
       applyFirstPage(adaptCursorPage(data));
@@ -90,8 +89,8 @@ export default function AdminAuditClient() {
       const data = await apiFetch<AdminAuditCursorPageDTO>(
         `/api/audit/admin-actions?${buildParams(
           nextCursorTimestamp,
-          nextCursorId,
-        ).toString()}`,
+          nextCursorId
+        ).toString()}`
       );
 
       appendPage(adaptCursorPage(data));
@@ -106,13 +105,14 @@ export default function AdminAuditClient() {
     to,
     setVerifyResult,
     setVerifying,
-    tenantId ? { tenantId } : undefined,
+    tenantId ? { tenantId } : undefined
   );
 
   async function handleExportJsonl() {
     setDownloading("jsonl");
     try {
       const qs = buildRangeQueryParams({ from, to });
+
       if (tenantId.trim()) qs.set("tenantId", tenantId.trim());
 
       await downloadAuditFile({
@@ -128,6 +128,7 @@ export default function AdminAuditClient() {
     setDownloading("csv");
     try {
       const qs = buildRangeQueryParams({ from, to });
+      
       if (tenantId.trim()) qs.set("tenantId", tenantId.trim());
 
       await downloadAuditFile({
@@ -221,7 +222,9 @@ export default function AdminAuditClient() {
                     <td className="p-2 font-mono">{r.tenantId}</td>
                     <td className="p-2">{r.actionType}</td>
                     <td className="p-2 font-mono">{r.targetUserId ?? "-"}</td>
-                    <td className="p-2">{r.result}</td>
+                    <td className="p-2">
+                      <ResultBadge result={r.result} />
+                    </td>
                     <td className="p-2 font-mono break-all">
                       {r.correlationId}
                     </td>

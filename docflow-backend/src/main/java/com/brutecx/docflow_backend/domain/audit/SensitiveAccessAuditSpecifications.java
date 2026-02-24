@@ -43,11 +43,9 @@ public final class SensitiveAccessAuditSpecifications {
 
     /**
      * Cursor predicate for stable timeline pagination using (timestamp, id).
-     *
      * For DESC (newest first):
      *   - "next page" means strictly older than cursor:
      *     (ts < cursorTs) OR (ts == cursorTs AND id < cursorId)
-     *
      * For ASC (oldest first):
      *   - "next page" means strictly newer than cursor:
      *     (ts > cursorTs) OR (ts == cursorTs AND id > cursorId)

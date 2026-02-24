@@ -16,10 +16,11 @@ import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
 import { CredentialLifecycleAuditCursorPageDTO } from "@/types/api/CredentialLifecycleAuditCursorPageDTO";
 import { CredentialLifecycleAuditRow } from "@/types/api/CredentialLifecycleAuditRow";
 import { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResultDTO";
+import { ResultBadge } from "@/components/audit/ResultBadge";
+import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 
 export default function CredentialLifecycleAuditClient() {
-  const { from, to, size, setFrom, setTo, setSize } =
-    useDefaultAuditRange();
+  const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
 
   const [correlationId, setCorrelationId] = useState("");
   const [subjectExternalId, setSubjectExternalId] = useState("");
@@ -41,8 +42,7 @@ export default function CredentialLifecycleAuditClient() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [downloading, setDownloading] =
-    useState<"jsonl" | "csv" | null>(null);
+  const [downloading, setDownloading] = useState<"jsonl" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queried, setQueried] = useState(false);
 
@@ -69,10 +69,9 @@ export default function CredentialLifecycleAuditClient() {
     try {
       reset();
 
-      const data =
-        await apiFetch<CredentialLifecycleAuditCursorPageDTO>(
-          `/api/audit/credential-lifecycle?${buildParams().toString()}`
-        );
+      const data = await apiFetch<CredentialLifecycleAuditCursorPageDTO>(
+        `/api/audit/credential-lifecycle?${buildParams().toString()}`,
+      );
 
       applyFirstPage(adaptCursorPage(data));
       setQueried(true);
@@ -88,13 +87,12 @@ export default function CredentialLifecycleAuditClient() {
 
     setLoadingMore(true);
     try {
-      const data =
-        await apiFetch<CredentialLifecycleAuditCursorPageDTO>(
-          `/api/audit/credential-lifecycle?${buildParams(
-            nextCursorTimestamp,
-            nextCursorId
-          ).toString()}`
-        );
+      const data = await apiFetch<CredentialLifecycleAuditCursorPageDTO>(
+        `/api/audit/credential-lifecycle?${buildParams(
+          nextCursorTimestamp,
+          nextCursorId,
+        ).toString()}`,
+      );
 
       appendPage(adaptCursorPage(data));
     } finally {
@@ -107,7 +105,7 @@ export default function CredentialLifecycleAuditClient() {
     from,
     to,
     setVerifyResult,
-    setVerifying
+    setVerifying,
   );
 
   async function handleExportJsonl() {
@@ -154,17 +152,20 @@ export default function CredentialLifecycleAuditClient() {
       />
 
       <div className="border rounded p-3 grid gap-3 md:grid-cols-3">
-        <input className="border rounded px-2 py-1"
+        <input
+          className="border rounded px-2 py-1"
           placeholder="Correlation ID"
           value={correlationId}
           onChange={(e) => setCorrelationId(e.target.value)}
         />
-        <input className="border rounded px-2 py-1"
+        <input
+          className="border rounded px-2 py-1"
           placeholder="Subject External ID"
           value={subjectExternalId}
           onChange={(e) => setSubjectExternalId(e.target.value)}
         />
-        <input className="border rounded px-2 py-1"
+        <input
+          className="border rounded px-2 py-1"
           placeholder="Result"
           value={result}
           onChange={(e) => setResult(e.target.value)}
@@ -214,10 +215,16 @@ export default function CredentialLifecycleAuditClient() {
                     <td className="p-2">{r.id}</td>
                     <td className="p-2">{r.subjectExternalId ?? ""}</td>
                     <td className="p-2">{String(r.eventType)}</td>
-                    <td className="p-2">{String(r.result)}</td>
+                    <td className="p-2">
+                      <ResultBadge
+                        result={normalizeAuditResult(String(r.result))}
+                      />
+                    </td>
                     <td className="p-2">{r.ip ?? ""}</td>
                     <td className="p-2 font-mono">{r.eventFingerprint}</td>
-                    <td className="p-2 font-mono break-all">{r.correlationId}</td>
+                    <td className="p-2 font-mono break-all">
+                      {r.correlationId}
+                    </td>
                   </tr>
                 ))}
               </tbody>

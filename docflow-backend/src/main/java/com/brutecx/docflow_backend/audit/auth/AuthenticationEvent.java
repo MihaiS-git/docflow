@@ -141,4 +141,5 @@ public class AuthenticationEvent {
         if (v == null || v.isBlank()) throw new IllegalArgumentException();
         return v;
     }
+
 }

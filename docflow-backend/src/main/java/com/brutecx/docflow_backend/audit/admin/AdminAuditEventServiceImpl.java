@@ -207,11 +207,21 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
     }
 
     private AuditResult resolveResult(AdminAuditActionType actionType, AdminAuditMetadata metadata) {
-        if (actionType == AdminAuditActionType.TENANT_CREATE_FAILED) return AuditResult.FAILED;
-        if (actionType == AdminAuditActionType.TENANT_MUTATION_DENIED) return AuditResult.DENIED;
 
-        if (metadata instanceof InviteAuditMetadata invite) {
-            return invite.outcome() == InviteOutcome.FAILURE ? AuditResult.FAILED : AuditResult.SUCCESS;
+        if (actionType == AdminAuditActionType.TENANT_CREATE_FAILED) {
+            return AuditResult.FAILED;
+        }
+
+        if (actionType == AdminAuditActionType.TENANT_MUTATION_DENIED) {
+            return AuditResult.DENIED;
+        }
+
+        if (actionType == AdminAuditActionType.RETENTION_POLICY_UPSERT_FAILED) {
+            return AuditResult.FAILED;
+        }
+
+        if (actionType == AdminAuditActionType.INVITE_FAILED) {
+            return AuditResult.FAILED;
         }
 
         return AuditResult.SUCCESS;

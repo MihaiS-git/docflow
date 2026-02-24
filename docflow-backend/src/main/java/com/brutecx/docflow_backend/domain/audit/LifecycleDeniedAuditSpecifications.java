@@ -30,9 +30,9 @@ public final class LifecycleDeniedAuditSpecifications {
     /**
      * Cursor predicate for stable pagination using (timestamp, id) as a composite cursor.
      * For DESC (newest first):
-     *   - "next page" means strictly older than cursor: (ts < cursorTs) OR (ts == cursorTs AND id < cursorId)
+     * - "next page" means strictly older than cursor: (ts < cursorTs) OR (ts == cursorTs AND id < cursorId)
      * For ASC (oldest first):
-     *   - "next page" means strictly newer than cursor: (ts > cursorTs) OR (ts == cursorTs AND id > cursorId)
+     * - "next page" means strictly newer than cursor: (ts > cursorTs) OR (ts == cursorTs AND id > cursorId)
      */
     public static Specification<LifecycleDeniedAuditEvent> cursorAfter(
             Instant cursorTs,

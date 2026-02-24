@@ -27,11 +27,9 @@ public final class UnauthenticatedAccessAuditSpecifications {
 
     /**
      * Cursor predicate for stable pagination using (timestamp, id).
-     *
      * For DESC (newest first):
      *   next page = strictly older than cursor:
      *     (ts < cursorTs) OR (ts == cursorTs AND id < cursorId)
-     *
      * For ASC (oldest first):
      *   next page = strictly newer than cursor:
      *     (ts > cursorTs) OR (ts == cursorTs AND id > cursorId)

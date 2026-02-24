@@ -82,10 +82,6 @@ public class IdentityProjectionAuditEvent {
     @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
     private String eventHash;
 
-    /* =========================
-       STRICT CONSTRUCTOR
-       ========================= */
-
     public IdentityProjectionAuditEvent(
             Instant timestamp,
             String subjectId,
@@ -123,4 +119,5 @@ public class IdentityProjectionAuditEvent {
         }
         return value;
     }
+
 }

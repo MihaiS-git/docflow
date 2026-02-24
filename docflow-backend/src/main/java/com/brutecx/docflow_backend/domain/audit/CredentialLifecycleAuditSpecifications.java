@@ -9,7 +9,8 @@ import java.util.UUID;
 
 public final class CredentialLifecycleAuditSpecifications {
 
-    private CredentialLifecycleAuditSpecifications() {}
+    private CredentialLifecycleAuditSpecifications() {
+    }
 
     public static Specification<CredentialLifecycleAuditEvent> timestampFrom(Instant from) {
         return (root, query, cb) ->

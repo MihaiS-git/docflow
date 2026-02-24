@@ -10,13 +10,16 @@ export type AdminAuditActionType =
   | "USER_LOCKED"
   | "USER_DISABLED"
   | "USER_INVITED"
+  | "INVITE_FAILED"
   | "INVITE_CLEANUP"
   | "INVITE_REVOKED"
   | "TENANT_CREATED"
   | "TENANT_CREATE_FAILED"
   | "TENANT_UPDATED"
   | "TENANT_SUSPENDED"
-  | "TENANT_MUTATION_DENIED";
+  | "TENANT_MUTATION_DENIED"
+  | "RETENTION_POLICY_UPSERT"
+  | "RETENTION_POLICY_UPSERT_FAILED";
 
 export type RoleChangeMetadata = {
   type: "ROLE_CHANGE";
@@ -34,8 +37,6 @@ export type InviteAuditMetadata = {
   type: "INVITE";
   invitedEmail: string;
   inviteId: string;
-  outcome: string;
-  failureReason: string | null;
 };
 
 export type InviteCleanupAuditMetadata = {
@@ -63,13 +64,23 @@ export type TenantMembershipChangeMetadata = {
   comment: string | null;
 };
 
+export type RetentionPolicyAuditMetadata = {
+  type: "RETENTION_POLICY";
+  streamName: string;
+  oldRetentionDays: number | null;
+  newRetentionDays: number | null;
+  oldArchiveEnabled: boolean;
+  newArchiveEnabled: boolean;
+};
+
 export type AdminAuditMetadata =
   | RoleChangeMetadata
   | UserStateChangeMetadata
   | InviteAuditMetadata
   | InviteCleanupAuditMetadata
   | TenantAuditMetadata
-  | TenantMembershipChangeMetadata;
+  | TenantMembershipChangeMetadata
+  | RetentionPolicyAuditMetadata;
 
 export type AdminAuditRow = {
   id: string;

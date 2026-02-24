@@ -27,49 +27,56 @@ public class CredentialLifecycleAuditEvent {
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
+    @Column(name="subject_external_id")
     private String subjectExternalId;
+
+    @Column(name="client_id")
     private String clientId;
+
+    @Column(name="session_id")
     private String sessionId;
 
     @Column(nullable = false, updatable = false)
     private String ip;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="event_type")
     private CredentialLifecycleEventType eventType;
 
+    @Column(name="required_action")
     private String requiredAction;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="correlation_id")
     private String correlationId;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="correlation_source")
     private CorrelationSource correlationSource;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="execution_context")
     private ExecutionContext executionContext;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false)
     private AuditResult result;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="reason_code")
     private String reasonCode;
 
+    @Column(name="reason_detail")
     private String reasonDetail;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="event_fingerprint")
     private String eventFingerprint;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="chain_version")
     private int chainVersion;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="prev_event_hash")
     private String prevEventHash;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="event_hash")
     private String eventHash;
 
     public CredentialLifecycleAuditEvent(
@@ -117,4 +124,5 @@ public class CredentialLifecycleAuditEvent {
         if (v == null || v.isBlank()) throw new IllegalArgumentException();
         return v;
     }
+
 }
