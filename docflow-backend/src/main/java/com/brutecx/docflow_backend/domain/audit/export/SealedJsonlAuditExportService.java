@@ -2,28 +2,35 @@ package com.brutecx.docflow_backend.domain.audit.export;
 
 import com.brutecx.docflow_backend.api.dto.audit.AuditExportMetadataDTO;
 import com.brutecx.docflow_backend.api.dto.audit.BaseAuditForensicExportDTO;
+import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
+import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
+import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.domain.audit.forensic.DigestingForensicExportService;
-import com.brutecx.docflow_backend.domain.security.AuditSigningKey;
-import com.brutecx.docflow_backend.domain.security.AuditSigningKeyRotationService;
-import com.brutecx.docflow_backend.domain.security.ExportSigningService;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKey;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.rotation.AuditSigningKeyRotationService;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.ExportSigningService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
-import jakarta.servlet.http.HttpServletResponse;
+import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
+import net.logstash.logback.argument.StructuredArgument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.data.domain.Page;
-import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.OutputStream;
+import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Service
 @RequiredArgsConstructor
@@ -31,24 +38,29 @@ public class SealedJsonlAuditExportService {
 
     public static final int DEFAULT_META_VERSION = 1;
 
-    private static final DateTimeFormatter FILENAME_TS_UTC =
-            DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
-                    .withZone(ZoneOffset.UTC);
-
     @FunctionalInterface
     public interface CursorBatchFetcher<E> {
         Page<E> fetch(Instant cursorTimestamp, UUID cursorId);
     }
+
+    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
+
+    /**
+     * Operational stream name for SIEM/metrics (NOT the per-audit-table stream).
+     */
+    private static final String STREAM = "AUDIT_EXPORT_JSONL_SEALED";
+    private static final String EXEC_CTX = ExecutionContext.HTTP.name();
 
     private final DigestingForensicExportService digestingExportService;
     private final ExportSigningService exportSigningService;
     private final AuditSigningKeyRotationService rotationService;
     private final AuditExportSnapshotRepository auditExportSnapshotRepository;
     private final UserService userService;
+    private final AuditWriteFailureMetrics metrics;
 
     @Transactional
     public <E, T extends BaseAuditForensicExportDTO> void exportSealedJsonl(
-            HttpServletResponse response,
+            OutputStream out,
             String stream,
             Instant from,
             Instant to,
@@ -59,83 +71,59 @@ public class SealedJsonlAuditExportService {
             Runnable afterSuccess
     ) {
 
-        if (stream == null || stream.isBlank())
-            throw new IllegalArgumentException("stream required");
+        final long startNs = System.nanoTime();
 
-        if (from == null || to == null)
-            throw new IllegalArgumentException("from/to required");
+        if (out == null) throw new IllegalArgumentException("out required");
+        if (stream == null || stream.isBlank()) throw new IllegalArgumentException("stream required");
+        if (from == null || to == null) throw new IllegalArgumentException("from/to required");
+        if (from.isAfter(to)) throw new IllegalArgumentException("Invalid range: from > to");
+        if (exportMaxRows <= 0) throw new IllegalArgumentException("exportMaxRows must be > 0");
+        if (fetcher == null) throw new IllegalArgumentException("fetcher required");
+        if (mapper == null) throw new IllegalArgumentException("mapper required");
 
-        if (from.isAfter(to))
-            throw new IllegalArgumentException("Invalid range: from > to");
+        final String correlationId = resolveCorrelationId();
+        final CorrelationSource correlationSource = resolveCorrelationSource();
 
-        if (exportMaxRows <= 0)
-            throw new IllegalArgumentException("exportMaxRows must be > 0");
-
-        // Ensure active key exists before writing response
-        AuditSigningKey activeKey = rotationService.requireActiveForExport();
-
-        response.setContentType("application/x-ndjson");
-        response.setCharacterEncoding("UTF-8");
-
-        String slug = toSlug(stream);
-        String fromToken = formatInstantForFilename(from);
-        String toToken = formatInstantForFilename(to);
-
-        String filename =
-                slug +
-                        "_from_" + fromToken +
-                        "_to_" + toToken +
-                        ".jsonl";
-
-        response.setHeader(
-                HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=\"" + filename + "\""
-        );
-
-        User actor = userService.getRequiredCurrentUser();
-
-        DigestingForensicExportService.ExportDigestContext ctx;
-        ExportSigningService.PayloadSigner signer;
-
-        try {
-            OutputStream out = response.getOutputStream();
-
-            // Start signer first, then wire it into the digest stream so BOTH digest + signature
-            // are updated from the exact same payload bytes.
-            signer = exportSigningService.beginPayloadSigner();
-            ctx = digestingExportService.beginDigestStream(out, signer.signature());
-
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to initialize export stream", e);
-        }
-
+        AuditExportSnapshot snapshot = null;
         long exported = 0L;
-        Instant cursorTimestamp = null;
-        UUID cursorId = null;
 
         try {
-            while (true) {
+            // Ensure active key exists before writing payload bytes
+            AuditSigningKey activeKey = rotationService.requireActiveForExport();
 
+            User actor = userService.getRequiredCurrentUser();
+
+            DigestingForensicExportService.ExportDigestContext ctx;
+            ExportSigningService.PayloadSigner signer;
+
+            try {
+                // Start signer first; digest stream updates BOTH digest + signature from same bytes.
+                signer = exportSigningService.beginPayloadSigner();
+                ctx = digestingExportService.beginDigestStream(out, signer.signature());
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to initialize export stream", e);
+            }
+
+            Instant cursorTimestamp = null;
+            UUID cursorId = null;
+
+            while (true) {
                 Page<E> batch = fetcher.fetch(cursorTimestamp, cursorId);
-                if (batch == null || batch.isEmpty())
-                    break;
+                if (batch == null || batch.isEmpty()) break;
 
                 for (E entity : batch.getContent()) {
 
-                    if (exported >= exportMaxRows)
+                    if (exported >= exportMaxRows) {
                         throw new IllegalStateException("Export row limit exceeded: " + exportMaxRows);
+                    }
 
                     T dto = mapper.apply(entity);
 
-                    if (dto == null)
-                        throw new IllegalStateException("Mapper returned null DTO");
-
-                    if (dto.timestamp() == null || dto.id() == null)
+                    if (dto == null) throw new IllegalStateException("Mapper returned null DTO");
+                    if (dto.timestamp() == null || dto.id() == null) {
                         throw new IllegalStateException("DTO must provide timestamp and id");
+                    }
 
-                    // This writes the payload JSONL line and updates BOTH:
-                    // - SHA-256(payload bytes)
-                    // - RSA signature over payload bytes
                     digestingExportService.writePayloadJsonl(dto, ctx);
 
                     exported++;
@@ -151,7 +139,7 @@ public class SealedJsonlAuditExportService {
 
             Instant now = Instant.now();
 
-            AuditExportSnapshot snapshot = new AuditExportSnapshot(
+            snapshot = new AuditExportSnapshot(
                     stream,
                     from,
                     to,
@@ -197,23 +185,129 @@ public class SealedJsonlAuditExportService {
                 try {
                     afterSuccess.run();
                 } catch (Exception ignored) {
-                    // do not break snapshot integrity
+                    // strict: never break snapshot integrity due to post-hook
                 }
             }
 
+            emitExportLog(
+                    true,
+                    correlationId,
+                    correlationSource,
+                    snapshot.getId(),
+                    stream,
+                    tenantId,
+                    exported,
+                    payloadDigestHex,
+                    sig.keyId(),
+                    sig.algorithm()
+            );
+
+            metrics.incrementSuccess(STREAM, EXEC_CTX);
+
         } catch (RuntimeException e) {
+
+            emitExportLog(
+                    false,
+                    correlationId,
+                    correlationSource,
+                    snapshot != null ? snapshot.getId() : null,
+                    stream,
+                    tenantId,
+                    exported,
+                    snapshot != null ? snapshot.getSha256DigestHex() : null,
+                    snapshot != null ? snapshot.getKeyId() : null,
+                    snapshot != null ? snapshot.getSignatureAlg() : null,
+                    kv("exception.class", e.getClass().getSimpleName())
+            );
+
+            metrics.incrementFailure(STREAM, EXEC_CTX, e);
             throw e;
+
         } catch (Exception e) {
+
+            emitExportLog(
+                    false,
+                    correlationId,
+                    correlationSource,
+                    snapshot != null ? snapshot.getId() : null,
+                    stream,
+                    tenantId,
+                    exported,
+                    snapshot != null ? snapshot.getSha256DigestHex() : null,
+                    snapshot != null ? snapshot.getKeyId() : null,
+                    snapshot != null ? snapshot.getSignatureAlg() : null,
+                    kv("exception.class", e.getClass().getSimpleName())
+            );
+
+            metrics.incrementFailure(STREAM, EXEC_CTX, e);
             throw new IllegalStateException("Forensic JSONL export failed", e);
+
+        } finally {
+            metrics.recordLatency(STREAM, EXEC_CTX,
+                    Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 
-    private static String formatInstantForFilename(Instant ts) {
-        return FILENAME_TS_UTC.format(ts);
+    private static String resolveCorrelationId() {
+        String corr = MDC.get("correlationId");
+        if (corr != null && !corr.isBlank()) return corr;
+
+        // Export should be called in HTTP context where filter sets correlationId;
+        // but this is a safety net for strict traceability.
+        return "export-" + UUID.randomUUID();
     }
 
-    private static String toSlug(String stream) {
-        String lower = stream.toLowerCase(Locale.ROOT);
-        return lower.replace('_', '-');
+    private static CorrelationSource resolveCorrelationSource() {
+        return "GENERATED".equalsIgnoreCase(MDC.get(RequestCorrelationIdFilter.MDC_SOURCE_KEY))
+                ? CorrelationSource.GENERATED
+                : CorrelationSource.REQUEST_ID;
+    }
+
+    private static void emitExportLog(
+            boolean ok,
+            String correlationId,
+            CorrelationSource correlationSource,
+            UUID snapshotId,
+            String exportStream,
+            UUID tenantId,
+            long rowCount,
+            String payloadSha256Hex,
+            String keyId,
+            String signatureAlg,
+            StructuredArgument... extra
+    ) {
+
+        StructuredArgument[] base = new StructuredArgument[]{
+                kv("schema_version", "docflow_siem_v1"),
+                kv("event.category", "audit"),
+                kv("event.action", ok ? "SEALED_EXPORT_OK" : "SEALED_EXPORT_FAILED"),
+                kv("event.outcome", ok ? "success" : "failure"),
+                kv("audit.stream", STREAM),
+                kv("execution.context", EXEC_CTX),
+                kv("correlation.id", correlationId),
+                kv("correlation.source", correlationSource.name()),
+                kv("snapshot.id", snapshotId),
+                kv("snapshot.stream", exportStream),
+                kv("tenant.id", tenantId),
+                kv("row.count", rowCount),
+                kv("payload.sha256", payloadSha256Hex),
+                kv("key.id", keyId),
+                kv("signature.alg", signatureAlg)
+        };
+
+        StructuredArgument[] args =
+                extra != null && extra.length > 0
+                        ? Arrays.copyOf(base, base.length + extra.length)
+                        : base;
+
+        if (extra != null && extra.length > 0) {
+            System.arraycopy(extra, 0, args, base.length, extra.length);
+        }
+
+        if (ok) {
+            log.info("security_event {}", (Object[]) args);
+        } else {
+            log.error("security_event {}", (Object[]) args);
+        }
     }
 }

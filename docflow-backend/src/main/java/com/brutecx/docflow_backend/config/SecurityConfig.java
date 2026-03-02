@@ -8,10 +8,9 @@ import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationMa
 import com.brutecx.docflow_backend.security.enforcement.TenantAuthorizationManagerFactory;
 import com.brutecx.docflow_backend.security.handler.ApiAuthenticationEntryPoint;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
-import com.brutecx.docflow_backend.security.session.AbsoluteSessionTimeoutFilter;
+import com.brutecx.docflow_backend.security.session.filter.AbsoluteSessionTimeoutFilter;
 import com.brutecx.docflow_backend.security.session.SessionSecurityProperties;
 import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.ServletContextInitializer;
 import org.springframework.context.annotation.Bean;
@@ -47,7 +46,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 
-@Slf4j
 @Configuration
 @Profile({"dev", "prod"})
 @EnableMethodSecurity
@@ -162,7 +160,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/audit/**")
                         .access(AuthorizationManagers.allOf(
                                 lifecycleAuthorizationManager,
-                                AuthorityAuthorizationManager.hasAnyRole("AUDITOR", "ADMIN")
+                                AuthorityAuthorizationManager.hasAnyRole("AUDITOR")
                         ))
 
                         // -------- AUDIT KEY DISTRIBUTION (AUTHENTICATED) --------
@@ -228,7 +226,6 @@ public class SecurityConfig {
                             res.sendRedirect(frontendBaseUrl);
                         })
                         .failureHandler((req, res, ex) -> {
-                            log.error("OAuth2 failure", ex);
                             res.sendRedirect(frontendBaseUrl);
                         })
                 )

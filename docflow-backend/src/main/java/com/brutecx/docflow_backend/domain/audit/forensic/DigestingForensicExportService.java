@@ -15,22 +15,21 @@ import java.security.Signature;
 import java.util.HexFormat;
 
 /**
- * Writes JSONL payload lines to response output stream, while computing SHA-256 digest
- * and (optionally) updating a streaming Signature over the EXACT same payload bytes.
- * IMPORTANT INVARIANT:
- * - Digest/signature MUST cover ONLY payload lines
- * - Metadata line is EXCLUDED
- * - Every payload line includes trailing '\n'
+ * Writes JSONL payload lines while computing:
+ *  - SHA-256 digest over payload bytes
+ *  - Optional streaming signature over EXACT same payload bytes
+ *
+ * STRICT INVARIANTS:
+ *  - Digest/signature cover ONLY payload lines
+ *  - Metadata line is EXCLUDED
+ *  - Every JSONL line ends with '\n'
+ *  - finalizePayloadDigest() may be called exactly once
  */
 @Service
 public class DigestingForensicExportService {
 
     private static final byte[] NL = "\n".getBytes(StandardCharsets.UTF_8);
 
-    /**
-     * Dedicated immutable writer derived from Spring-configured ObjectMapper.
-     * We do NOT mutate the injected mapper.
-     */
     private final ObjectWriter writer;
 
     public DigestingForensicExportService(ObjectMapper mapper) {
@@ -45,6 +44,8 @@ public class DigestingForensicExportService {
         private final OutputStream rawOut;
         private final OutputStream payloadOut;
         private final MessageDigest payloadDigest;
+
+        private boolean finalized = false;
 
         private ExportDigestContext(
                 OutputStream rawOut,
@@ -61,16 +62,20 @@ public class DigestingForensicExportService {
         }
 
         public byte[] finalizePayloadDigest() {
+            if (finalized) {
+                throw new IllegalStateException("Payload digest already finalized");
+            }
+            finalized = true;
             return payloadDigest.digest();
+        }
+
+        private void ensureNotFinalized() {
+            if (finalized) {
+                throw new IllegalStateException("Cannot write after payload digest finalized");
+            }
         }
     }
 
-    /**
-     * Starts a streaming export that computes digest + optional signature.
-     *
-     * @param responseOut response output stream
-     * @param signatureOrNull initialized Signature (initSign already called) or null
-     */
     public ExportDigestContext beginDigestStream(
             OutputStream responseOut,
             Signature signatureOrNull
@@ -81,7 +86,6 @@ public class DigestingForensicExportService {
             }
 
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-
             OutputStream raw = new BufferedOutputStream(responseOut);
 
             OutputStream payload = new OutputStream() {
@@ -90,7 +94,6 @@ public class DigestingForensicExportService {
                 public void write(int b) throws IOException {
                     raw.write(b);
                     md.update((byte) b);
-
                     if (signatureOrNull != null) {
                         try {
                             signatureOrNull.update((byte) b);
@@ -104,7 +107,6 @@ public class DigestingForensicExportService {
                 public void write(@Nonnull byte[] b, int off, int len) throws IOException {
                     raw.write(b, off, len);
                     md.update(b, off, len);
-
                     if (signatureOrNull != null) {
                         try {
                             signatureOrNull.update(b, off, len);
@@ -127,23 +129,14 @@ public class DigestingForensicExportService {
         }
     }
 
-    /**
-     * Writes a payload JSONL line (included in digest/signature).
-     */
     public void writePayloadJsonl(Object dto, ExportDigestContext ctx) throws IOException {
-        if (ctx == null) {
-            throw new IllegalArgumentException("ctx required");
-        }
+        if (ctx == null) throw new IllegalArgumentException("ctx required");
+        ctx.ensureNotFinalized();
         writeJsonLine(dto, ctx.payloadOut);
     }
 
-    /**
-     * Writes metadata JSONL line (EXCLUDED from digest/signature).
-     */
     public void writeMetaJsonl(Object envelope, ExportDigestContext ctx) throws IOException {
-        if (ctx == null) {
-            throw new IllegalArgumentException("ctx required");
-        }
+        if (ctx == null) throw new IllegalArgumentException("ctx required");
         writeJsonLine(envelope, ctx.rawOut);
     }
 

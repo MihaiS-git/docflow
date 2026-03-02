@@ -38,10 +38,6 @@ public class IdentityProjectionAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    /* =========================
-       CORE
-       ========================= */
-
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
@@ -65,10 +61,6 @@ public class IdentityProjectionAuditEvent {
 
     @Column(nullable = false, updatable = false, name = "reason_code", length = 64)
     private String reasonCode;
-
-    /* =========================
-       INTEGRITY
-       ========================= */
 
     @Column(nullable = false, updatable = false, unique = true, name = "event_fingerprint", length = 128)
     private String eventFingerprint;

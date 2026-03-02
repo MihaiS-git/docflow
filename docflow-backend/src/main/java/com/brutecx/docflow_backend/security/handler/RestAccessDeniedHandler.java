@@ -6,11 +6,16 @@ import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
 import com.brutecx.docflow_backend.audit.rbac.IRbacDeniedAuditService;
+import com.brutecx.docflow_backend.logging.InfraEventActions;
+import com.brutecx.docflow_backend.logging.InfraEventLogger;
+import com.brutecx.docflow_backend.logging.InfraEventOutcome;
+import com.brutecx.docflow_backend.logging.InfraEventType;
+import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import net.logstash.logback.argument.StructuredArguments;
 import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -24,7 +29,6 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.util.List;
 
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class RestAccessDeniedHandler implements AccessDeniedHandler {
@@ -41,15 +45,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
     ) throws IOException {
 
         var auth = SecurityContextHolder.getContext().getAuthentication();
-
-        log.error(
-                "ACCESS DENIED → uri={}, authorities={}, exception={}",
-                request.getRequestURI(),
-                auth != null ? auth.getAuthorities() : "NO_AUTH",
-                ex.getClass().getSimpleName()
-        );
-
-        String correlationId = MDC.get("correlationId");
+        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_KEY);
 
         String subjectId = null;
         if (auth != null && auth.getPrincipal() instanceof OidcUser oidcUser) {
@@ -59,7 +55,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
         String httpMethod = request.getMethod();
         String uri = request.getRequestURI();
 
-        ErrorCode errorCodeEnum = ErrorCode.INTERNAL_SERVER_ERROR;
+        ErrorCode errorCodeEnum;
 
         if (ex instanceof LifecycleAccessDeniedException lifecycleEx) {
 
@@ -86,30 +82,33 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                         uri,
                         fingerprint
                 );
+
+                InfraEventLogger.log(
+                        InfraEventType.AUTHORIZATION,
+                        InfraEventActions.AUTHZ_LIFECYCLE_DENIED_AUDIT_WRITE,
+                        InfraEventOutcome.SUCCESS,
+                        null,
+                        null,
+                        StructuredArguments.kv("actor.subject_id", subjectId),
+                        StructuredArguments.kv("http.method", httpMethod),
+                        StructuredArguments.kv("http.path", uri)
+                );
+
             } catch (Exception auditEx) {
-                if (auditEx instanceof DataIntegrityViolationException) {
-                    log.warn(
-                            "Lifecycle audit deduped. correlationId={} reasonCode={} uri={}",
-                            correlationId,
-                            lifecycleCode,
-                            uri
+                if (!(auditEx instanceof DataIntegrityViolationException)) {
+                    InfraEventLogger.log(
+                            InfraEventType.AUTHORIZATION,
+                            InfraEventActions.AUTHZ_LIFECYCLE_DENIED_AUDIT_WRITE,
+                            InfraEventOutcome.FAILURE,
+                            "LifecycleDenied audit write failed",
+                            auditEx
                     );
                 }
-
-                log.error(
-                        "LIFECYCLE AUDIT FAILURE → correlationId={} subjectId={} reasonCode={} method={} uri={}",
-                        correlationId,
-                        subjectId,
-                        lifecycleCode,
-                        httpMethod,
-                        uri,
-                        auditEx
-                );
             }
 
         } else {
 
-            errorCodeEnum = ErrorCode.INVALID_ARGUMENT;
+            errorCodeEnum = ErrorCode.FORBIDDEN;
 
             String fingerprint = EventFingerprint.of(List.of(
                     "RBAC_DENIED",
@@ -124,23 +123,28 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                         uri,
                         fingerprint
                 );
+
+                InfraEventLogger.log(
+                        InfraEventType.AUTHORIZATION,
+                        InfraEventActions.AUTHZ_RBAC_DENIED_AUDIT_WRITE,
+                        InfraEventOutcome.SUCCESS,
+                        null,
+                        null,
+                        StructuredArguments.kv("actor.subject_id", subjectId),
+                        StructuredArguments.kv("http.method", httpMethod),
+                        StructuredArguments.kv("http.path", uri)
+                );
+
             } catch (Exception auditEx) {
-                if (auditEx instanceof DataIntegrityViolationException) {
-                    log.warn(
-                            "RBAC audit deduped. correlationId={} uri={}",
-                            correlationId,
-                            uri
+                if (!(auditEx instanceof DataIntegrityViolationException)) {
+                    InfraEventLogger.log(
+                            InfraEventType.AUTHORIZATION,
+                            InfraEventActions.AUTHZ_RBAC_DENIED_AUDIT_WRITE,
+                            InfraEventOutcome.FAILURE,
+                            "RbacDenied audit write failed",
+                            auditEx
                     );
                 }
-
-                log.error(
-                        "RBAC AUDIT FAILURE → correlationId={} subjectId={} method={} uri={}",
-                        correlationId,
-                        subjectId,
-                        httpMethod,
-                        uri,
-                        auditEx
-                );
             }
         }
 

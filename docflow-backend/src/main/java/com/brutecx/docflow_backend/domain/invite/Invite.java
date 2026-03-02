@@ -6,7 +6,6 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
@@ -18,7 +17,10 @@ import java.util.UUID;
 @Table(
         name = "invites",
         indexes = {
-                @Index(name = "idx_invite_token", columnList = "token")
+                @Index(name = "idx_invite_tenant_created_at", columnList = "tenant_id, created_at"),
+                @Index(name = "idx_invite_tenant_status_created", columnList = "tenant_id, status, created_at"),
+                @Index(name = "idx_invite_tenant_status_expires", columnList = "tenant_id, status, expires_at"),
+                @Index(name = "idx_invite_tenant_email", columnList = "tenant_id, email")
         }
 )
 @Getter
@@ -39,7 +41,7 @@ public class Invite {
     @Column(nullable = false)
     private String email;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name="expires_at")
     private Instant expiresAt;
 
     @Getter
@@ -56,16 +58,12 @@ public class Invite {
     private TenantRole tenantRole;
 
     @Getter
-    @ManyToOne(
-            fetch = FetchType.LAZY,
-            optional = true,
-            cascade = CascadeType.REMOVE
-    )
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private User user;
 
-    @Column(nullable = false, updatable = false)
-    private Instant timestamp;
+    @Column(nullable = false, updatable = false, name="created_at")
+    private Instant createdAt;
 
     public static Invite create(String email, UUID tenantId, TenantRole tenantRole) {
         if (tenantRole != null && tenantId == null) {
@@ -77,7 +75,7 @@ public class Invite {
         invite.token = TokenGenerator.generate();
         invite.expiresAt = Instant.now().plus(7, ChronoUnit.DAYS);
         invite.status = InviteStatus.PENDING;
-        invite.timestamp = Instant.now();
+        invite.createdAt = Instant.now();
 
         invite.tenantId = tenantId;
 
@@ -104,7 +102,7 @@ public class Invite {
 
     @PrePersist
     public void prePersist() {
-        this.timestamp = Instant.now();
+        this.createdAt = Instant.now();
     }
 
 }

@@ -9,7 +9,6 @@ import java.util.Objects;
 
 /**
  * STRICT GOLD canonical material builder for LIFECYCLE_DENIED stream.
- *
  * Used by writer + verifier.
  * Versioned.
  * Deterministic.

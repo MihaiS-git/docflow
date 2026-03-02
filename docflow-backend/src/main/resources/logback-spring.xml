@@ -1,18 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <springProperty scope="context"
+                    name="DOCFLOW_ENV"
+                    source="spring.profiles.active"
+                    defaultValue="default"/>
+
+    <!-- JSON Console Appender -->
+    <appender name="STDOUT_JSON" class="ch.qos.logback.core.ConsoleAppender">
+
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <includeContext>true</includeContext>
+            <timeZone>UTC</timeZone>
             <includeMdc>true</includeMdc>
+            <includeContext>true</includeContext>
+
             <customFields>
-                {"service":"docflow-backend"}
+                {"service":"docflow-backend","env":"${DOCFLOW_ENV}"}
             </customFields>
         </encoder>
+
     </appender>
 
+    <!-- Async wrapper -->
+    <appender name="ASYNC_STDOUT" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>8192</queueSize>
+        <neverBlock>true</neverBlock>
+        <discardingThreshold>20</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+        <appender-ref ref="STDOUT_JSON"/>
+    </appender>
+
+    <!-- Dedicated channels -->
+    <logger name="SECURITY_AUDIT" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_STDOUT"/>
+    </logger>
+
+    <logger name="INFRA_EVENT" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_STDOUT"/>
+    </logger>
+
+    <!-- Noise reduction -->
+    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="WARN"/>
+    <logger name="org.hibernate.SQL" level="WARN"/>
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.springframework.security" level="WARN"/>
+    <logger name="org.keycloak" level="WARN"/>
+    <logger name="com.brutecx" level="INFO"/>
+
     <root level="INFO">
-        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="ASYNC_STDOUT"/>
     </root>
 
 </configuration>

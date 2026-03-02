@@ -90,7 +90,6 @@ public final class OnboardingCanonicalMaterialBuilder
         return String.join("|",
                 "cv=" + cv,
                 "stream=" + STREAM,
-
                 "timestamp=" + normalizeEpoch(in.timestamp()),
                 "actorUserId=" + normalize(in.actorUserId()),
                 "subjectId=" + normalize(in.subjectId()),

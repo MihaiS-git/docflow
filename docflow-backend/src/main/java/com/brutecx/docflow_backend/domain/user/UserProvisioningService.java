@@ -1,10 +1,9 @@
 package com.brutecx.docflow_backend.domain.user;
 
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
+import com.brutecx.docflow_backend.domain.tenant.TenantMembershipService;
 import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
-import com.brutecx.docflow_backend.domain.tenant.UserTenantMembership;
-import com.brutecx.docflow_backend.domain.tenant.UserTenantMembershipRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,7 +18,7 @@ public class UserProvisioningService implements IUserProvisioningService {
 
     private final UserRepository userRepository;
     private final TenantService tenantService;
-    private final UserTenantMembershipRepository membershipRepository;
+    private final TenantMembershipService tenantMembershipService;
 
     @Override
     @Transactional
@@ -43,28 +42,20 @@ public class UserProvisioningService implements IUserProvisioningService {
                         department
                 )));
 
-        // Every user must always belong to ROOT tenant
-        ensureMembership(user, tenantService.getRootTenant());
-
-        // Ensure invited tenant membership (baseline MEMBER)
-        ensureMembership(user, tenant);
-
-        return user;
-    }
-
-    private void ensureMembership(User user, Tenant tenant) {
-
-        if (membershipRepository.existsByUserIdAndTenantId(
+        // Every user must belong to ROOT tenant (baseline MEMBER)
+        tenantMembershipService.ensureMembership(
                 user.getId(),
-                tenant.getId()
-        )) {
-            return;
-        }
-
-        UserTenantMembership.create(
-                user,
-                tenant,
+                tenantService.getRootTenant().getId(),
                 TenantRole.MEMBER
         );
+
+        // Ensure invited tenant membership (baseline MEMBER)
+        tenantMembershipService.ensureMembership(
+                user.getId(),
+                tenant.getId(),
+                TenantRole.MEMBER
+        );
+
+        return user;
     }
 }

@@ -38,10 +38,6 @@ public class LifecycleDeniedAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    /* =========================
-       CORE
-       ========================= */
-
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
@@ -78,10 +74,6 @@ public class LifecycleDeniedAuditEvent {
     @Column(name = "user_agent", nullable = false, updatable = false, length = 512)
     private String userAgent;
 
-    /* =========================
-       INTEGRITY
-       ========================= */
-
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
@@ -93,10 +85,6 @@ public class LifecycleDeniedAuditEvent {
 
     @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
-
-    /* =========================
-       STRICT CONSTRUCTOR
-       ========================= */
 
     public LifecycleDeniedAuditEvent(
             Instant timestamp,

@@ -11,6 +11,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = RoleChangeMetadata.class, name = "ROLE_CHANGE"),
         @JsonSubTypes.Type(value = InviteCleanupAuditMetadata.class, name = "INVITE_CLEANUP"),
+        @JsonSubTypes.Type(value = InviteSubjectBindingAuditMetadata.class, name = "INVITE_SUBJECT_BINDING"),
+        @JsonSubTypes.Type(value = UserDeletionAuditMetadata.class, name = "USER_DELETION"),
         @JsonSubTypes.Type(value = UserStateChangeMetadata.class, name = "USER_STATE_CHANGE"),
         @JsonSubTypes.Type(value = InviteAuditMetadata.class, name = "INVITE"),
         @JsonSubTypes.Type(value = TenantAuditMetadata.class, name = "TENANT"),
@@ -20,6 +22,9 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 public sealed interface AdminAuditMetadata
         permits InviteAuditMetadata,
         InviteCleanupAuditMetadata,
+        InviteSubjectBindingAuditMetadata,
+        InvitePurgeAuditMetadata,
+        UserDeletionAuditMetadata,
         RoleChangeMetadata,
         UserStateChangeMetadata,
         TenantAuditMetadata,

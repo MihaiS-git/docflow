@@ -7,7 +7,6 @@ import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserRepository;
 import com.brutecx.docflow_backend.domain.user.UserStatus;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.core.Authentication;
@@ -21,7 +20,6 @@ import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class LifecycleAuthorizationManager implements AuthorizationManager<RequestAuthorizationContext> {

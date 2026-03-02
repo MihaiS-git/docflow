@@ -10,6 +10,8 @@ import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
+import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import lombok.RequiredArgsConstructor;
@@ -26,8 +28,11 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Component
 @RequiredArgsConstructor
@@ -35,6 +40,7 @@ public class AuthenticationEventListener {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
     private static final String STREAM = AuthenticationAuditCanonicalMaterialBuilder.STREAM;
+    private static final String EXEC_CTX = ExecutionContext.AUTH_FLOW.name();
 
     private final AuthenticationEventRepository repository;
     private final IUserIdentityProjectionService identityProjectionService;
@@ -43,6 +49,7 @@ public class AuthenticationEventListener {
     private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final AuditWriteFailureMetrics metrics;
     private final ObjectMapper objectMapper;
+    private final AuditPartitionResolver partitionResolver;
 
     @EventListener
     public void onSuccess(AuthenticationSuccessEvent event) {
@@ -60,15 +67,38 @@ public class AuthenticationEventListener {
         persist(AuthenticationResult.LOGOUT, event.getAuthentication(), null, null);
     }
 
-    private void persist(AuthenticationResult result,
-                         Authentication authentication,
-                         AuthenticationFailureReason failureReason,
-                         String failureDetail) {
+    private void persist(
+            AuthenticationResult result,
+            Authentication authentication,
+            AuthenticationFailureReason failureReason,
+            String failureDetail
+    ) {
 
         ensureHttpContext();
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
+        final long startNs = System.nanoTime();
+
         String correlationId = requireCorrelation(ctx);
+        if (correlationId == null) {
+            Exception ex = new IllegalStateException("Missing correlationId for AUTH audit event");
+
+            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
+            log.error("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "auth_audit_skipped_missing_correlation"),
+                    kv("event.outcome", "failure"),
+                    kv("audit.stream", STREAM),
+                    kv("audit.partition", "SUBJECT"),
+                    kv("correlation.missing", true),
+                    kv("exception.class", ex.getClass().getSimpleName()),
+                    ex
+            );
+            return;
+        }
 
         String subjectId = resolveSubjectId(authentication);
         String username =
@@ -79,7 +109,7 @@ public class AuthenticationEventListener {
         Instant eventTime = Instant.now();
 
         CorrelationSource correlationSource =
-                "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+                "GENERATED".equalsIgnoreCase(MDC.get(RequestCorrelationIdFilter.MDC_SOURCE_KEY))
                         ? CorrelationSource.GENERATED
                         : CorrelationSource.REQUEST_ID;
 
@@ -111,8 +141,6 @@ public class AuthenticationEventListener {
                 correlationId
         ));
 
-
-
         AuthenticationAuditCanonicalMaterialBuilder.Input canonicalInput =
                 new AuthenticationAuditCanonicalMaterialBuilder.Input(
                         eventTime,
@@ -120,23 +148,21 @@ public class AuthenticationEventListener {
                         username,
                         subjectId,
                         result,
-                        metadata,   // <-- pass object, not JSON
+                        metadata,
                         "KEYCLOAK",
                         ctx.ip(),
                         ctx.userAgent(),
                         correlationId,
                         correlationSource.name(),
-                        ExecutionContext.AUTH_FLOW.name(),
+                        EXEC_CTX,
                         auditResult.name(),
                         fingerprint
                 );
 
-
         String canonicalMaterial =
                 canonicalMaterialBuilder.buildCanonicalMaterial(canonicalInput);
 
-        AuditPartition partition =
-                AuditPartition.subject(STREAM, subjectId);
+        AuditPartition partition = partitionResolver.authentication(subjectId);
 
         try {
             AuditChainService.ChainHash chain =
@@ -161,24 +187,27 @@ public class AuthenticationEventListener {
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
+            metrics.incrementSuccess(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
         } catch (DataIntegrityViolationException ex) {
-            log.debug(
-                    "AUTH AUDIT DEDUPLICATED result={} username={} correlationId={}",
-                    result,
-                    username,
-                    correlationId
-            );
+            metrics.incrementDedup(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
         } catch (Exception ex) {
-            metrics.increment(
-                    STREAM,
-                    ExecutionContext.AUTH_FLOW.name(),
-                    ex
-            );
-            log.error(
-                    "AUTH AUDIT FAILURE result={} username={} correlationId={}",
-                    result,
-                    username,
-                    correlationId,
+            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
+            log.error("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "auth_audit_record_failed"),
+                    kv("event.outcome", "failure"),
+                    kv("audit.stream", STREAM),
+                    kv("audit.partition", "SUBJECT"),
+                    kv("correlation.id", correlationId),
+                    kv("exception.class", ex.getClass().getSimpleName()),
                     ex
             );
         }
@@ -203,10 +232,14 @@ public class AuthenticationEventListener {
         }
     }
 
+    /**
+     * IMPORTANT: Do NOT throw here. Authentication events are part of the control-plane.
+     * If correlation is missing, we fail safely by skipping persistence and recording failure telemetry.
+     */
     private static String requireCorrelation(AuditRequestContext ctx) {
         String corr = ctx.correlationId();
         if (corr == null || corr.isBlank()) {
-            throw new IllegalStateException("Missing correlationId for AUTH audit event");
+            return null;
         }
         return corr;
     }
@@ -219,7 +252,6 @@ public class AuthenticationEventListener {
     }
 
     private void persistFailure(AbstractAuthenticationFailureEvent event) {
-
         AuthenticationFailureReason reason = mapReason(event.getException());
         String detail = event.getException().getClass().getSimpleName();
 
@@ -227,9 +259,7 @@ public class AuthenticationEventListener {
     }
 
     private AuthenticationFailureReason mapReason(Exception ex) {
-
         String name = ex.getClass().getSimpleName();
-
         return switch (name) {
             case "BadCredentialsException" -> AuthenticationFailureReason.INVALID_CREDENTIALS;
             case "UsernameNotFoundException" -> AuthenticationFailureReason.USER_NOT_FOUND;

@@ -1,91 +1,10 @@
-spring:
-  security:
-    oauth2:
-      client:
-        registration:
-          keycloak:
-            client-id: ${KEYCLOAK_CLIENT_ID}
-        provider:
-          keycloak:
-            authorization-uri: ${KEYCLOAK_AUTH_URI}
-            token-uri: ${KEYCLOAK_TOKEN_URI}
-            jwk-set-uri: ${KEYCLOAK_JWKS_URI}
-  datasource:
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
-  jpa:
-    hibernate:
-      ddl-auto: update # validate
-  flyway:
-    enabled: true
-    baseline-on-migrate: true
-  devtools:
-    restart:
-      enabled: false
-  mail:
-    host: ${SMTP_HOST}
-    port: ${SMTP_PORT}
-    username: ${SMTP_USERNAME}
-    password: ${SMTP_PASSWORD}
-    properties:
-      mail.smtp.auth: true
-      mail.smtp.starttls.enable: true
-      mail.smtp.starttls.required: true
-
-# dev profile must work over plain HTTP (LAN/dev). OAuth2 state is stored in session cookie.
 server:
   servlet:
     session:
       cookie:
-        secure: false     # required for HTTP; otherwise browser drops JSESSIONID
-        same-site: LAX    # stable dev behavior
-      timeout: 30m
-  use-forward-headers: true
-  forward-headers-strategy: framework
-  tomcat:
-    use-relative-redirects: true
+        secure: false
+        same-site: LAX
 
 logging:
   level:
-    org.springframework.security: DEBUG
-    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR
-    org.springframework.transaction.interceptor: TRACE
-
-docflow:
-  bootstrap:
-  admin:
-    email: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
-    first-name: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
-    last-name: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
-  audit:
-    canonical:
-      version: 1
-    chain:
-      enabled: true
-      secret:
-        part-a: ${DOCFLOW_AUDIT_CHAIN_SECRET_PART_A:}
-        part-b-path: /run/secrets/audit_chain_part_b
-    audit:
-      export:
-        signing:
-          private-key-pkcs8-pem: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM:}
-          key-id: ${DOCFLOW_AUDIT_EXPORT_SIGNING_KEY_ID:}
-  security:
-    allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
-    keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI:http://localhost:8085/realms/docflow/protocol/openid-connect/logout}
-    post-logout-redirect-uri: ${DOCFLOW_POST_LOGOUT_REDIRECT:http://localhost:3000}
-    keycloak:
-      admin:
-        enabled: true
-        base-url: ${KEYCLOAK_ADMIN_BASE_URL}
-        realm: ${KEYCLOAK_REALM}
-        client-id: ${KEYCLOAK_ADMIN_CLIENT_ID}
-        client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
-        poll-fixed-delay-ms: ${KEYCLOAK_ADMIN_POLL_DELAY_MS}
-        page-size: ${KEYCLOAK_ADMIN_PAGE_SIZE}
-    session:
-      absolute-timeout: 8h
-      max-concurrent-sessions: 1
-
-
+    org.springframework.security: WARN

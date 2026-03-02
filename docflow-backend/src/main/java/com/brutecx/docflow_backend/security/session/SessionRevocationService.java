@@ -4,7 +4,11 @@ import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
-import lombok.extern.slf4j.Slf4j;
+import com.brutecx.docflow_backend.logging.InfraEventActions;
+import com.brutecx.docflow_backend.logging.InfraEventLogger;
+import com.brutecx.docflow_backend.logging.InfraEventOutcome;
+import com.brutecx.docflow_backend.logging.InfraEventType;
+import net.logstash.logback.argument.StructuredArguments;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.session.SessionInformation;
 import org.springframework.security.core.session.SessionRegistry;
@@ -13,7 +17,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-@Slf4j
 @Service
 public class SessionRevocationService {
 
@@ -51,7 +54,6 @@ public class SessionRevocationService {
                 continue;
             }
 
-            // prevent self-revocation through this path
             if (targetExternalSubjectId.equals(actorExternalSubjectId)) {
                 continue;
             }
@@ -75,6 +77,19 @@ public class SessionRevocationService {
                 );
             }
 
+            // ---- Infra structured event ----
+            InfraEventLogger.log(
+                    InfraEventType.AUTHENTICATION,
+                    InfraEventActions.AUTHN_SESSION_REVOKE_ADMIN,
+                    InfraEventOutcome.SUCCESS,
+                    "Administrative session revocation executed",
+                    null,
+                    StructuredArguments.kv("actor.subject_id", actorExternalSubjectId),
+                    StructuredArguments.kv("target.subject_id", targetExternalSubjectId),
+                    StructuredArguments.kv("revoked.count", revoked)
+            );
+
+            // ---- Tamper-evident audit ----
             String fingerprint = EventFingerprint.of(List.of(
                     "USER_SESSION_REVOKED",
                     targetExternalSubjectId,

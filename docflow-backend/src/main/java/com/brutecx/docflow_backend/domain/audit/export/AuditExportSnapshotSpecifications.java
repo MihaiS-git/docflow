@@ -37,14 +37,9 @@ public final class AuditExportSnapshotSpecifications {
         return (root, q, cb) -> cb.lessThanOrEqualTo(root.get("toTs"), toTs);
     }
 
-    public static Specification<AuditExportSnapshot> hasId(UUID id) {
-        return (root, query, cb) -> cb.equal(root.get("id"), id);
-    }
-
     /**
      * Cursor pagination for DESC ordering:
      * Order: createdAt DESC, id DESC
-     *
      * For next page after cursor (createdAt,id):
      *  return items where:
      *    createdAt < cursorCreatedAt

@@ -1,6 +1,8 @@
 package com.brutecx.docflow_backend.domain.user;
 
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
+import com.brutecx.docflow_backend.domain.tenant.TenantMembershipService;
+import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +23,7 @@ public class SuperUserBootstrap implements ApplicationRunner {
 
     private final UserRepository userRepository;
     private final TenantService tenantService;
+    private final TenantMembershipService tenantMembershipService;
 
     @Value("${docflow.bootstrap.admin.email:}")
     private String adminEmail;
@@ -43,12 +46,9 @@ public class SuperUserBootstrap implements ApplicationRunner {
             return;
         }
 
-        // Ensure ROOT tenant exists
-        Tenant tenant = tenantService.getOrCreateBootstrapTenant();
+        Tenant root = tenantService.getOrCreateBootstrapTenant();
 
-        boolean exists = userRepository.existsByEmailIgnoreCase(adminEmail);
-
-        if (exists) {
+        if (userRepository.existsByEmailIgnoreCase(adminEmail)) {
             log.info("Bootstrap admin already exists — skipping");
             return;
         }
@@ -63,9 +63,16 @@ public class SuperUserBootstrap implements ApplicationRunner {
 
         userRepository.save(admin);
 
+        // Ensure bootstrap admin has ROOT MANAGER membership
+        tenantMembershipService.ensureMembership(
+                admin.getId(),
+                root.getId(),
+                TenantRole.MANAGER
+        );
+
         log.info(
                 "Bootstrapped superuser (LOCKED) rootTenantId={} email={}",
-                tenant.getId(),
+                root.getId(),
                 adminEmail
         );
     }

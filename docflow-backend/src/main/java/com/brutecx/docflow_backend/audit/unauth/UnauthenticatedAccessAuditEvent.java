@@ -33,16 +33,12 @@ public class UnauthenticatedAccessAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    /* =========================
-       CORE
-       ========================= */
-
     @NotNull
     @Column(name = "timestamp", nullable = false, updatable = false)
     private Instant timestamp;
 
     @Column(name = "correlation_id", updatable = false, length = 128)
-    private String correlationId; // may be null if no correlation established
+    private String correlationId;
 
     @NotNull
     @Enumerated(EnumType.STRING)
@@ -59,10 +55,6 @@ public class UnauthenticatedAccessAuditEvent {
     @Column(name = "result", nullable = false, updatable = false, length = 16)
     private AuditResult result;
 
-    /* =========================
-       REQUEST DATA
-       ========================= */
-
     @NotNull
     @Column(name = "http_method", nullable = false, updatable = false, length = 16)
     private String httpMethod;
@@ -72,14 +64,10 @@ public class UnauthenticatedAccessAuditEvent {
     private String path;
 
     @Column(name = "ip", updatable = false, length = 128)
-    private String ip; // optional
+    private String ip;
 
     @Column(name = "user_agent", updatable = false, length = 512)
-    private String userAgent; // optional
-
-    /* =========================
-       INTEGRITY
-       ========================= */
+    private String userAgent;
 
     @NotNull
     @Column(name = "event_fingerprint", nullable = false, updatable = false, length = 64)
@@ -96,10 +84,6 @@ public class UnauthenticatedAccessAuditEvent {
     @NotNull
     @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
     private String eventHash;
-
-    /* =========================
-       STRICT CONSTRUCTOR
-       ========================= */
 
     public UnauthenticatedAccessAuditEvent(
             Instant timestamp,
@@ -118,18 +102,14 @@ public class UnauthenticatedAccessAuditEvent {
     ) {
 
         this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
-        this.correlationId = correlationId; // allowed to be null
-
+        this.correlationId = correlationId;
         this.correlationSource = Objects.requireNonNull(correlationSource, "correlationSource must not be null");
         this.executionContext = Objects.requireNonNull(executionContext, "executionContext must not be null");
         this.result = Objects.requireNonNull(result, "result must not be null");
-
         this.httpMethod = requireNonBlank(httpMethod, "httpMethod");
         this.path = requireNonBlank(path, "path");
-
         this.ip = ip;
         this.userAgent = userAgent;
-
         this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
         this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
         this.eventHash = requireNonBlank(eventHash, "eventHash");

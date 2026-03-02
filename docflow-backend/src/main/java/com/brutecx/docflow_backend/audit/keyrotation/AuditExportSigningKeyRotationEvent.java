@@ -44,16 +44,16 @@ public class AuditExportSigningKeyRotationEvent {
     @Column(columnDefinition = "jsonb", nullable = false, updatable = false)
     private AuditExportSigningKeyRotationMetadata metadata;
 
-    @Column(nullable = false, updatable = false, unique = true)
+    @Column(nullable = false, updatable = false, unique = true, name = "event_fingerprint")
     private String eventFingerprint;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name = "chain_version")
     private int chainVersion;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name = "prev_event_hash")
     private String prevEventHash;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name = "event_hash")
     private String eventHash;
 
     public AuditExportSigningKeyRotationEvent(

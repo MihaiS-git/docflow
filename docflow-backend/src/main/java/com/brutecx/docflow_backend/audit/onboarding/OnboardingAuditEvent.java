@@ -40,15 +40,11 @@ public class OnboardingAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    /* =========================
-       CORE
-       ========================= */
-
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
     @Column(name = "actor_user_id", updatable = false)
-    private UUID actorUserId; // optional by design
+    private UUID actorUserId;
 
     @Column(name = "subject_id", nullable = false, updatable = false, length = 128)
     private String subjectId;
@@ -88,11 +84,7 @@ public class OnboardingAuditEvent {
     private String reasonCode;
 
     @Column(name = "reason_detail", updatable = false, length = 512)
-    private String reasonDetail; // optional
-
-    /* =========================
-       INTEGRITY
-       ========================= */
+    private String reasonDetail;
 
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
@@ -105,10 +97,6 @@ public class OnboardingAuditEvent {
 
     @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
     private String eventHash;
-
-    /* =========================
-       STRICT CONSTRUCTOR
-       ========================= */
 
     public OnboardingAuditEvent(
             Instant timestamp,
@@ -130,28 +118,20 @@ public class OnboardingAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-
         this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
-
-        this.actorUserId = actorUserId; // optional
-
+        this.actorUserId = actorUserId;
         this.subjectId = requireNonBlank(subjectId, "subjectId");
         this.tenantId = Objects.requireNonNull(tenantId, "tenantId must not be null");
         this.inviteId = Objects.requireNonNull(inviteId, "inviteId must not be null");
-
         this.correlationId = requireNonBlank(correlationId, "correlationId");
         this.correlationSource = Objects.requireNonNull(correlationSource, "correlationSource must not be null");
         this.executionContext = Objects.requireNonNull(executionContext, "executionContext must not be null");
-
         this.ip = requireNonBlank(ip, "ip");
         this.userAgent = requireNonBlank(userAgent, "userAgent");
-
         this.result = Objects.requireNonNull(result, "result must not be null");
         this.outcome = Objects.requireNonNull(outcome, "outcome must not be null");
-
         this.reasonCode = requireNonBlank(reasonCode, "reasonCode");
         this.reasonDetail = reasonDetail; // optional
-
         this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
         this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
         this.eventHash = requireNonBlank(eventHash, "eventHash");

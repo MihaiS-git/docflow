@@ -40,8 +40,7 @@ public class TenantMembershipService {
         membershipRepository.findByUserIdAndTenantId(userId, tenantId)
                 .ifPresentOrElse(existing -> {
 
-                    if (existing.getRole() == null ||
-                            role.ordinal() > existing.getRole().ordinal()) {
+                    if (existing.getRole() == null || role.isMorePrivilegedThan(existing.getRole())) {
                         existing.changeRole(role);
                     }
 
@@ -49,15 +48,8 @@ public class TenantMembershipService {
                         existing.activate();
                     }
 
-                }, () -> {
-
-                    membershipRepository.save(
-                            UserTenantMembership.create(
-                                    user,
-                                    tenant,
-                                    role
-                            )
-                    );
-                });
+                }, () -> membershipRepository.save(
+                        UserTenantMembership.create(user, tenant, role)
+                ));
     }
 }

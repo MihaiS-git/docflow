@@ -114,15 +114,22 @@ public class User {
 
     // bind Keycloak subject exactly once
     public void bindExternalSubjectId(String subject) {
-        if (this.externalSubjectId != null) {
-            return; // idempotent
-        }
-        this.externalSubjectId = Objects.requireNonNull(subject);
-    }
+        String incoming = Objects.requireNonNull(subject, "subject");
 
-    // ----------------------------
-    // Lifecycle state transitions
-    // ----------------------------
+        // First bind
+        if (this.externalSubjectId == null) {
+            this.externalSubjectId = incoming;
+            return;
+        }
+
+        // Idempotent bind
+        if (this.externalSubjectId.equals(incoming)) {
+            return;
+        }
+
+        // Hard failure on mismatch (security invariant)
+        throw new IllegalStateException("User external subject mismatch");
+    }
 
     public void lock() {
         if (this.status == UserStatus.DISABLED) {

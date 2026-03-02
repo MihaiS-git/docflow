@@ -9,6 +9,8 @@ import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
+import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,8 +21,11 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Service
 @RequiredArgsConstructor
@@ -28,12 +33,14 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
     private static final String STREAM = UnauthenticatedAccessCanonicalMaterialBuilder.STREAM;
+    private static final String EXEC_CTX = ExecutionContext.HTTP.name();
 
     private final UnauthenticatedAccessAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
     private final UnauthenticatedAccessCanonicalMaterialBuilder canonicalBuilder;
     private final AuditWriteFailureMetrics metrics;
+    private final AuditPartitionResolver partitionResolver;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -45,7 +52,28 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
         ensureHttpContext();
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
+        final long startNs = System.nanoTime();
+
         String correlationId = requireCorrelation(ctx);
+        if (correlationId == null) {
+            Exception ex = new IllegalStateException("Missing correlationId for UnauthenticatedAccess audit");
+
+            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
+            log.error("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "unauthenticated_access_audit_skipped_missing_correlation"),
+                    kv("event.outcome", "failure"),
+                    kv("audit.stream", STREAM),
+                    kv("audit.partition", "GLOBAL"),
+                    kv("correlation.missing", true),
+                    kv("exception.class", ex.getClass().getSimpleName()),
+                    ex
+            );
+            return;
+        }
 
         String resolvedMethod = normalizeOr(httpMethod, "UNKNOWN");
         String resolvedPath = normalizeOr(path, "UNKNOWN");
@@ -64,7 +92,6 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                 ));
 
         CorrelationSource correlationSource = resolveCorrelationSource();
-        ExecutionContext executionContext = ExecutionContext.HTTP;
         AuditResult auditResult = AuditResult.FAILED;
 
         UnauthenticatedAccessCanonicalMaterialBuilder.Input canonicalInput =
@@ -72,7 +99,7 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                         eventTimestamp,
                         correlationId,
                         correlationSource.name(),
-                        executionContext.name(),
+                        EXEC_CTX,
                         auditResult.name(),
                         resolvedMethod,
                         resolvedPath,
@@ -84,9 +111,11 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
         String canonicalMaterial =
                 canonicalBuilder.buildCanonicalMaterial(canonicalInput);
 
-        AuditPartition partition = AuditPartition.global(STREAM);
+        AuditPartition partition =
+                partitionResolver.unauthenticatedAccess();
 
         try {
+
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
                             partition,
@@ -97,7 +126,7 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                     eventTimestamp,
                     correlationId,
                     correlationSource,
-                    executionContext,
+                    ExecutionContext.HTTP,
                     auditResult,
                     resolvedMethod,
                     resolvedPath,
@@ -108,24 +137,37 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
+            metrics.incrementSuccess(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX,
+                    Duration.ofNanos(System.nanoTime() - startNs));
+
         } catch (DataIntegrityViolationException ignored) {
-            log.debug(
-                    "UNAUTH_AUDIT_DEDUP correlationId={} method={} path={}",
-                    correlationId,
-                    resolvedMethod,
-                    resolvedPath
-            );
+
+            metrics.incrementDedup(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX,
+                    Duration.ofNanos(System.nanoTime() - startNs));
+
         } catch (Exception ex) {
-            metrics.increment(
-                    STREAM,
-                    ExecutionContext.HTTP.name(),
-                    ex
-            );
-            log.error(
-                    "UNAUTH_AUDIT_WRITE_FAILED correlationId={} method={} path={}",
-                    correlationId,
-                    resolvedMethod,
-                    resolvedPath,
+
+            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+            metrics.recordLatency(STREAM, EXEC_CTX,
+                    Duration.ofNanos(System.nanoTime() - startNs));
+
+            log.error("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "unauthenticated_access_audit_record_failed"),
+                    kv("event.outcome", "failure"),
+                    kv("audit.stream", STREAM),
+                    kv("audit.partition", "GLOBAL"),
+                    kv("audit.result", auditResult.name()),
+                    kv("execution.context", EXEC_CTX),
+                    kv("correlation.id", correlationId),
+                    kv("correlation.source", correlationSource.name()),
+                    kv("http.method", resolvedMethod),
+                    kv("http.path", resolvedPath),
+                    kv("exception.class", ex.getClass().getSimpleName()),
                     ex
             );
         }
@@ -137,16 +179,21 @@ public class UnauthenticatedAccessAuditServiceImpl implements IUnauthenticatedAc
         }
     }
 
+    /**
+     * IMPORTANT: Do NOT throw here. This may run from Security EntryPoint / access control flow.
+     * If correlation is missing, we fail safely by skipping persistence and recording failure telemetry.
+     */
     private static String requireCorrelation(AuditRequestContext ctx) {
         String corr = ctx.correlationId();
         if (corr == null || corr.isBlank()) {
-            throw new IllegalStateException("Missing correlationId for UnauthenticatedAccess audit");
+            return null;
         }
         return corr;
     }
 
     private static CorrelationSource resolveCorrelationSource() {
-        return "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+        return "GENERATED".equalsIgnoreCase(
+                MDC.get(RequestCorrelationIdFilter.MDC_SOURCE_KEY))
                 ? CorrelationSource.GENERATED
                 : CorrelationSource.REQUEST_ID;
     }

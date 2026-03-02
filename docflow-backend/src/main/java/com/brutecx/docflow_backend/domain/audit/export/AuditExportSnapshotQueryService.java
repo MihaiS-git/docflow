@@ -35,7 +35,6 @@ public class AuditExportSnapshotQueryService {
             UUID cursorId,
             int size
     ) {
-
         validateRange(createdFrom, createdTo);
         validateRange(exportFromTs, exportToTs);
         validateCursorPair(cursorCreatedAt, cursorId);

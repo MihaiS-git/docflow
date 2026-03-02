@@ -38,10 +38,6 @@ public class RbacDeniedAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    /* =========================
-       CORE
-       ========================= */
-
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
@@ -75,10 +71,6 @@ public class RbacDeniedAuditEvent {
     @Column(name = "user_agent", nullable = false, updatable = false, length = 512)
     private String userAgent;
 
-    /* =========================
-       INTEGRITY
-       ========================= */
-
     @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
     private String eventFingerprint;
 
@@ -90,10 +82,6 @@ public class RbacDeniedAuditEvent {
 
     @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
-
-    /* =========================
-       STRICT CONSTRUCTOR
-       ========================= */
 
     public RbacDeniedAuditEvent(
             Instant timestamp,
@@ -111,20 +99,16 @@ public class RbacDeniedAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-
         this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
-
         this.correlationId = requireNonBlank(correlationId, "correlationId");
         this.correlationSource = Objects.requireNonNull(correlationSource, "correlationSource must not be null");
         this.executionContext = Objects.requireNonNull(executionContext, "executionContext must not be null");
         this.result = Objects.requireNonNull(result, "result must not be null");
-
         this.subjectId = requireNonBlank(subjectId, "subjectId");
         this.httpMethod = requireNonBlank(httpMethod, "httpMethod");
         this.path = requireNonBlank(path, "path");
         this.ip = requireNonBlank(ip, "ip");
         this.userAgent = requireNonBlank(userAgent, "userAgent");
-
         this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
         this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
         this.eventHash = requireNonBlank(eventHash, "eventHash");

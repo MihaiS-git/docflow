@@ -5,7 +5,6 @@ import com.brutecx.docflow_backend.domain.admin.AdminUserService;
 import com.brutecx.docflow_backend.domain.admin.UserRoleAdminService;
 import com.brutecx.docflow_backend.domain.user.UserStatus;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -17,7 +16,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
-@Slf4j
 @RestController
 @PreAuthorize("hasRole('ADMIN')")
 @RequestMapping("/api/admin/users")
@@ -37,7 +35,6 @@ public class AdminUserController {
             @RequestParam(required = false) UserStatus status,
             @RequestParam(required = false) String email
     ) {
-
         Pageable pageable = PageRequest.of(
                 page,
                 size,
@@ -70,9 +67,7 @@ public class AdminUserController {
 
     @PostMapping("/{userId}/lock")
     public ResponseEntity<Void> lockUser(@PathVariable UUID userId) {
-        log.info("Controller - Locking user with id: {}", userId);
         adminUserService.lockUser(userId);
-        log.info("Controller - User with id: {} locked", userId);
         return ResponseEntity.noContent().build();
     }
 

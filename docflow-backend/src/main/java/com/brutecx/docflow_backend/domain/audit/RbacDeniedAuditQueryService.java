@@ -21,6 +21,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.time.Instant;
 import java.util.*;
@@ -46,10 +47,6 @@ public class RbacDeniedAuditQueryService {
     private final RbacDeniedCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
-    /* =====================================================
-       CURSOR QUERY – DESC
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public RbacDeniedAuditCursorPageDTO query(
             Instant from,
@@ -60,7 +57,6 @@ public class RbacDeniedAuditQueryService {
             UUID cursorId,
             int size
     ) {
-
         AuditStreamSupport.validateRange(from, to);
         AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
@@ -106,16 +102,11 @@ public class RbacDeniedAuditQueryService {
         return new RbacDeniedAuditCursorPageDTO(items, hasMore, nextTs, nextId);
     }
 
-    /* =====================================================
-       VERIFY – ASC
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public AuditVerificationResultDTO verify(
             Instant from,
             Instant to
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
@@ -180,23 +171,18 @@ public class RbacDeniedAuditQueryService {
         }
     }
 
-    /* =====================================================
-       SEALED JSONL EXPORT
-       ===================================================== */
-
     @Transactional
     public void streamForensicExportJsonl(
-            HttpServletResponse response,
+            OutputStream out,
             Instant from,
             Instant to,
             String correlationId,
             String subjectId
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         sealedJsonlAuditExportService.exportSealedJsonl(
-                response,
+                out,
                 STREAM,
                 from,
                 to,
@@ -227,10 +213,6 @@ public class RbacDeniedAuditQueryService {
         );
     }
 
-    /* =====================================================
-       CSV EXPORT
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
             HttpServletResponse response,
@@ -239,7 +221,6 @@ public class RbacDeniedAuditQueryService {
             String correlationId,
             String subjectId
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         AuditStreamSupport.streamExportCsvAsc(
@@ -298,10 +279,6 @@ public class RbacDeniedAuditQueryService {
         );
     }
 
-    /* =====================================================
-       PARTITION
-       ===================================================== */
-
     private static AuditPartition resolvePartition(RbacDeniedAuditEvent e) {
         if (e.getSubjectId() != null && !e.getSubjectId().isBlank()) {
             return AuditPartition.subject(STREAM, e.getSubjectId().trim());
@@ -309,12 +286,7 @@ public class RbacDeniedAuditQueryService {
         return AuditPartition.global(STREAM);
     }
 
-    /* =====================================================
-       META
-       ===================================================== */
-
     private void recordSensitiveAccess(String action) {
-
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
         UUID rootTenant = tenantService.getRootTenant().getId();

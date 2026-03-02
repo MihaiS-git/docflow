@@ -6,11 +6,13 @@ import com.brutecx.docflow_backend.domain.audit.LifecycleDeniedAuditQueryService
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -22,10 +24,6 @@ import java.util.UUID;
 public class LifecycleDeniedAuditController {
 
     private final LifecycleDeniedAuditQueryService queryService;
-
-    /* =====================================================
-       CURSOR QUERY
-       ===================================================== */
 
     @GetMapping
     public ResponseEntity<LifecycleDeniedAuditCursorPageDTO> query(
@@ -66,10 +64,6 @@ public class LifecycleDeniedAuditController {
         );
     }
 
-    /* =====================================================
-       VERIFY
-       ===================================================== */
-
     @GetMapping("/verify")
     public ResponseEntity<AuditVerificationResultDTO> verify(
             @RequestParam
@@ -84,10 +78,6 @@ public class LifecycleDeniedAuditController {
                 queryService.verify(from, to)
         );
     }
-
-    /* =====================================================
-       EXPORT JSONL (SEALED)
-       ===================================================== */
 
     @GetMapping("/export")
     public void exportJsonl(
@@ -105,19 +95,21 @@ public class LifecycleDeniedAuditController {
 
             @RequestParam(required = false)
             String subjectId
-    ) {
+    ) throws IOException {
+
+        response.setContentType("application/x-ndjson");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"lifecycle-denied.jsonl\"");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+
         queryService.streamForensicExportJsonl(
-                response,
+                response.getOutputStream(),
                 from,
                 to,
                 correlationId,
                 subjectId
         );
     }
-
-    /* =====================================================
-       EXPORT CSV
-       ===================================================== */
 
     @GetMapping("/export/csv")
     public void exportCsv(

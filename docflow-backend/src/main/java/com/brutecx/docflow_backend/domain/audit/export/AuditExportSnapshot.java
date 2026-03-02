@@ -29,34 +29,34 @@ public class AuditExportSnapshot {
     @Column(nullable = false, length = 128, updatable = false)
     private String stream;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="from_ts")
     private Instant fromTs;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="to_ts")
     private Instant toTs;
 
-    @Column(updatable = false)
+    @Column(updatable = false, name="tenant_id")
     private UUID tenantId;
 
-    @Column(nullable = false, length = 64, updatable = false)
+    @Column(nullable = false, length = 64, updatable = false, name="sha256_digest_hex")
     private String sha256DigestHex;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="row_count")
     private long rowCount;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="created_at")
     private Instant createdAt;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, name="created_by")
     private UUID createdBy;
 
-    @Column(nullable = false, length = 1024, updatable = false)
+    @Column(nullable = false, length = 1024, updatable = false, name="signature_b64")
     private String signatureB64;
 
-    @Column(nullable = false, length = 64, updatable = false)
+    @Column(nullable = false, length = 64, updatable = false, name="signature_alg")
     private String signatureAlg;
 
-    @Column(length = 128, updatable = false)
+    @Column(length = 128, updatable = false, name="key_id")
     private String keyId;
 
     public AuditExportSnapshot(

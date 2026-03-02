@@ -36,25 +36,17 @@ public class SensitiveAccessAuditEvent {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
-    /* =========================
-       CORE
-       ========================= */
-
     @Column(nullable = false, updatable = false)
     private Instant timestamp;
 
     @Column(updatable = false, name = "actor_user_id")
-    private UUID actorUserId; // optional by design
+    private UUID actorUserId;
 
     @Column(updatable = false, name = "actor_external_subject_id", length = 128)
-    private String actorExternalSubjectId; // optional
+    private String actorExternalSubjectId;
 
     @Column(updatable = false, name = "tenant_id")
-    private UUID tenantId; // optional depending on context
-
-    /* =========================
-       SUBJECT / RESOURCE
-       ========================= */
+    private UUID tenantId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, name = "subject_type", length = 64)
@@ -70,11 +62,7 @@ public class SensitiveAccessAuditEvent {
     private String action;
 
     @Column(updatable = false, name = "resource_path", length = 512)
-    private String resourcePath; // optional
-
-    /* =========================
-       REQUEST CONTEXT
-       ========================= */
+    private String resourcePath;
 
     @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
     private String correlationId;
@@ -97,23 +85,15 @@ public class SensitiveAccessAuditEvent {
     @Column(nullable = false, updatable = false, name = "user_agent", length = 512)
     private String userAgent;
 
-    /* =========================
-       CLASSIFICATION
-       ========================= */
-
     @Column(nullable = false, updatable = false, name = "reason_code", length = 64)
     private String reasonCode;
 
     @Column(updatable = false, name = "reason_detail", length = 512)
-    private String reasonDetail; // optional
+    private String reasonDetail;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, name = "data_classification", length = 32)
     private SensitiveDataClassification dataClassification;
-
-    /* =========================
-       INTEGRITY
-       ========================= */
 
     @Column(nullable = false, updatable = false, name = "event_fingerprint", length = 128)
     private String eventFingerprint;
@@ -126,10 +106,6 @@ public class SensitiveAccessAuditEvent {
 
     @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
     private String eventHash;
-
-    /* =========================
-       STRICT CONSTRUCTOR
-       ========================= */
 
     public SensitiveAccessAuditEvent(
             Instant timestamp,
@@ -157,30 +133,23 @@ public class SensitiveAccessAuditEvent {
     ) {
 
         this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
-
         this.actorUserId = actorUserId;
         this.actorExternalSubjectId = actorExternalSubjectId;
         this.tenantId = tenantId;
-
         this.subjectType = Objects.requireNonNull(subjectType, "subjectType must not be null");
         this.subjectId = requireNonBlank(subjectId, "subjectId");
         this.resource = requireNonBlank(resource, "resource");
         this.action = requireNonBlank(action, "action");
         this.resourcePath = resourcePath;
-
         this.correlationId = requireNonBlank(correlationId, "correlationId");
         this.correlationSource = Objects.requireNonNull(correlationSource, "correlationSource must not be null");
         this.executionContext = Objects.requireNonNull(executionContext, "executionContext must not be null");
         this.result = Objects.requireNonNull(result, "result must not be null");
-
         this.ip = requireNonBlank(ip, "ip");
         this.userAgent = requireNonBlank(userAgent, "userAgent");
-
         this.reasonCode = requireNonBlank(reasonCode, "reasonCode");
         this.reasonDetail = reasonDetail;
-
         this.dataClassification = Objects.requireNonNull(dataClassification, "dataClassification must not be null");
-
         this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
         this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
         this.eventHash = requireNonBlank(eventHash, "eventHash");

@@ -29,6 +29,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -57,10 +58,6 @@ public class AdminAuditQueryService {
     private final AdminAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
-    /* =====================================================
-       CURSOR QUERY – DESC timestamp, DESC id
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public AdminAuditCursorPageDTO query(
             Instant from,
@@ -72,7 +69,6 @@ public class AdminAuditQueryService {
             UUID cursorId,
             int size
     ) {
-
         AuditStreamSupport.validateRange(from, to);
         AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
@@ -118,17 +114,12 @@ public class AdminAuditQueryService {
         return new AdminAuditCursorPageDTO(items, hasMore, nextCursorTs, nextCursorId);
     }
 
-    /* =====================================================
-       VERIFY – timestamp ASC, id ASC
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public AuditVerificationResultDTO verify(
             Instant from,
             Instant to,
             UUID tenantId
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         long verified = 0;
@@ -197,22 +188,17 @@ public class AdminAuditQueryService {
         }
     }
 
-    /* =====================================================
-       EXPORT JSONL (SEALED) – shared mechanism
-       ===================================================== */
-
     @Transactional
     public void streamForensicExportJsonl(
-            HttpServletResponse response,
+            OutputStream out,
             Instant from,
             Instant to,
             UUID tenantId
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         sealedJsonlAuditExportService.exportSealedJsonl(
-                response,
+                out,
                 STREAM,
                 from,
                 to,
@@ -241,10 +227,6 @@ public class AdminAuditQueryService {
         );
     }
 
-    /* =====================================================
-       CSV EXPORT – FLAT SUMMARY (NO JSON)
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
             HttpServletResponse response,
@@ -252,7 +234,6 @@ public class AdminAuditQueryService {
             Instant to,
             UUID tenantId
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         AuditStreamSupport.streamExportCsvAsc(
@@ -316,12 +297,7 @@ public class AdminAuditQueryService {
         );
     }
 
-    /* =====================================================
-       META AUDIT
-       ===================================================== */
-
     private void recordSensitiveAccess(UUID requestedTenantId, String action) {
-
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
 

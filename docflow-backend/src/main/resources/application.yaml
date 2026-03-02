@@ -1,10 +1,11 @@
 spring:
   application:
     name: docflow-rest-api
+
   autoconfigure:
     exclude:
-      # Disable RabbitMQ auto-configuration until RabbitMQ is added
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
   security:
     oauth2:
       client:
@@ -19,17 +20,24 @@ spring:
             authorization-uri: ${KEYCLOAK_AUTH_URI}
             token-uri: ${KEYCLOAK_TOKEN_URI}
             jwk-set-uri: ${KEYCLOAK_JWKS_URI}
-            # IMPORTANT:
-            # user-info-uri is intentionally REMOVED
-            # Spring must NOT call /userinfo (it caused 401 + login failure)
+
   datasource:
     url: ${SPRING_DATASOURCE_URL}
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
+
   jpa:
     open-in-view: false
+    hibernate:
+      ddl-auto: validate
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: false
+
   lifecycle:
     timeout-per-shutdown-phase: 30s
+
   mail:
     host: ${SMTP_HOST}
     port: ${SMTP_PORT:587}
@@ -40,16 +48,17 @@ spring:
       mail.smtp.starttls.enable: true
       mail.smtp.starttls.required: true
 
-# Actuator & metrics
+# Actuator
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+      show-details: never
   metrics:
     tags:
       application: docflow-rest-api
@@ -60,7 +69,7 @@ management:
     rabbit:
       enabled: false
 
-# Server settings and session cookie configuration
+# Server
 server:
   error:
     include-message: never
@@ -71,28 +80,58 @@ server:
       cookie:
         http-only: true
         same-site: LAX
-        secure: false
+      timeout: 30m
+  use-forward-headers: true
+  forward-headers-strategy: framework
+  tomcat:
+    use-relative-redirects: true
 
-# Custom application properties
+logging:
+  level:
+    root: INFO
+    com.brutecx: INFO
+    org.springframework: WARN
+    org.springframework.security: WARN
+    org.hibernate: WARN
+    org.keycloak: WARN
+
 docflow:
+  bootstrap:
+    admin:
+      email: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
+      first-name: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
+      last-name: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
+
   security:
-    # Comma-separated list of allowed origins for CORS
     allowed-origins: ${DOCFLOW_ALLOWED_ORIGINS}
     keycloak-logout-uri: ${KEYCLOAK_LOGOUT_URI}
     post-logout-redirect-uri: ${DOCFLOW_POST_LOGOUT_REDIRECT}
     frontend-base-url: ${FRONTEND_BASE_URL}
+
+    session:
+      absolute-timeout: 8h
+      max-concurrent-sessions: 1
+
+    keycloak:
+      admin:
+        enabled: true
+        base-url: ${KEYCLOAK_ADMIN_BASE_URL}
+        realm: ${KEYCLOAK_REALM}
+        client-id: ${KEYCLOAK_ADMIN_CLIENT_ID}
+        client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+        poll-fixed-delay-ms: ${KEYCLOAK_ADMIN_POLL_DELAY_MS}
+        page-size: ${KEYCLOAK_ADMIN_PAGE_SIZE}
+
   audit:
-    retention:
-      system-actor-user-id: ${AUDIT_RETENTION_SYSTEM_ACTOR_USER_ID:}
+    canonical:
+      version: 1
+    chain:
+      enabled: true
+      secret:
+        part-a: ${DOCFLOW_AUDIT_CHAIN_SECRET_PART_A:}
+        part-b-path: /run/secrets/audit_chain_part_b
     export:
       signing:
         private-key-pkcs8-pem: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM:}
         private-key-pkcs8-pem-path: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM_PATH:}
         key-id: ${DOCFLOW_AUDIT_EXPORT_SIGNING_KEY_ID}
-      bootstrap:
-        key-id: ${DOCFLOW_AUDIT_EXPORT_BOOTSTRAP_KEY_ID:}
-        public-key-path: ${DOCFLOW_AUDIT_EXPORT_BOOTSTRAP_PUBLIC_KEY_PATH:}
-# Otel configuration to disable tracing
-otel:
-  traces:
-    exporter: none

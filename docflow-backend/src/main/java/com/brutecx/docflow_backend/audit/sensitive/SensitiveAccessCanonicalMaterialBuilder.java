@@ -38,28 +38,23 @@ public final class SensitiveAccessCanonicalMaterialBuilder
 
     public record Input(
             Instant timestamp,
-
             UUID actorUserId,
             String actorExternalSubjectId,
             UUID tenantId,
-
             SensitiveAccessSubjectType subjectType,
             String subjectId,
             String resource,
             String action,
             String resourcePath,
-
             String correlationId,
             String correlationSource,
             String executionContext,
             String result,
             String ip,
             String userAgent,
-
             String reasonCode,
             String reasonDetail,
             SensitiveDataClassification dataClassification,
-
             String fingerprint
     ) {
     }
@@ -69,66 +64,53 @@ public final class SensitiveAccessCanonicalMaterialBuilder
 
         return new Input(
                 e.getTimestamp(),
-
                 e.getActorUserId(),
                 e.getActorExternalSubjectId(),
                 e.getTenantId(),
-
                 e.getSubjectType(),
                 e.getSubjectId(),
                 e.getResource(),
                 e.getAction(),
                 e.getResourcePath(),
-
                 e.getCorrelationId(),
                 e.getCorrelationSource() != null ? e.getCorrelationSource().name() : null,
                 e.getExecutionContext() != null ? e.getExecutionContext().name() : null,
                 e.getResult() != null ? e.getResult().name() : null,
                 e.getIp(),
                 e.getUserAgent(),
-
                 e.getReasonCode(),
                 e.getReasonDetail(),
                 e.getDataClassification(),
-
                 e.getEventFingerprint()
         );
     }
 
     @Override
     public String buildCanonicalMaterial(Input in) {
-
         Objects.requireNonNull(in, "canonical input must not be null");
-
         int cv = versionProvider.canonicalVersion();
 
         return String.join("|",
                 "cv=" + cv,
                 "stream=" + STREAM,
-
                 "timestamp=" + normalizeEpoch(in.timestamp()),
-
                 "actorUserId=" + normalize(in.actorUserId()),
                 "actorExternalSubjectId=" + normalize(in.actorExternalSubjectId()),
                 "tenantId=" + normalize(in.tenantId()),
-
                 "subjectType=" + normalizeEnum(in.subjectType()),
                 "subjectId=" + normalize(in.subjectId()),
                 "resource=" + normalize(in.resource()),
                 "action=" + normalize(in.action()),
                 "resourcePath=" + normalize(in.resourcePath()),
-
                 "correlationId=" + normalize(in.correlationId()),
                 "correlationSource=" + normalize(in.correlationSource()),
                 "executionContext=" + normalize(in.executionContext()),
                 "result=" + normalize(in.result()),
                 "ip=" + normalize(in.ip()),
                 "userAgent=" + normalize(in.userAgent()),
-
                 "reasonCode=" + normalize(in.reasonCode()),
                 "reasonDetail=" + normalize(in.reasonDetail()),
                 "dataClassification=" + normalizeEnum(in.dataClassification()),
-
                 "fingerprint=" + normalize(in.fingerprint())
         );
     }

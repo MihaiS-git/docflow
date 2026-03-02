@@ -5,22 +5,24 @@ import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.canonical.AuditCanonicalVersionProvider;
 import com.brutecx.docflow_backend.audit.canonical.CanonicalJsonService;
+import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
+import com.brutecx.docflow_backend.logging.SecurityAuditLogger;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,8 +32,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
 
-    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
     private static final String STREAM = AdminAuditCanonicalMaterialBuilder.STREAM;
+    private static final String EXEC_CTX = ExecutionContext.HTTP.name();
 
     private final AdminAuditEventRepository repository;
     private final AuditChainService auditChainService;
@@ -40,6 +42,8 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
     private final AdminAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final AuditCanonicalVersionProvider canonicalVersionProvider;
     private final CanonicalJsonService canonicalJsonService;
+    private final AuditWriteFailureMetrics metrics;
+    private final AuditPartitionResolver partitionResolver;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -58,12 +62,12 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
         if (subjectId == null || subjectId.isBlank()) throw new IllegalArgumentException("subjectId is required");
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
-        String correlationId = requireCorrelation(ctx);
+        requireCorrelation(ctx);
 
         UUID actorUserId = resolveActor(actionType, targetUserId);
 
         CorrelationSource correlationSource = resolveCorrelationSource();
-        AuditResult result = resolveResult(actionType, metadata);
+        AuditResult result = resolveResult(actionType);
 
         String fingerprint = buildFingerprint(
                 actionType,
@@ -73,7 +77,7 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                 subjectId,
                 targetUserId,
                 metadata,
-                correlationId
+                ctx.correlationId()
         );
 
         Instant eventTimestamp = Instant.now();
@@ -86,7 +90,7 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                         tenantId,
                         actionType,
                         result,
-                        correlationId,
+                        ctx.correlationId(),
                         targetUserId,
                         metadata,
                         fingerprint
@@ -97,9 +101,10 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
          * Partition rules:
          * AdminAudit → TENANT
          */
-
         AuditPartition partition =
-                AuditPartition.tenant(STREAM, tenantId.toString());
+                partitionResolver.admin(tenantId.toString());
+
+        final long startNs = System.nanoTime();
         try {
 
             AuditChainService.ChainHash chain =
@@ -113,7 +118,7 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                     actorUserId,
                     ctx.ip(),
                     ctx.userAgent(),
-                    correlationId,
+                    ctx.correlationId(),
                     correlationSource,
                     ExecutionContext.HTTP,
                     result,
@@ -128,11 +133,17 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                     chain.eventHash()
             ));
 
+            metrics.incrementSuccess(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
         } catch (Exception ex) {
-            log.error(
-                    "ADMIN AUDIT FAILURE correlationId={} actionType={} tenantId={}",
-                    correlationId,
-                    actionType,
+            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
+            SecurityAuditLogger.auditFailure(
+                    "admin_audit_record_failed",
+                    STREAM,
+                    "TENANT",
                     tenantId,
                     ex
             );
@@ -162,7 +173,6 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
             AdminAuditMetadata metadata,
             String correlationId
     ) {
-
         int cv = canonicalVersionProvider.canonicalVersion();
 
         List<String> fp = new ArrayList<>();
@@ -192,38 +202,30 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
         }
     }
 
-    private static String requireCorrelation(AuditRequestContext ctx) {
+    private static void requireCorrelation(AuditRequestContext ctx) {
         String corr = ctx.correlationId();
         if (corr == null || corr.isBlank()) {
             throw new IllegalStateException("Missing correlationId for admin audit event");
         }
-        return corr;
     }
 
     private static CorrelationSource resolveCorrelationSource() {
-        return "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+        return "GENERATED".equalsIgnoreCase(MDC.get("correlation.source"))
                 ? CorrelationSource.GENERATED
                 : CorrelationSource.REQUEST_ID;
     }
 
-    private AuditResult resolveResult(AdminAuditActionType actionType, AdminAuditMetadata metadata) {
+    private AuditResult resolveResult(AdminAuditActionType actionType) {
+        return switch (actionType) {
 
-        if (actionType == AdminAuditActionType.TENANT_CREATE_FAILED) {
-            return AuditResult.FAILED;
-        }
+            // ---- DENIED ----
+            case TENANT_MUTATION_DENIED -> AuditResult.DENIED;
 
-        if (actionType == AdminAuditActionType.TENANT_MUTATION_DENIED) {
-            return AuditResult.DENIED;
-        }
-
-        if (actionType == AdminAuditActionType.RETENTION_POLICY_UPSERT_FAILED) {
-            return AuditResult.FAILED;
-        }
-
-        if (actionType == AdminAuditActionType.INVITE_FAILED) {
-            return AuditResult.FAILED;
-        }
-
-        return AuditResult.SUCCESS;
+            // ---- FAILED ----
+            case TENANT_CREATE_FAILED, RETENTION_POLICY_UPSERT_FAILED, INVITE_FAILED, USER_LOCK_FAILED,
+                 USER_DISABLE_FAILED, USER_ACTIVATE_FAILED, ROLE_ASSIGN_FAILED, ROLE_REVOKE_FAILED,
+                 INVITE_SUBJECT_BIND_FAILED, INVITE_PURGE_FAILED -> AuditResult.FAILED;
+            default -> AuditResult.SUCCESS;
+        };
     }
 }

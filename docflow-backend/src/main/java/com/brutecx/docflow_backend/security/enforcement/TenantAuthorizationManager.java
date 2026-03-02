@@ -7,8 +7,13 @@ import com.brutecx.docflow_backend.domain.tenant.UserTenantMembership;
 import com.brutecx.docflow_backend.domain.tenant.UserTenantMembershipRepository;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserRepository;
+import com.brutecx.docflow_backend.logging.InfraEventActions;
+import com.brutecx.docflow_backend.logging.InfraEventLogger;
+import com.brutecx.docflow_backend.logging.InfraEventOutcome;
+import com.brutecx.docflow_backend.logging.InfraEventType;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import net.logstash.logback.argument.StructuredArguments;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.core.Authentication;
@@ -44,7 +49,6 @@ public class TenantAuthorizationManager implements AuthorizationManager<RequestA
 
         Optional<UUID> tenantIdOpt = extractTenantId(uri);
 
-        // Not a tenant-scoped endpoint → do not interfere
         if (tenantIdOpt.isEmpty()) {
             return new AuthorizationDecision(true);
         }
@@ -101,6 +105,7 @@ public class TenantAuthorizationManager implements AuthorizationManager<RequestA
     }
 
     private void audit(String subjectId, String reasonCode, String method, String uri, String detail) {
+
         try {
             lifecycleDeniedAuditService.record(
                     subjectId,
@@ -109,15 +114,29 @@ public class TenantAuthorizationManager implements AuthorizationManager<RequestA
                     uri,
                     detail
             );
-        } catch (Exception ignored) {
-            // Authorization must never fail because audit failed
+
+            InfraEventLogger.log(
+                    InfraEventType.AUTHORIZATION,
+                    InfraEventActions.AUTHZ_LIFECYCLE_DENIED_AUDIT_WRITE,
+                    InfraEventOutcome.SUCCESS,
+                    null,
+                    null,
+                    StructuredArguments.kv("actor.subject_id", subjectId),
+                    StructuredArguments.kv("http.method", method),
+                    StructuredArguments.kv("http.path", uri)
+            );
+
+        } catch (Exception ex) {
+            InfraEventLogger.log(
+                    InfraEventType.AUTHORIZATION,
+                    InfraEventActions.AUTHZ_LIFECYCLE_DENIED_AUDIT_WRITE,
+                    InfraEventOutcome.FAILURE,
+                    "LifecycleDenied audit write failed",
+                    ex
+            );
         }
     }
 
-    /**
-     * Embeds tenantId in reasonCode for forensic clarity.
-     * Example: TENANT_ROLE_INSUFFICIENT:550e8400-e29b-41d4-a716-446655440000
-     */
     private static String enrich(String baseReason, UUID tenantId) {
         return baseReason + ":" + tenantId;
     }

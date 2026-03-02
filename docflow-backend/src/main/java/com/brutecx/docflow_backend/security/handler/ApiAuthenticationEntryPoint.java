@@ -4,12 +4,15 @@ import com.brutecx.docflow_backend.api.error.ErrorCode;
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.unauth.IUnauthenticatedAccessAuditService;
+import com.brutecx.docflow_backend.logging.InfraEventActions;
+import com.brutecx.docflow_backend.logging.InfraEventLogger;
+import com.brutecx.docflow_backend.logging.InfraEventOutcome;
+import com.brutecx.docflow_backend.logging.InfraEventType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
+import net.logstash.logback.argument.StructuredArguments;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.AuthenticationException;
@@ -19,7 +22,6 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.util.List;
 
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
@@ -49,14 +51,26 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
                     uri,
                     fingerprint
             );
-        } catch (Exception e) {
-            String corr = MDC.get("correlationId");
-            log.error(
-                    "UNAUTH AUDIT FAILURE correlationId={} method={} uri={}",
-                    corr,
-                    httpMethod,
-                    uri,
-                    e
+
+            // Structured infra success event
+            InfraEventLogger.log(
+                    InfraEventType.AUTHENTICATION,
+                    InfraEventActions.AUTHN_UNAUTH_ACCESS_AUDIT_WRITE,
+                    InfraEventOutcome.SUCCESS,
+                    null,
+                    null,
+                    StructuredArguments.kv("http.method", httpMethod),
+                    StructuredArguments.kv("http.path", uri)
+            );
+
+        } catch (Exception ex) {
+
+            InfraEventLogger.log(
+                    InfraEventType.AUTHENTICATION,
+                    InfraEventActions.AUTHN_UNAUTH_ACCESS_AUDIT_WRITE,
+                    InfraEventOutcome.FAILURE,
+                    "UnauthenticatedAccess audit write failed",
+                    ex
             );
         }
 

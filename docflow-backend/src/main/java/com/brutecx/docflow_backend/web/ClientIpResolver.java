@@ -1,30 +1,31 @@
 package com.brutecx.docflow_backend.web;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.security.core.Authentication; // ADDED: support auth details extraction
-import org.springframework.security.web.authentication.WebAuthenticationDetails; // ADDED: common Spring Security details type
+import org.springframework.security.core.Authentication;
+import org.springframework.security.web.authentication.WebAuthenticationDetails;
 import org.springframework.stereotype.Component;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+
 /**
- * Single source of truth for resolving the client IP address in a trusted reverse-proxy setup.
+ * Resolves client IP address in a reverse-proxy environment.
  * Precedence:
  * 1) Authentication details (when available)
  * 2) X-Forwarded-For (first IP)
  * 3) X-Real-IP
  * 4) request.getRemoteAddr()
+ * All resolved IPs are validated (IPv4 or IPv6).
+ * Invalid values are ignored.
  */
 @Component
 public class ClientIpResolver {
 
-    // auth-aware resolver for Spring Security event listeners
     public String resolve(Authentication authentication, HttpServletRequest request) {
-        // first try Spring Security details (most reliable inside auth events)
-        String ipFromDetails = resolveFromAuthenticationDetails(authentication);
-        if (ipFromDetails != null) {
-            return ipFromDetails;
+        String fromDetails = resolveFromAuthenticationDetails(authentication);
+        if (fromDetails != null) {
+            return fromDetails;
         }
-
-        // fall back to request headers / remoteAddr
         return resolve(request);
     }
 
@@ -33,57 +34,71 @@ public class ClientIpResolver {
             return "UNKNOWN";
         }
 
-        String xff = request.getHeader("X-Forwarded-For");
-        String ip = firstIpFromXForwardedFor(xff);
+        String ip;
+
+        ip = firstIpFromXForwardedFor(request.getHeader("X-Forwarded-For"));
         if (ip != null) {
             return ip;
         }
 
-        String xRealIp = trimToNull(request.getHeader("X-Real-IP"));
-        if (xRealIp != null) {
-            return xRealIp;
+        ip = validateIp(request.getHeader("X-Real-IP"));
+        if (ip != null) {
+            return ip;
         }
 
-        String remoteAddr = trimToNull(request.getRemoteAddr());
-        return remoteAddr != null ? remoteAddr : "UNKNOWN";
+        ip = validateIp(request.getRemoteAddr());
+        return ip != null ? ip : "UNKNOWN";
     }
 
-    // resolves client IP from Spring Security authentication details
     private static String resolveFromAuthenticationDetails(Authentication authentication) {
         if (authentication == null) {
             return null;
         }
 
         Object details = authentication.getDetails();
+
         if (details instanceof WebAuthenticationDetails webDetails) {
-            return trimToNull(webDetails.getRemoteAddress());
+            return validateIp(webDetails.getRemoteAddress());
         }
 
-        // safe fallback for any custom details types (string-form)
         if (details instanceof String s) {
-            return trimToNull(s);
+            return validateIp(s);
         }
 
         return null;
     }
 
     private static String firstIpFromXForwardedFor(String xff) {
-        String value = trimToNull(xff);
-        if (value == null) {
+        if (xff == null || xff.isBlank()) {
             return null;
         }
-        int comma = value.indexOf(',');
-        if (comma >= 0) {
-            value = value.substring(0, comma);
-        }
-        return trimToNull(value);
+
+        String value = xff.split(",")[0].trim();
+        return validateIp(value);
     }
 
-    private static String trimToNull(String s) {
-        if (s == null) {
+    /**
+     * Validates IPv4 or IPv6.
+     * Strips port if present.
+     */
+    private static String validateIp(String raw) {
+        if (raw == null || raw.isBlank()) {
             return null;
         }
-        String t = s.trim();
-        return t.isEmpty() ? null : t;
+
+        String candidate = raw.trim();
+
+        // Strip port if present (IPv4:port)
+        int colon = candidate.indexOf(':');
+        if (colon > 0 && candidate.chars().filter(ch -> ch == ':').count() == 1) {
+            candidate = candidate.substring(0, colon);
+        }
+
+        try {
+            InetAddress address = InetAddress.getByName(candidate);
+            return address.getHostAddress();
+        } catch (UnknownHostException e) {
+            return null;
+        }
     }
 }

@@ -1,13 +1,17 @@
 package com.brutecx.docflow_backend.infrastructure.keycloak;
 
 import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.credential.*;
+import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEvent;
+import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEventRepository;
+import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleCanonicalMaterialBuilder;
+import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleEventType;
 import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -15,8 +19,11 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Slf4j
 @Component
@@ -30,6 +37,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
 
     private static final String CHECKPOINT_ID = "KEYCLOAK_CREDENTIAL_EVENTS";
     private static final String STREAM = CredentialLifecycleCanonicalMaterialBuilder.STREAM;
+    private static final String EXEC_CTX = ExecutionContext.SCHEDULED_JOB.name();
 
     private final KeycloakAdminClient keycloak;
     private final KeycloakEventCheckpointRepository checkpointRepo;
@@ -37,6 +45,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
     private final AuditChainService auditChainService;
     private final CredentialLifecycleCanonicalMaterialBuilder canonicalBuilder;
     private final AuditWriteFailureMetrics metrics;
+    private final AuditPartitionResolver partitionResolver;
 
     @Scheduled(
             initialDelayString = "${docflow.security.keycloak.admin.initial-delay-ms:30000}",
@@ -54,6 +63,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
                 keycloak.fetchEvents(since);
 
         for (var e : events) {
+
             CredentialLifecycleEventType type = mapEventType(e);
             if (type == CredentialLifecycleEventType.UNKNOWN) {
                 continue;
@@ -97,7 +107,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
                             extractRequiredAction(e),
                             correlationId,
                             correlationSource.name(),
-                            ExecutionContext.SCHEDULED_JOB.name(),
+                            EXEC_CTX,
                             AuditResult.SUCCESS.name(),
                             "CREDENTIAL_" + type.name(),
                             null,
@@ -108,11 +118,11 @@ public class KeycloakCredentialLifecycleEventPullJob {
                     canonicalBuilder.buildCanonicalMaterial(input);
 
             AuditPartition partition =
-                    (e.userId() != null && !e.userId().isBlank())
-                            ? AuditPartition.subject(STREAM, e.userId())
-                            : AuditPartition.global(STREAM);
+                    partitionResolver.credentialLifecycle(e.userId());
 
+            final long startNs = System.nanoTime();
             try {
+
                 AuditChainService.ChainHash chain =
                         auditChainService.nextHash(partition, canonicalMaterial);
 
@@ -138,25 +148,36 @@ public class KeycloakCredentialLifecycleEventPullJob {
                         );
 
                 repository.save(entity);
+
+                metrics.incrementSuccess(STREAM, EXEC_CTX);
+                metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
                 maxTime = Math.max(maxTime, e.time());
+
             } catch (DataIntegrityViolationException ignored) {
-                log.debug(
-                        "CREDENTIAL AUDIT DEDUPLICATED userId={} type={} correlationId={}",
-                        e.userId(),
-                        type,
-                        correlationId
-                );
+                metrics.incrementDedup(STREAM, EXEC_CTX);
+                metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
             } catch (Exception ex) {
-                metrics.increment(
-                        STREAM,
-                        ExecutionContext.SCHEDULED_JOB.name(),
-                        ex
-                );
-                log.error(
-                        "CREDENTIAL AUDIT FAILURE userId={} type={} correlationId={}",
-                        e.userId(),
-                        type,
-                        correlationId,
+
+                metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+                metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
+                log.error("security_event",
+                        kv("schema_version", "docflow_siem_v1"),
+                        kv("event.category", "audit"),
+                        kv("event.action", "credential_lifecycle_audit_record_failed"),
+                        kv("event.outcome", "failure"),
+                        kv("audit.stream", STREAM),
+                        kv("audit.partition", "SUBJECT"),
+                        kv("audit.event_type", type.name()),
+                        kv("execution.context", EXEC_CTX),
+                        kv("correlation.id", correlationId),
+                        kv("correlation.source", correlationSource.name()),
+                        kv("subject.id", e.userId()),
+                        kv("client.id", e.clientId()),
+                        kv("keycloak.session_id", sessionId),
+                        kv("exception.class", ex.getClass().getSimpleName()),
                         ex
                 );
             }

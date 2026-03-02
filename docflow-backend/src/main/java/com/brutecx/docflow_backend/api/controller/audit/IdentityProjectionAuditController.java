@@ -12,6 +12,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -52,13 +53,15 @@ public class IdentityProjectionAuditController {
             HttpServletResponse response,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to
-    ) {
+    ) throws IOException {
+
         response.setContentType("application/x-ndjson");
         response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
                 "attachment; filename=\"identity-projection-audit-export.jsonl\"");
         response.setCharacterEncoding("UTF-8");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-        queryService.streamForensicExportJsonl(response, from, to);
+
+        queryService.streamForensicExportJsonl(response.getOutputStream(), from, to);
     }
 
     @GetMapping(value = "/export/csv", produces = "text/csv")
@@ -72,6 +75,7 @@ public class IdentityProjectionAuditController {
                 "attachment; filename=\"identity-projection-audit-export.csv\"");
         response.setCharacterEncoding("UTF-8");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+
         queryService.streamForensicExportCsv(response, from, to);
     }
 }

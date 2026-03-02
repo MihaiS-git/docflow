@@ -8,14 +8,12 @@ import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Set;
 import java.util.UUID;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserRoleAdminService {
@@ -44,21 +42,24 @@ public class UserRoleAdminService {
                     target.getExternalSubjectId(),
                     roleName
             );
-        } catch (Exception e) {
-            log.error(
-                    "ROLE ASSIGN FAILED role={} targetUserId={} actorUserId={}",
-                    roleName, targetUserId, actor.getId(), e
-            );
-            throw e;
-        }
 
-        auditEventService.record(
-                AdminAuditActionType.ROLE_ASSIGNED,
-                tenantService.getRootTenant().getId(),
-                actor.getExternalSubjectId(),
-                target.getId(),
-                new RoleChangeMetadata(roleName, null)
-        );
+            auditEventService.record(
+                    AdminAuditActionType.ROLE_ASSIGNED,
+                    tenantService.getRootTenant().getId(),
+                    actor.getExternalSubjectId(),
+                    target.getId(),
+                    new RoleChangeMetadata(roleName, null)
+            );
+        } catch (Exception ex) {
+            auditEventService.record(
+                    AdminAuditActionType.ROLE_ASSIGN_FAILED,
+                    tenantService.getRootTenant().getId(),
+                    actor.getExternalSubjectId(),
+                    target.getId(),
+                    new RoleChangeMetadata(roleName, ex.getClass().getSimpleName())
+            );
+            throw ex;
+        }
     }
 
     @Transactional
@@ -78,20 +79,23 @@ public class UserRoleAdminService {
                     target.getExternalSubjectId(),
                     roleName
             );
-        } catch (Exception e) {
-            log.error(
-                    "ROLE REVOKE FAILED role={} targetUserId={} actorUserId={}",
-                    roleName, targetUserId, actor.getId(), e
-            );
-            throw e;
-        }
 
-        auditEventService.record(
-                AdminAuditActionType.ROLE_REVOKED,
-                tenantService.getRootTenant().getId(),
-                actor.getExternalSubjectId(),
-                target.getId(),
-                new RoleChangeMetadata(roleName, null)
-        );
+            auditEventService.record(
+                    AdminAuditActionType.ROLE_REVOKED,
+                    tenantService.getRootTenant().getId(),
+                    actor.getExternalSubjectId(),
+                    target.getId(),
+                    new RoleChangeMetadata(roleName, null)
+            );
+        } catch (Exception ex) {
+            auditEventService.record(
+                    AdminAuditActionType.ROLE_REVOKE_FAILED,
+                    tenantService.getRootTenant().getId(),
+                    actor.getExternalSubjectId(),
+                    target.getId(),
+                    new RoleChangeMetadata(roleName, ex.getClass().getSimpleName())
+            );
+            throw ex;
+        }
     }
 }

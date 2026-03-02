@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * Admin audit metadata for legal hold operations.
- *
  * Compliance-relevant fields:
  * - streamName (target audit stream)
  * - eventId (optional, per-event hold)

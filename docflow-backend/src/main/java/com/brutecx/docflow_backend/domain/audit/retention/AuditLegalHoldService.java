@@ -8,10 +8,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Service
 public class AuditLegalHoldService {
@@ -39,7 +40,6 @@ public class AuditLegalHoldService {
             UUID tenantId,
             UUID targetUserId
     ) {
-
         String normalizedStream = normalize(streamName);
 
         AuditLegalHold hold = new AuditLegalHold(
@@ -70,11 +70,17 @@ public class AuditLegalHoldService {
                 metadata
         );
 
-        log.info(
-                "audit_legal_hold created stream={} caseRef={} tenantId={}",
-                normalizedStream,
-                caseReferenceId,
-                tenantId
+        log.info("security_event",
+                kv("schema_version", "docflow_siem_v1"),
+                kv("event.category", "audit"),
+                kv("event.action", "legal_hold_create"),
+                kv("event.outcome", "success"),
+                kv("correlation.id", correlationId),
+                kv("audit.stream", normalizedStream),
+                kv("audit.hold_id", saved.getId()),
+                kv("audit.case_reference", caseReferenceId),
+                kv("tenant.id", tenantId),
+                kv("target.user_id", targetUserId)
         );
 
         return saved;
@@ -86,11 +92,37 @@ public class AuditLegalHoldService {
             UUID tenantId,
             UUID targetUserId
     ) {
+        AuditLegalHold hold = repository.findById(holdId).orElse(null);
 
-        AuditLegalHold hold = repository.findById(holdId)
-                .orElseThrow(() -> new IllegalArgumentException("Legal hold not found: " + holdId));
+        if (hold == null) {
+            log.warn("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "legal_hold_deactivate"),
+                    kv("event.outcome", "failure"),
+                    kv("error.code", "LEGAL_HOLD_NOT_FOUND"),
+                    kv("error.reason", "hold_not_found"),
+                    kv("audit.hold_id", holdId),
+                    kv("tenant.id", tenantId),
+                    kv("target.user_id", targetUserId)
+            );
+            throw new IllegalArgumentException("Legal hold not found: " + holdId);
+        }
 
-        if (!hold.isActive()) return;
+        if (!hold.isActive()) {
+            log.info("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "legal_hold_deactivate"),
+                    kv("event.outcome", "noop"),
+                    kv("correlation.id", hold.getCorrelationId()),
+                    kv("audit.hold_id", holdId),
+                    kv("audit.case_reference", hold.getCaseReferenceId()),
+                    kv("tenant.id", tenantId),
+                    kv("target.user_id", targetUserId)
+            );
+            return;
+        }
 
         hold.deactivate();
 
@@ -111,16 +143,17 @@ public class AuditLegalHoldService {
                 metadata
         );
 
-        log.info(
-                "audit_legal_hold deactivated holdId={} caseRef={}",
-                holdId,
-                hold.getCaseReferenceId()
+        log.info("security_event",
+                kv("schema_version", "docflow_siem_v1"),
+                kv("event.category", "audit"),
+                kv("event.action", "legal_hold_deactivate"),
+                kv("event.outcome", "success"),
+                kv("correlation.id", hold.getCorrelationId()),
+                kv("audit.hold_id", holdId),
+                kv("audit.case_reference", hold.getCaseReferenceId()),
+                kv("tenant.id", tenantId),
+                kv("target.user_id", targetUserId)
         );
-    }
-
-    @Transactional(readOnly = true)
-    public List<AuditLegalHold> findActiveByStream(String streamName) {
-        return repository.findByStreamNameAndActiveIsTrue(normalize(streamName));
     }
 
     private String normalize(String stream) {

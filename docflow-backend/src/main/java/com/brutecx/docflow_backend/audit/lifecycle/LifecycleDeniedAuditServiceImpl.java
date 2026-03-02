@@ -9,6 +9,8 @@ import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
+import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,8 +21,11 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Service
 @RequiredArgsConstructor
@@ -28,12 +33,14 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
     private static final String STREAM = LifecycleDeniedCanonicalMaterialBuilder.STREAM;
+    private static final String EXEC_CTX = ExecutionContext.HTTP.name();
 
     private final LifecycleDeniedAuditEventRepository repository;
     private final AuditRequestContextExtractor contextExtractor;
     private final LifecycleDeniedCanonicalMaterialBuilder canonicalBuilder;
     private final AuditChainService auditChainService;
     private final AuditWriteFailureMetrics metrics;
+    private final AuditPartitionResolver partitionResolver;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -76,7 +83,7 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                         eventTimestamp,
                         correlationId,
                         correlationSource.name(),
-                        ExecutionContext.HTTP.name(),
+                        EXEC_CTX,
                         AuditResult.DENIED.name(),
                         resolvedSubject,
                         resolvedReason,
@@ -92,12 +99,12 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
 
         AuditPartition partition =
                 (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank())
-                        ? AuditPartition.subject(STREAM, resolvedSubject.trim())
-                        : AuditPartition.global(STREAM);
+                        ? partitionResolver.lifecycleDenied(resolvedSubject.trim())
+                        : partitionResolver.unauthenticatedAccess();
 
-        Instant timestamp = Instant.now();
-
+        final long startNs = System.nanoTime();
         try {
+
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(
                             partition,
@@ -105,7 +112,7 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                     );
 
             repository.save(new LifecycleDeniedAuditEvent(
-                    timestamp,
+                    eventTimestamp,
                     correlationId,
                     correlationSource,
                     ExecutionContext.HTTP,
@@ -121,25 +128,35 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
                     chain.prevHash(),
                     chain.eventHash()
             ));
+
+            metrics.incrementSuccess(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
         } catch (DataIntegrityViolationException ignored) {
-            log.debug(
-                    "LIFECYCLE_DENIED_AUDIT_DEDUP correlationId={} subjectId={}",
-                    correlationId,
-                    resolvedSubject
-            );
+            metrics.incrementDedup(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
         } catch (Exception ex) {
-            metrics.increment(
-                    STREAM,
-                    ExecutionContext.HTTP.name(),
-                    ex
-            );
-            log.error(
-                    "LIFECYCLE_DENIED_AUDIT_WRITE_FAILED correlationId={} subjectId={} reasonCode={} method={} path={}",
-                    correlationId,
-                    resolvedSubject,
-                    resolvedReason,
-                    resolvedMethod,
-                    resolvedPath,
+
+            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+
+            log.error("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "lifecycle_denied_audit_record_failed"),
+                    kv("event.outcome", "failure"),
+                    kv("audit.stream", STREAM),
+                    kv("audit.partition", !"UNKNOWN".equals(resolvedSubject) ? "SUBJECT" : "GLOBAL"),
+                    kv("audit.result", AuditResult.DENIED.name()),
+                    kv("execution.context", EXEC_CTX),
+                    kv("correlation.id", correlationId),
+                    kv("correlation.source", correlationSource.name()),
+                    kv("subject.id", resolvedSubject),
+                    kv("lifecycle.reason_code", resolvedReason),
+                    kv("http.method", resolvedMethod),
+                    kv("http.path", resolvedPath),
+                    kv("exception.class", ex.getClass().getSimpleName()),
                     ex
             );
         }
@@ -160,12 +177,12 @@ public class LifecycleDeniedAuditServiceImpl implements ILifecycleDeniedAuditSer
     }
 
     private static CorrelationSource resolveCorrelationSource() {
-        return "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+        return "GENERATED".equalsIgnoreCase(MDC.get(RequestCorrelationIdFilter.MDC_SOURCE_KEY))
                 ? CorrelationSource.GENERATED
                 : CorrelationSource.REQUEST_ID;
     }
 
     private static String normalizeOr(String v, String fallback) {
-        return (v != null && !v.isBlank()) ? v : fallback;
+        return (v != null && !v.isBlank()) ? v.trim() : fallback;
     }
 }

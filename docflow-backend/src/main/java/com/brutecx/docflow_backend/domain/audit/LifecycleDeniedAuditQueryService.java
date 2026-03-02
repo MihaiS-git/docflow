@@ -21,6 +21,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.time.Instant;
 import java.util.*;
@@ -46,10 +47,6 @@ public class LifecycleDeniedAuditQueryService {
     private final LifecycleDeniedCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
-    /* =====================================================
-       CURSOR QUERY – DESC
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public LifecycleDeniedAuditCursorPageDTO query(
             Instant from,
@@ -60,7 +57,6 @@ public class LifecycleDeniedAuditQueryService {
             UUID cursorId,
             int size
     ) {
-
         AuditStreamSupport.validateRange(from, to);
         AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
@@ -106,13 +102,8 @@ public class LifecycleDeniedAuditQueryService {
         return new LifecycleDeniedAuditCursorPageDTO(items, hasMore, nextTs, nextId);
     }
 
-    /* =====================================================
-       VERIFY – ASC
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public AuditVerificationResultDTO verify(Instant from, Instant to) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
@@ -177,23 +168,18 @@ public class LifecycleDeniedAuditQueryService {
         return AuditVerificationResultDTO.success(verified);
     }
 
-    /* =====================================================
-       SEALED JSONL EXPORT
-       ===================================================== */
-
     @Transactional
     public void streamForensicExportJsonl(
-            HttpServletResponse response,
+            OutputStream out,
             Instant from,
             Instant to,
             String correlationId,
             String subjectId
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         sealedJsonlAuditExportService.exportSealedJsonl(
-                response,
+                out,
                 STREAM,
                 from,
                 to,
@@ -224,10 +210,6 @@ public class LifecycleDeniedAuditQueryService {
         );
     }
 
-    /* =====================================================
-       CSV EXPORT
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
             HttpServletResponse response,
@@ -236,7 +218,6 @@ public class LifecycleDeniedAuditQueryService {
             String correlationId,
             String subjectId
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         AuditStreamSupport.streamExportCsvAsc(
@@ -297,10 +278,6 @@ public class LifecycleDeniedAuditQueryService {
         );
     }
 
-    /* =====================================================
-       PARTITION
-       ===================================================== */
-
     private AuditPartition resolvePartition(LifecycleDeniedAuditEvent e) {
         if (hasText(e.getSubjectId())) {
             return AuditPartition.subject(STREAM, e.getSubjectId().trim());
@@ -308,12 +285,7 @@ public class LifecycleDeniedAuditQueryService {
         return AuditPartition.global(STREAM);
     }
 
-    /* =====================================================
-       META
-       ===================================================== */
-
     private void recordSensitiveAccess(String action) {
-
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
         UUID storageTenant = tenantService.getRootTenant().getId();

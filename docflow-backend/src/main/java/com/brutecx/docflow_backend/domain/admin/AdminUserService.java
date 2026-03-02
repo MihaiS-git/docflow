@@ -15,7 +15,6 @@ import com.brutecx.docflow_backend.security.AuthRoleExtractor;
 import com.brutecx.docflow_backend.security.session.SessionRevocationService;
 import com.brutecx.docflow_backend.domain.user.*;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -27,7 +26,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AdminUserService {
@@ -114,6 +112,7 @@ public class AdminUserService {
     public void lockUser(UUID userId) {
         User target = userRepository.getRequired(userId);
         User actor = userService.getRequiredCurrentUser();
+        UUID rootTenantId = tenantService.getRootTenant().getId();
 
         if (actor.getId().equals(target.getId())) {
             throw new SelfActionForbiddenException("You cannot lock your own account");
@@ -123,18 +122,18 @@ public class AdminUserService {
             return;
         }
 
-        target.lock();
-
-        int revokedSessions =
-                sessionRevocationService.revokeSessionsBySubject(
-                        target.getExternalSubjectId(),
-                        actor.getExternalSubjectId()
-                );
-
         try {
+            target.lock();
+
+            int revokedSessions =
+                    sessionRevocationService.revokeSessionsBySubject(
+                            target.getExternalSubjectId(),
+                            actor.getExternalSubjectId()
+                    );
+
             adminAuditEventService.record(
                     AdminAuditActionType.USER_LOCKED,
-                    tenantService.getRootTenant().getId(),
+                    rootTenantId,
                     actor.getExternalSubjectId(),
                     target.getId(),
                     new UserStateChangeMetadata(
@@ -142,14 +141,18 @@ public class AdminUserService {
                             "revokedSessions=" + revokedSessions
                     )
             );
-        } catch (Exception e) {
-            log.error(
-                    "AUDIT FAILURE for USER_LOCKED actorId={} targetUserId={}",
-                    actor.getId(),
+        } catch (Exception ex) {
+            adminAuditEventService.record(
+                    AdminAuditActionType.USER_LOCK_FAILED,
+                    rootTenantId,
+                    actor.getExternalSubjectId(),
                     target.getId(),
-                    e
+                    new UserStateChangeMetadata(
+                            UserStateChangeReason.MANUAL_ADMIN_ACTION,
+                            ex.getClass().getSimpleName()
+                    )
             );
-            throw e;
+            throw ex;
         }
     }
 
@@ -157,6 +160,7 @@ public class AdminUserService {
     public void disableUser(UUID userId) {
         User target = userRepository.getRequired(userId);
         User actor = userService.getRequiredCurrentUser();
+        UUID rootTenantId = tenantService.getRootTenant().getId();
 
         if (actor.getId().equals(target.getId())) {
             throw new SelfActionForbiddenException("You cannot disable your own account");
@@ -166,46 +170,75 @@ public class AdminUserService {
             return;
         }
 
-        target.disable();
+        try {
+            target.disable();
 
-        int revokedSessions =
-                sessionRevocationService.revokeSessionsBySubject(
-                        target.getExternalSubjectId(),
-                        actor.getExternalSubjectId()
-                );
+            int revokedSessions =
+                    sessionRevocationService.revokeSessionsBySubject(
+                            target.getExternalSubjectId(),
+                            actor.getExternalSubjectId()
+                    );
 
-        adminAuditEventService.record(
-                AdminAuditActionType.USER_DISABLED,
-                tenantService.getRootTenant().getId(),
-                actor.getExternalSubjectId(),
-                target.getId(),
-                new UserStateChangeMetadata(
-                        UserStateChangeReason.MANUAL_ADMIN_ACTION,
-                        "revokedSessions=" + revokedSessions
-                )
-        );
+            adminAuditEventService.record(
+                    AdminAuditActionType.USER_DISABLED,
+                    rootTenantId,
+                    actor.getExternalSubjectId(),
+                    target.getId(),
+                    new UserStateChangeMetadata(
+                            UserStateChangeReason.MANUAL_ADMIN_ACTION,
+                            "revokedSessions=" + revokedSessions
+                    )
+            );
+        } catch (Exception ex) {
+            adminAuditEventService.record(
+                    AdminAuditActionType.USER_DISABLE_FAILED,
+                    rootTenantId,
+                    actor.getExternalSubjectId(),
+                    target.getId(),
+                    new UserStateChangeMetadata(
+                            UserStateChangeReason.MANUAL_ADMIN_ACTION,
+                            ex.getClass().getSimpleName()
+                    )
+            );
+            throw ex;
+        }
     }
 
     @Transactional
     public void activateUser(UUID userId) {
         User target = userRepository.getRequired(userId);
         User actor = userService.getRequiredCurrentUser();
+        UUID rootTenantId = tenantService.getRootTenant().getId();
 
         if (target.getStatus() == UserStatus.ACTIVE) {
             return;
         }
 
-        target.activate();
+        try {
+            target.activate();
 
-        adminAuditEventService.record(
-                AdminAuditActionType.USER_ACTIVATED,
-                tenantService.getRootTenant().getId(),
-                actor.getExternalSubjectId(),
-                target.getId(),
-                new UserStateChangeMetadata(
-                        UserStateChangeReason.MANUAL_ADMIN_ACTION,
-                        null
-                )
-        );
+            adminAuditEventService.record(
+                    AdminAuditActionType.USER_ACTIVATED,
+                    rootTenantId,
+                    actor.getExternalSubjectId(),
+                    target.getId(),
+                    new UserStateChangeMetadata(
+                            UserStateChangeReason.MANUAL_ADMIN_ACTION,
+                            null
+                    )
+            );
+        } catch (Exception ex) {
+            adminAuditEventService.record(
+                    AdminAuditActionType.USER_ACTIVATE_FAILED,
+                    rootTenantId,
+                    actor.getExternalSubjectId(),
+                    target.getId(),
+                    new UserStateChangeMetadata(
+                            UserStateChangeReason.MANUAL_ADMIN_ACTION,
+                            ex.getClass().getSimpleName()
+                    )
+            );
+            throw ex;
+        }
     }
 }

@@ -42,7 +42,6 @@ public class TenantUserController {
             @PathVariable UUID userId,
             @RequestBody com.brutecx.docflow_backend.api.dto.tenant.UpdateMembershipRequest request
     ) {
-
         tenantService.updateMembership(
                 tenantId,
                 userId,

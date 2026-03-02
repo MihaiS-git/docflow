@@ -9,7 +9,6 @@ import java.util.Objects;
 
 /**
  * STRICT GOLD canonical material builder for UNAUTHENTICATED_ACCESS stream.
- *
  * RULES:
  *  - Single canonical definition per stream.
  *  - Used by writer + verifier.
@@ -85,7 +84,6 @@ public final class UnauthenticatedAccessCanonicalMaterialBuilder
         return String.join("|",
                 "cv=" + cv,
                 "stream=" + STREAM,
-
                 "timestamp=" + normalizeEpoch(in.timestamp()),
                 "correlationId=" + normalize(in.correlationId()),
                 "correlationSource=" + normalize(in.correlationSource()),

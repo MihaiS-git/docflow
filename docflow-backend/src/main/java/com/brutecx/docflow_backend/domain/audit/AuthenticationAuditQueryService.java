@@ -24,6 +24,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.time.Instant;
 import java.util.*;
@@ -51,10 +52,6 @@ public class AuthenticationAuditQueryService {
     private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
-    /* =====================================================
-       CURSOR QUERY – ACTIVE VIEW ONLY
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public AuthenticationAuditCursorPageDTO query(
             Instant from,
@@ -62,16 +59,14 @@ public class AuthenticationAuditQueryService {
             String correlationId,
             String username,
             String subjectId,
-            String resultRaw,
+            AuthenticationResult result,
             Instant cursorTimestamp,
             UUID cursorId,
             int size
     ) {
-
         AuditStreamSupport.validateRange(from, to);
         AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
-        AuthenticationResult result = parseResult(resultRaw);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
         Pageable pageable = PageRequest.of(
@@ -116,13 +111,8 @@ public class AuthenticationAuditQueryService {
         return new AuthenticationAuditCursorPageDTO(items, hasMore, nextTs, nextId);
     }
 
-    /* =====================================================
-       VERIFY – FULL FORENSIC DATASET
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public AuditVerificationResultDTO verify(Instant from, Instant to) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
@@ -187,21 +177,16 @@ public class AuthenticationAuditQueryService {
         }
     }
 
-    /* =====================================================
-       SEALED JSONL EXPORT – FULL DATASET
-       ===================================================== */
-
     @Transactional
     public void streamForensicExportJsonl(
-            HttpServletResponse response,
+            OutputStream out,
             Instant from,
             Instant to
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         sealedJsonlAuditExportService.exportSealedJsonl(
-                response,
+                out,
                 STREAM,
                 from,
                 to,
@@ -230,17 +215,12 @@ public class AuthenticationAuditQueryService {
         );
     }
 
-    /* =====================================================
-       CSV EXPORT – FULL DATASET
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
             HttpServletResponse response,
             Instant from,
             Instant to
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         AuditStreamSupport.streamExportCsvAsc(
@@ -270,8 +250,6 @@ public class AuthenticationAuditQueryService {
         );
     }
 
-    /* ===================================================== */
-
     private void writeCsvLine(PrintWriter w, AuthenticationEvent e) {
         w.println(String.join(",",
                 AuditStreamSupport.csv(e.getId()),
@@ -293,10 +271,7 @@ public class AuthenticationAuditQueryService {
         ));
     }
 
-    /* ===================================================== */
-
     private void recordMeta(String action) {
-
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
         UUID rootTenantId = tenantService.getRootTenant().getId();
@@ -341,11 +316,6 @@ public class AuthenticationAuditQueryService {
             );
         }
         return AuditPartition.subject(STREAM, PARTITION_ANON);
-    }
-
-    private AuthenticationResult parseResult(String raw) {
-        if (!hasText(raw)) return null;
-        return AuthenticationResult.valueOf(raw.trim().toUpperCase(Locale.ROOT));
     }
 
     private boolean hasText(String s) {

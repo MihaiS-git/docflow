@@ -27,6 +27,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.time.Instant;
 import java.util.*;
@@ -54,10 +55,6 @@ public class CredentialLifecycleAuditQueryService {
     private final AuditChainService auditChainService;
     private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
 
-    /* =====================================================
-       CURSOR QUERY – DESC
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public CredentialLifecycleAuditCursorPageDTO query(
             Instant from,
@@ -69,7 +66,6 @@ public class CredentialLifecycleAuditQueryService {
             UUID cursorId,
             int size
     ) {
-
         AuditStreamSupport.validateRange(from, to);
         AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
 
@@ -116,13 +112,8 @@ public class CredentialLifecycleAuditQueryService {
         return new CredentialLifecycleAuditCursorPageDTO(items, hasMore, nextTs, nextId);
     }
 
-    /* =====================================================
-       VERIFY – ASC
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public AuditVerificationResultDTO verify(Instant from, Instant to) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
@@ -186,21 +177,16 @@ public class CredentialLifecycleAuditQueryService {
         return AuditVerificationResultDTO.success(verified);
     }
 
-    /* =====================================================
-       SEALED JSONL EXPORT
-       ===================================================== */
-
     @Transactional
     public void streamForensicExportJsonl(
-            HttpServletResponse response,
+            OutputStream out,
             Instant from,
             Instant to
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         sealedJsonlAuditExportService.exportSealedJsonl(
-                response,
+                out,
                 STREAM,
                 from,
                 to,
@@ -229,17 +215,12 @@ public class CredentialLifecycleAuditQueryService {
         );
     }
 
-    /* =====================================================
-       CSV EXPORT
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public void streamForensicExportCsv(
             HttpServletResponse response,
             Instant from,
             Instant to
     ) {
-
         AuditStreamSupport.validateRangeRequired(from, to);
 
         AuditStreamSupport.streamExportCsvAsc(
@@ -302,12 +283,7 @@ public class CredentialLifecycleAuditQueryService {
         );
     }
 
-    /* =====================================================
-       META
-       ===================================================== */
-
     private void recordMeta(String action) {
-
         User actor = userService.getRequiredCurrentUser();
         AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
         UUID rootTenant = tenantService.getRootTenant().getId();

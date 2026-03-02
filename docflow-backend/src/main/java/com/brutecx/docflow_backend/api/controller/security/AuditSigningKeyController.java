@@ -1,8 +1,8 @@
 package com.brutecx.docflow_backend.api.controller.security;
 
-import com.brutecx.docflow_backend.domain.security.AuditSigningKey;
-import com.brutecx.docflow_backend.domain.security.AuditSigningKeyPublicDTO;
-import com.brutecx.docflow_backend.domain.security.AuditSigningKeyQueryService;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKey;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKeyPublicDTO;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKeyQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;

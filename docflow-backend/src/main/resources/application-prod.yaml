@@ -2,59 +2,9 @@ server:
   servlet:
     session:
       cookie:
-        secure: true   # behind HTTPS/Nginx in prod
+        secure: true
         same-site: none
-      timeout: 30m
-  use-forward-headers: true
-  forward-headers-strategy: framework
-  tomcat:
-    use-relative-redirects: true
 
-spring:
-  jpa:
-    hibernate:
-      ddl-auto: validate
-  flyway:
-    enabled: true
-    baseline-on-migrate: true
-  mail:
-    host: ${SMTP_HOST}
-    port: ${SMTP_PORT}
-    username: ${SMTP_USERNAME}
-    password: ${SMTP_PASSWORD}
-    properties:
-      mail.smtp.auth: true
-      mail.smtp.starttls.enable: true
-      mail.smtp.starttls.required: true
-
-logging:
-  level:
-    org.springframework.security: INFO
-
-docflow:
-  bootstrap:
-    admin:
-      email: ${DOCFLOW_BOOTSTRAP_ADMIN_EMAIL}
-      first-name: ${DOCFLOW_BOOTSTRAP_ADMIN_FIRST_NAME}
-      last-name: ${DOCFLOW_BOOTSTRAP_ADMIN_LAST_NAME}
-  audit:
-    chain:
-      enabled: true
-      secret: ${AUDIT_CHAIN_SECRET}
-    export:
-      signing:
-        private-key-pkcs8-pem: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM}
-        key-id: ${DOCFLOW_AUDIT_EXPORT_SIGNING_KEY_ID}
-  security:
-    keycloak:
-      admin:
-        enabled: true
-        base-url: ${KEYCLOAK_ADMIN_BASE_URL}
-        realm: ${KEYCLOAK_REALM}
-        client-id: ${KEYCLOAK_ADMIN_CLIENT_ID}
-        client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
-        poll-fixed-delay-ms: ${KEYCLOAK_ADMIN_POLL_DELAY_MS}
-        page-size: ${KEYCLOAK_ADMIN_PAGE_SIZE}
-    session:
-      absolute-timeout: 8h
-      max-concurrent-sessions: 1
+management:
+  server:
+    port: 8081

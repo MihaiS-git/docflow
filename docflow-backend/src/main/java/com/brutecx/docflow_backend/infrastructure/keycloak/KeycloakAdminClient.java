@@ -15,7 +15,10 @@ import org.springframework.web.client.RestClientException;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 /**
  * Client for interacting with Keycloak Admin API to fetch events and user details.
@@ -30,9 +33,26 @@ import java.util.*;
 @RequiredArgsConstructor
 public class KeycloakAdminClient {
 
+    private static final String SCHEMA = "docflow_siem_v1";
+    private static final String EXEC_CTX = "ADMIN_API";
+
+    private static final String OP_FETCH_EVENTS = "fetch_events";
+    private static final String OP_FETCH_USER = "fetch_user";
+    private static final String OP_FETCH_TOKEN = "fetch_token";
+    private static final String OP_ASSIGN_ROLE = "assign_role";
+    private static final String OP_REVOKE_ROLE = "revoke_role";
+    private static final String OP_FETCH_REALM_ROLE = "fetch_realm_role";
+    private static final String OP_FETCH_ROLES_FOR_USERS = "fetch_roles_for_users";
+    private static final String OP_SET_TEMP_PASSWORD = "set_temporary_password";
+    private static final String OP_CREATE_USER_INVITE_ONLY = "create_user_invite_only";
+    private static final String OP_UPDATE_REQUIRED_ACTIONS = "update_required_actions";
+    private static final String OP_FIND_USER_BY_EMAIL = "find_user_by_email_or_username";
+    private static final String OP_DELETE_USER = "delete_user";
+
     private final ObjectMapper objectMapper;
     private final KeycloakAdminPullProperties props;
     private final RestClient keycloakAdminRestClient;
+    private final KeycloakClientMetrics metrics;
 
     private static final TypeReference<List<Map<String, Object>>> LIST_OF_MAP = new TypeReference<>() {
     };
@@ -40,61 +60,106 @@ public class KeycloakAdminClient {
     private static final String ACTION_VERIFY_EMAIL = "VERIFY_EMAIL";
 
     public List<KeycloakAdminEvent> fetchEvents(long sinceTimeMs) {
-        String token = fetchAccessToken();
 
-        String url = props.baseUrl()
-                + "/admin/realms/" + props.realm()
-                + "/events"
-                + "?dateFrom=" + (sinceTimeMs > 0 ? sinceTimeMs : 0)
-                + "&max=" + props.pageSize();
+        final long startNs = System.nanoTime();
 
-        String body;
-        try {
-            body = keycloakAdminRestClient.get()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .retrieve()
-                    .body(String.class);
-        } catch (Exception ex) {
-            throw new RestClientException("Keycloak events fetch failed", ex);
-        }
-
-        if (body == null || body.isBlank()) {
-            throw new RestClientException("Keycloak events fetch failed: empty body");
-        }
-
-        try {
-            return objectMapper.readValue(body, new TypeReference<>() {
-            });
-        } catch (Exception e) {
-            throw new RestClientException("Failed to parse Keycloak events", e);
-        }
-    }
-
-    public KeycloakUser fetchUser(String userId) {
         try {
             String token = fetchAccessToken();
 
             String url = props.baseUrl()
                     + "/admin/realms/" + props.realm()
-                    + "/users/" + userId;
+                    + "/events"
+                    + "?dateFrom=" + (sinceTimeMs > 0 ? sinceTimeMs : 0)
+                    + "&max=" + props.pageSize();
 
-            String body = keycloakAdminRestClient.get()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .retrieve()
-                    .body(String.class);
-
-            if (body == null || body.isBlank()) {
-                return null;
+            String body;
+            try {
+                body = keycloakAdminRestClient.get()
+                        .uri(url)
+                        .headers(h -> h.setBearerAuth(token))
+                        .retrieve()
+                        .body(String.class);
+            } catch (Exception ex) {
+                metrics.incrementFailure(OP_FETCH_EVENTS);
+                log.error("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "keycloak_fetch_events"),
+                        kv("event.outcome", "failure"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("exception.class", ex.getClass().getSimpleName()),
+                        ex
+                );
+                throw new RestClientException("Keycloak events fetch failed", ex);
             }
 
-            return objectMapper.readValue(body, KeycloakUser.class);
-        } catch (RestClientException ex) {
-            log.warn("Keycloak fetchUser failed for userId={}", userId, ex);
-            return null; // user deleted or access revoked
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to parse Keycloak user", ex);
+            if (body == null || body.isBlank()) {
+                metrics.incrementFailure(OP_FETCH_EVENTS);
+                throw new RestClientException("Keycloak events fetch failed: empty body");
+            }
+
+            try {
+                List<KeycloakAdminEvent> result = objectMapper.readValue(body, new TypeReference<>() {
+                });
+                metrics.incrementSuccess(OP_FETCH_EVENTS);
+                return result;
+            } catch (Exception e) {
+                metrics.incrementFailure(OP_FETCH_EVENTS);
+                log.error("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "keycloak_fetch_events_parse"),
+                        kv("event.outcome", "failure"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("exception.class", e.getClass().getSimpleName()),
+                        e
+                );
+                throw new RestClientException("Failed to parse Keycloak events", e);
+            }
+
+        } finally {
+            metrics.recordLatency(OP_FETCH_EVENTS, Duration.ofNanos(System.nanoTime() - startNs));
+        }
+    }
+
+    public KeycloakUser fetchUser(String userId) {
+
+        final long startNs = System.nanoTime();
+
+        try {
+            try {
+                String token = fetchAccessToken();
+
+                String url = props.baseUrl()
+                        + "/admin/realms/" + props.realm()
+                        + "/users/" + userId;
+
+                String body = keycloakAdminRestClient.get()
+                        .uri(url)
+                        .headers(h -> h.setBearerAuth(token))
+                        .retrieve()
+                        .body(String.class);
+
+                if (body == null || body.isBlank()) {
+                    metrics.incrementSuccess(OP_FETCH_USER);
+                    return null;
+                }
+
+                KeycloakUser user = objectMapper.readValue(body, KeycloakUser.class);
+                metrics.incrementSuccess(OP_FETCH_USER);
+                return user;
+
+            } catch (RestClientException ex) {
+                // Preserve original behavior: warn + return null.
+                metrics.incrementFailure(OP_FETCH_USER);
+                log.warn("Keycloak fetchUser failed for userId={}", userId, ex);
+                return null; // user deleted or access revoked
+            } catch (Exception ex) {
+                metrics.incrementFailure(OP_FETCH_USER);
+                throw new IllegalStateException("Failed to parse Keycloak user", ex);
+            }
+        } finally {
+            metrics.recordLatency(OP_FETCH_USER, Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 
@@ -102,6 +167,9 @@ public class KeycloakAdminClient {
        TOKEN
        ========================= */
     private String fetchAccessToken() {
+
+        final long startNs = System.nanoTime();
+
         String tokenUrl = props.baseUrl()
                 + "/realms/" + props.realm()
                 + "/protocol/openid-connect/token";
@@ -120,13 +188,27 @@ public class KeycloakAdminClient {
                     .retrieve()
                     .body(TokenResponse.class);
         } catch (Exception ex) {
+            metrics.incrementFailure(OP_FETCH_TOKEN);
+            log.error("security_event",
+                    kv("schema_version", SCHEMA),
+                    kv("event.category", "identity"),
+                    kv("event.action", "keycloak_fetch_token"),
+                    kv("event.outcome", "failure"),
+                    kv("execution.context", EXEC_CTX),
+                    kv("exception.class", ex.getClass().getSimpleName()),
+                    ex
+            );
             throw new RestClientException("Keycloak token fetch failed", ex);
+        } finally {
+            metrics.recordLatency(OP_FETCH_TOKEN, Duration.ofNanos(System.nanoTime() - startNs));
         }
 
         if (tokenResponse == null || tokenResponse.accessToken == null || tokenResponse.accessToken.isBlank()) {
+            metrics.incrementFailure(OP_FETCH_TOKEN);
             throw new RestClientException("Keycloak token fetch failed: empty token");
         }
 
+        metrics.incrementSuccess(OP_FETCH_TOKEN);
         return tokenResponse.accessToken;
     }
 
@@ -154,59 +236,134 @@ public class KeycloakAdminClient {
      * Assigns the given realm role to the user with the given userId.
      */
     public void assignRealmRole(String userId, String roleName) {
-        String token = fetchAccessToken();
-        Map<String, Object> role = fetchRealmRole(roleName, token);
 
-        String url = props.baseUrl()
-                + "/admin/realms/" + props.realm()
-                + "/users/" + userId
-                + "/role-mappings/realm";
+        final long startNs = System.nanoTime();
 
         try {
-            keycloakAdminRestClient.post()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .body(List.of(role))
-                    .retrieve()
-                    .toBodilessEntity();
-        } catch (Exception ex) {
-            log.error(
-                    "KEYCLOAK ROLE ASSIGN FAILED role={} userId={}",
-                    roleName, userId, ex
-            );
-            throw new RestClientException(
-                    "Failed to assign realm role '" + roleName + "' to user " + userId,
-                    ex
-            );
+            String token = fetchAccessToken();
+            Map<String, Object> role = fetchRealmRole(roleName, token);
+
+            String url = props.baseUrl()
+                    + "/admin/realms/" + props.realm()
+                    + "/users/" + userId
+                    + "/role-mappings/realm";
+
+            try {
+                keycloakAdminRestClient.post()
+                        .uri(url)
+                        .headers(h -> h.setBearerAuth(token))
+                        .body(List.of(role))
+                        .retrieve()
+                        .toBodilessEntity();
+
+                metrics.incrementSuccess(OP_ASSIGN_ROLE);
+
+                log.info("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "assign_realm_role"),
+                        kv("event.outcome", "success"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", userId),
+                        kv("role.name", roleName)
+                );
+
+            } catch (Exception ex) {
+                metrics.incrementFailure(OP_ASSIGN_ROLE);
+
+                log.error("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "assign_realm_role"),
+                        kv("event.outcome", "failure"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", userId),
+                        kv("role.name", roleName),
+                        kv("exception.class", ex.getClass().getSimpleName()),
+                        ex
+                );
+
+                // Preserve original behavior (error log + throw RestClientException)
+                log.error(
+                        "KEYCLOAK ROLE ASSIGN FAILED role={} userId={}",
+                        roleName, userId, ex
+                );
+
+                throw new RestClientException(
+                        "Failed to assign realm role '" + roleName + "' to user " + userId,
+                        ex
+                );
+            }
+
+        } finally {
+            metrics.recordLatency(OP_ASSIGN_ROLE, Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 
     public void revokeRealmRole(String userId, String roleName) {
-        String token = fetchAccessToken();
 
-        Map<String, Object> role = fetchRealmRole(roleName, token);
-
-        String url = props.baseUrl()
-                + "/admin/realms/" + props.realm()
-                + "/users/" + userId
-                + "/role-mappings/realm";
+        final long startNs = System.nanoTime();
 
         try {
-            keycloakAdminRestClient.method(HttpMethod.DELETE)
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .body(List.of(role))
-                    .retrieve()
-                    .toBodilessEntity();
-        } catch (Exception ex) {
-            throw new RestClientException(
-                    "Failed to revoke realm role '" + roleName + "' from user " + userId,
-                    ex
-            );
+            String token = fetchAccessToken();
+
+            Map<String, Object> role = fetchRealmRole(roleName, token);
+
+            String url = props.baseUrl()
+                    + "/admin/realms/" + props.realm()
+                    + "/users/" + userId
+                    + "/role-mappings/realm";
+
+            try {
+                keycloakAdminRestClient.method(HttpMethod.DELETE)
+                        .uri(url)
+                        .headers(h -> h.setBearerAuth(token))
+                        .body(List.of(role))
+                        .retrieve()
+                        .toBodilessEntity();
+
+                metrics.incrementSuccess(OP_REVOKE_ROLE);
+
+                log.info("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "revoke_realm_role"),
+                        kv("event.outcome", "success"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", userId),
+                        kv("role.name", roleName)
+                );
+
+            } catch (Exception ex) {
+                metrics.incrementFailure(OP_REVOKE_ROLE);
+
+                log.error("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "revoke_realm_role"),
+                        kv("event.outcome", "failure"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", userId),
+                        kv("role.name", roleName),
+                        kv("exception.class", ex.getClass().getSimpleName()),
+                        ex
+                );
+
+                throw new RestClientException(
+                        "Failed to revoke realm role '" + roleName + "' from user " + userId,
+                        ex
+                );
+            }
+
+        } finally {
+            metrics.recordLatency(OP_REVOKE_ROLE, Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 
     private Map<String, Object> fetchRealmRole(String roleName, String token) {
+
+        final long startNs = System.nanoTime();
+
         String url = props.baseUrl()
                 + "/admin/realms/" + props.realm()
                 + "/roles/" + roleName;
@@ -219,80 +376,97 @@ public class KeycloakAdminClient {
                     .body(String.class);
 
             if (body == null || body.isBlank()) {
+                metrics.incrementFailure(OP_FETCH_REALM_ROLE);
                 throw new RestClientException(
                         "Failed to fetch realm role '" + roleName + "': empty response"
                 );
             }
 
-            return objectMapper.readValue(
+            Map<String, Object> role = objectMapper.readValue(
                     body,
                     new TypeReference<Map<String, Object>>() {
                     }
             );
+
+            metrics.incrementSuccess(OP_FETCH_REALM_ROLE);
+            return role;
+
         } catch (Exception ex) {
+            metrics.incrementFailure(OP_FETCH_REALM_ROLE);
             throw new RestClientException(
                     "Failed to fetch realm role '" + roleName + "'",
                     ex
             );
+        } finally {
+            metrics.recordLatency(OP_FETCH_REALM_ROLE, Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 
     public Map<String, List<String>> fetchRealmRolesForUsers(List<String> userIds) {
 
-        if (userIds == null || userIds.isEmpty()) {
-            return Map.of();
-        }
+        final long startNs = System.nanoTime();
 
-        String token = fetchAccessToken();
-
-        Map<String, List<String>> result = new HashMap<>();
-
-        for (String userId : userIds) {
-
-            if (userId == null || userId.isBlank()) {
-                continue;
+        try {
+            if (userIds == null || userIds.isEmpty()) {
+                metrics.incrementSuccess(OP_FETCH_ROLES_FOR_USERS);
+                return Map.of();
             }
 
-            String url = props.baseUrl()
-                    + "/admin/realms/" + props.realm()
-                    + "/users/" + userId
-                    + "/role-mappings/realm/composite";
+            String token = fetchAccessToken();
 
-            try {
+            Map<String, List<String>> result = new HashMap<>();
 
-                String body = keycloakAdminRestClient.get()
-                        .uri(url)
-                        .headers(h -> h.setBearerAuth(token))
-                        .retrieve()
-                        .body(String.class);
+            for (String userId : userIds) {
 
-                if (body == null || body.isBlank()) {
-                    result.put(userId, List.of());
+                if (userId == null || userId.isBlank()) {
                     continue;
                 }
 
-                List<Map<String, Object>> roles =
-                        objectMapper.readValue(body, LIST_OF_MAP);
+                String url = props.baseUrl()
+                        + "/admin/realms/" + props.realm()
+                        + "/users/" + userId
+                        + "/role-mappings/realm/composite";
 
-                List<String> roleNames =
-                        roles.stream()
-                                .map(r -> (String) r.get("name"))
-                                .filter(Objects::nonNull)
-                                .toList();
+                try {
 
-                result.put(userId, roleNames);
+                    String body = keycloakAdminRestClient.get()
+                            .uri(url)
+                            .headers(h -> h.setBearerAuth(token))
+                            .retrieve()
+                            .body(String.class);
 
-            } catch (Exception ex) {
-                throw new RestClientException(
-                        "Failed to fetch realm roles for user " + userId,
-                        ex
-                );
+                    if (body == null || body.isBlank()) {
+                        result.put(userId, List.of());
+                        continue;
+                    }
+
+                    List<Map<String, Object>> roles =
+                            objectMapper.readValue(body, LIST_OF_MAP);
+
+                    List<String> roleNames =
+                            roles.stream()
+                                    .map(r -> (String) r.get("name"))
+                                    .filter(Objects::nonNull)
+                                    .toList();
+
+                    result.put(userId, roleNames);
+
+                } catch (Exception ex) {
+                    metrics.incrementFailure(OP_FETCH_ROLES_FOR_USERS);
+                    throw new RestClientException(
+                            "Failed to fetch realm roles for user " + userId,
+                            ex
+                    );
+                }
             }
+
+            metrics.incrementSuccess(OP_FETCH_ROLES_FOR_USERS);
+            return result;
+
+        } finally {
+            metrics.recordLatency(OP_FETCH_ROLES_FOR_USERS, Duration.ofNanos(System.nanoTime() - startNs));
         }
-
-        return result;
     }
-
 
     /**
      * Invite-only onboarding:
@@ -328,28 +502,61 @@ public class KeycloakAdminClient {
 
     // Admin API reset-password call
     private void setTemporaryPassword(String userId, String password) {
-        String token = fetchAccessToken();
-        String url = adminBaseUrl() + "/users/" + userId + "/reset-password";
 
-        Map<String, Object> payload = Map.of(
-                "type", "password",
-                "value", password,
-                "temporary", true
-        );
+        final long startNs = System.nanoTime();
 
         try {
-            keycloakAdminRestClient.put()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(payload)
-                    .retrieve()
-                    .toBodilessEntity();
-        } catch (Exception ex) {
-            throw new RestClientException(
-                    "Failed to set temporary password for user " + userId,
-                    ex
+            String token = fetchAccessToken();
+            String url = adminBaseUrl() + "/users/" + userId + "/reset-password";
+
+            Map<String, Object> payload = Map.of(
+                    "type", "password",
+                    "value", password,
+                    "temporary", true
             );
+
+            try {
+                keycloakAdminRestClient.put()
+                        .uri(url)
+                        .headers(h -> h.setBearerAuth(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(payload)
+                        .retrieve()
+                        .toBodilessEntity();
+
+                metrics.incrementSuccess(OP_SET_TEMP_PASSWORD);
+
+                log.info("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "set_temporary_password"),
+                        kv("event.outcome", "success"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", userId)
+                );
+
+            } catch (Exception ex) {
+                metrics.incrementFailure(OP_SET_TEMP_PASSWORD);
+
+                log.error("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "set_temporary_password"),
+                        kv("event.outcome", "failure"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", userId),
+                        kv("exception.class", ex.getClass().getSimpleName()),
+                        ex
+                );
+
+                throw new RestClientException(
+                        "Failed to set temporary password for user " + userId,
+                        ex
+                );
+            }
+
+        } finally {
+            metrics.recordLatency(OP_SET_TEMP_PASSWORD, Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 
@@ -365,79 +572,174 @@ public class KeycloakAdminClient {
     }
 
     private String findUserIdByEmailOrUsername(String email) {
-        String token = fetchAccessToken();
-        String url = adminBaseUrl() + "/users?search=" + urlEncode(email);
 
-        String body = keycloakAdminRestClient.get()
-                .uri(url)
-                .headers(h -> h.setBearerAuth(token))
-                .retrieve()
-                .body(String.class);
+        final long startNs = System.nanoTime();
 
-        if (body == null || body.isBlank()) return null;
-
-        List<Map<String, Object>> users;
         try {
-            users = objectMapper.readValue(body, LIST_OF_MAP);
-        } catch (Exception ex) {
-            throw new RestClientException("Keycloak user search parse failed", ex);
-        }
+            String token = fetchAccessToken();
+            String url = adminBaseUrl() + "/users?search=" + urlEncode(email);
 
-        for (Map<String, Object> u : users) {
-            if (email.equalsIgnoreCase(String.valueOf(u.get("email")))
-                    || email.equalsIgnoreCase(String.valueOf(u.get("username")))) {
-                return String.valueOf(u.get("id"));
+            String body = keycloakAdminRestClient.get()
+                    .uri(url)
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(String.class);
+
+            if (body == null || body.isBlank()) {
+                metrics.incrementSuccess(OP_FIND_USER_BY_EMAIL);
+                return null;
             }
+
+            List<Map<String, Object>> users;
+            try {
+                users = objectMapper.readValue(body, LIST_OF_MAP);
+            } catch (Exception ex) {
+                metrics.incrementFailure(OP_FIND_USER_BY_EMAIL);
+                throw new RestClientException("Keycloak user search parse failed", ex);
+            }
+
+            for (Map<String, Object> u : users) {
+                if (email.equalsIgnoreCase(String.valueOf(u.get("email")))
+                        || email.equalsIgnoreCase(String.valueOf(u.get("username")))) {
+                    metrics.incrementSuccess(OP_FIND_USER_BY_EMAIL);
+                    return String.valueOf(u.get("id"));
+                }
+            }
+
+            metrics.incrementSuccess(OP_FIND_USER_BY_EMAIL);
+            return null;
+
+        } finally {
+            metrics.recordLatency(OP_FIND_USER_BY_EMAIL, Duration.ofNanos(System.nanoTime() - startNs));
         }
-        return null;
     }
 
     private String createUserInviteOnly(String email) {
-        String token = fetchAccessToken();
-        String url = adminBaseUrl() + "/users";
 
-        Map<String, Object> payload = Map.of(
-                "username", email.split("@")[0],
-                "email", email,
-                "enabled", true,
-                "emailVerified", false
-        );
-
-        ResponseEntity<Void> resp = keycloakAdminRestClient.post()
-                .uri(url)
-                .headers(h -> h.setBearerAuth(token))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(payload)
-                .retrieve()
-                .toBodilessEntity();
-
-        String location = resp.getHeaders().getFirst(HttpHeaders.LOCATION);
-        String idFromLocation = extractUserIdFromLocation(location);
-        if (idFromLocation != null) {
-            return idFromLocation;
-        }
-
-        String fallback = findUserIdByEmailOrUsername(email);
-        if (fallback == null) {
-            throw new IllegalStateException("Keycloak user created but id not resolvable");
-        }
-        return fallback;
-    }
-
-    private void updateRequiredActions(String userId, List<String> actions) {
-        String token = fetchAccessToken();
-        String url = adminBaseUrl() + "/users/" + userId;
+        final long startNs = System.nanoTime();
 
         try {
-            keycloakAdminRestClient.put()
+            String token = fetchAccessToken();
+            String url = adminBaseUrl() + "/users";
+
+            Map<String, Object> payload = Map.of(
+                    "username", email.split("@")[0],
+                    "email", email,
+                    "enabled", true,
+                    "emailVerified", false
+            );
+
+            ResponseEntity<Void> resp = keycloakAdminRestClient.post()
                     .uri(url)
                     .headers(h -> h.setBearerAuth(token))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("requiredActions", actions))
+                    .body(payload)
                     .retrieve()
                     .toBodilessEntity();
-        } catch (Exception ex) {
-            throw new RestClientException("Failed to update requiredActions", ex);
+
+            String location = resp.getHeaders().getFirst(HttpHeaders.LOCATION);
+            String idFromLocation = extractUserIdFromLocation(location);
+            if (idFromLocation != null) {
+                metrics.incrementSuccess(OP_CREATE_USER_INVITE_ONLY);
+
+                log.info("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "create_user_invite_only"),
+                        kv("event.outcome", "success"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", idFromLocation)
+                );
+
+                return idFromLocation;
+            }
+
+            String fallback = findUserIdByEmailOrUsername(email);
+            if (fallback == null) {
+                metrics.incrementFailure(OP_CREATE_USER_INVITE_ONLY);
+                throw new IllegalStateException("Keycloak user created but id not resolvable");
+            }
+
+            metrics.incrementSuccess(OP_CREATE_USER_INVITE_ONLY);
+
+            log.info("security_event",
+                    kv("schema_version", SCHEMA),
+                    kv("event.category", "identity"),
+                    kv("event.action", "create_user_invite_only"),
+                    kv("event.outcome", "success"),
+                    kv("execution.context", EXEC_CTX),
+                    kv("subject.id", fallback)
+            );
+
+            return fallback;
+
+        } catch (RuntimeException ex) {
+            metrics.incrementFailure(OP_CREATE_USER_INVITE_ONLY);
+
+            log.error("security_event",
+                    kv("schema_version", SCHEMA),
+                    kv("event.category", "identity"),
+                    kv("event.action", "create_user_invite_only"),
+                    kv("event.outcome", "failure"),
+                    kv("execution.context", EXEC_CTX),
+                    kv("exception.class", ex.getClass().getSimpleName()),
+                    ex
+            );
+
+            throw ex;
+
+        } finally {
+            metrics.recordLatency(OP_CREATE_USER_INVITE_ONLY, Duration.ofNanos(System.nanoTime() - startNs));
+        }
+    }
+
+    private void updateRequiredActions(String userId, List<String> actions) {
+
+        final long startNs = System.nanoTime();
+
+        try {
+            String token = fetchAccessToken();
+            String url = adminBaseUrl() + "/users/" + userId;
+
+            try {
+                keycloakAdminRestClient.put()
+                        .uri(url)
+                        .headers(h -> h.setBearerAuth(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("requiredActions", actions))
+                        .retrieve()
+                        .toBodilessEntity();
+
+                metrics.incrementSuccess(OP_UPDATE_REQUIRED_ACTIONS);
+
+                log.info("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "update_required_actions"),
+                        kv("event.outcome", "success"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", userId)
+                );
+
+            } catch (Exception ex) {
+                metrics.incrementFailure(OP_UPDATE_REQUIRED_ACTIONS);
+
+                log.error("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "update_required_actions"),
+                        kv("event.outcome", "failure"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", userId),
+                        kv("exception.class", ex.getClass().getSimpleName()),
+                        ex
+                );
+
+                throw new RestClientException("Failed to update requiredActions", ex);
+            }
+
+        } finally {
+            metrics.recordLatency(OP_UPDATE_REQUIRED_ACTIONS, Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 
@@ -457,22 +759,55 @@ public class KeycloakAdminClient {
     }
 
     public void deleteUserById(String subjectId) {
+
+        final long startNs = System.nanoTime();
+
         Objects.requireNonNull(subjectId, "subjectId");
 
-        String token = fetchAccessToken();
-        String url = adminBaseUrl() + "/users/" + subjectId;
-
         try {
-            keycloakAdminRestClient.delete()
-                    .uri(url)
-                    .headers(h -> h.setBearerAuth(token))
-                    .retrieve()
-                    .toBodilessEntity();
-        } catch (Exception ex) {
-            throw new RestClientException(
-                    "Failed to delete Keycloak user " + subjectId,
-                    ex
-            );
+            String token = fetchAccessToken();
+            String url = adminBaseUrl() + "/users/" + subjectId;
+
+            try {
+                keycloakAdminRestClient.delete()
+                        .uri(url)
+                        .headers(h -> h.setBearerAuth(token))
+                        .retrieve()
+                        .toBodilessEntity();
+
+                metrics.incrementSuccess(OP_DELETE_USER);
+
+                log.info("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "delete_user"),
+                        kv("event.outcome", "success"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", subjectId)
+                );
+
+            } catch (Exception ex) {
+                metrics.incrementFailure(OP_DELETE_USER);
+
+                log.error("security_event",
+                        kv("schema_version", SCHEMA),
+                        kv("event.category", "identity"),
+                        kv("event.action", "delete_user"),
+                        kv("event.outcome", "failure"),
+                        kv("execution.context", EXEC_CTX),
+                        kv("subject.id", subjectId),
+                        kv("exception.class", ex.getClass().getSimpleName()),
+                        ex
+                );
+
+                throw new RestClientException(
+                        "Failed to delete Keycloak user " + subjectId,
+                        ex
+                );
+            }
+
+        } finally {
+            metrics.recordLatency(OP_DELETE_USER, Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 }

@@ -1,9 +1,9 @@
 package com.brutecx.docflow_backend.api.controller;
 
-import com.brutecx.docflow_backend.api.dto.user.UserResponseDTO;
-import com.brutecx.docflow_backend.api.dto.user.UserResponseMapper;
+import com.brutecx.docflow_backend.api.dto.user.LocalUserDTO;
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
-import com.brutecx.docflow_backend.domain.user.*;
+import com.brutecx.docflow_backend.domain.user.CurrentUserResult;
+import com.brutecx.docflow_backend.domain.user.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,7 +18,7 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping("/me")
-    public ResponseEntity<UserResponseDTO> getCurrentUserData() {
+    public ResponseEntity<LocalUserDTO> getCurrentUserData() {
         CurrentUserResult result = userService.resolveCurrentUser();
 
         return switch (result.state()) {
@@ -35,7 +35,7 @@ public class UserController {
             );
 
             case ACTIVE -> ResponseEntity.ok(
-                    UserResponseMapper.toDto(result.user())
+                    LocalUserDTO.from(result.user())
             );
         };
     }

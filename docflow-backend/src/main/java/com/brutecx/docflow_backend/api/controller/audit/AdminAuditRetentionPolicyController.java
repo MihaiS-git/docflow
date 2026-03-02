@@ -13,9 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/audit/retention")
@@ -31,9 +29,7 @@ public class AdminAuditRetentionPolicyController {
     public ResponseEntity<List<AuditRetentionPolicyDTO>> listAll() {
         List<AuditRetentionPolicy> existing = policyRepository.findAll();
 
-        // Build stable mapping: DB policy by streamName
-        // (No refactor, minimal local approach)
-        java.util.Map<String, AuditRetentionPolicy> byStream = new java.util.HashMap<>();
+        Map<String, AuditRetentionPolicy> byStream = new HashMap<>();
         for (AuditRetentionPolicy p : existing) {
             byStream.put(p.getStreamName(), p);
         }
@@ -51,12 +47,9 @@ public class AdminAuditRetentionPolicyController {
                         null
                 ));
             } else {
-                out.add(toDto(p));
+                out.add(mapToDto(p));
             }
         }
-
-        // Keep response deterministic (registry is LinkedHashMap-backed, but streamNames() returns keySet of copyOf)
-        // Sort by streamName to remove any accidental iteration differences.
         out.sort(Comparator.comparing(AuditRetentionPolicyDTO::streamName));
 
         return ResponseEntity.ok(out);
@@ -73,11 +66,10 @@ public class AdminAuditRetentionPolicyController {
                         request.retentionDays(),
                         request.archiveEnabled()
                 );
-
-        return ResponseEntity.ok(toDto(saved));
+        return ResponseEntity.ok(mapToDto(saved));
     }
 
-    private static AuditRetentionPolicyDTO toDto(AuditRetentionPolicy p) {
+    private static AuditRetentionPolicyDTO mapToDto(AuditRetentionPolicy p) {
         return new AuditRetentionPolicyDTO(
                 p.getStreamName(),
                 p.getRetentionDays(),

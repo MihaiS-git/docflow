@@ -26,7 +26,7 @@ public class AuditChainState {
     @Column(name = "stream", nullable = false, updatable = false, length = 128)
     private String stream;
 
-    @Column(name = "tenant_id", nullable = true, updatable = false, length = 64)
+    @Column(name = "tenant_id", updatable = false, length = 64)
     private String tenantId;
 
     @Column(name = "last_event_hash", nullable = false, length = 128)

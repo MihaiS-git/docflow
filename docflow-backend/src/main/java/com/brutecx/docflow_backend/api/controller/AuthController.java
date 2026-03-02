@@ -26,7 +26,6 @@ public class AuthController {
         this.authRoleExtractor = authRoleExtractor;
     }
 
-
     @GetMapping("/me")
     public ResponseEntity<?> me(Authentication authentication) {
         if (authentication == null

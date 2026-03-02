@@ -9,6 +9,8 @@ import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
+import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
+import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +21,12 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Service
 @RequiredArgsConstructor
@@ -29,16 +34,14 @@ public class OnboardingAuditService {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
     private static final String STREAM = OnboardingCanonicalMaterialBuilder.STREAM;
+    private static final String EXEC_CTX = ExecutionContext.HTTP.name();
 
     private final OnboardingAuditEventRepository repository;
     private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
     private final OnboardingCanonicalMaterialBuilder canonicalBuilder;
     private final AuditWriteFailureMetrics metrics;
-
-    /* =========================================================
-       SUCCESS
-       ========================================================= */
+    private final AuditPartitionResolver partitionResolver;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordSuccess(
@@ -48,7 +51,6 @@ public class OnboardingAuditService {
             UUID inviteId,
             String eventFingerprint
     ) {
-
         ensureHttpContext();
         requireNonNull(inviteId, "inviteId");
         requireNonNull(tenantId, "tenantId");
@@ -85,7 +87,7 @@ public class OnboardingAuditService {
                         inviteId,
                         correlationId,
                         correlationSource.name(),
-                        ExecutionContext.HTTP.name(),
+                        EXEC_CTX,
                         ctx.ip(),
                         ctx.userAgent(),
                         AuditResult.SUCCESS.name(),
@@ -97,10 +99,10 @@ public class OnboardingAuditService {
 
         String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
 
+        final long startNs = System.nanoTime();
         try {
-
             AuditPartition partition =
-                    AuditPartition.tenant(STREAM, tenantId.toString());
+                    partitionResolver.onboarding(tenantId.toString());
 
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(partition, canonicalMaterial);
@@ -126,35 +128,37 @@ public class OnboardingAuditService {
                     chain.eventHash()
             ));
 
-        } catch (DataIntegrityViolationException ignored) {
+            metrics.incrementSuccess(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
 
-            log.debug(
-                    "ONBOARDING_AUDIT_DEDUP_SUCCESS correlationId={} inviteId={}",
-                    correlationId,
-                    inviteId
-            );
+        } catch (DataIntegrityViolationException ignored) {
+            metrics.incrementDedup(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
 
         } catch (Exception ex) {
+            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
 
-            metrics.increment(
-                    STREAM,
-                    ExecutionContext.HTTP.name(),
-                    ex
-            );
-
-            log.error(
-                    "ONBOARDING_AUDIT_WRITE_FAILED_SUCCESS correlationId={} inviteId={} subjectId={}",
-                    correlationId,
-                    inviteId,
-                    subjectId,
+            log.error("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "onboarding_audit_record_failed"),
+                    kv("event.outcome", "failure"),
+                    kv("audit.stream", STREAM),
+                    kv("audit.partition", "TENANT"),
+                    kv("audit.result", AuditResult.SUCCESS.name()),
+                    kv("execution.context", EXEC_CTX),
+                    kv("correlation.id", correlationId),
+                    kv("correlation.source", correlationSource.name()),
+                    kv("tenant.id", tenantId),
+                    kv("invite.id", inviteId),
+                    kv("subject.id", subjectId),
+                    kv("onboarding.outcome", "SUCCESS"),
+                    kv("exception.class", ex.getClass().getSimpleName()),
                     ex
             );
         }
     }
-
-    /* =========================================================
-       FAILURE
-       ========================================================= */
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailure(
@@ -164,7 +168,6 @@ public class OnboardingAuditService {
             String failureReason,
             String eventFingerprint
     ) {
-
         ensureHttpContext();
         requireNonNull(inviteId, "inviteId");
         requireNonNull(tenantId, "tenantId");
@@ -202,7 +205,7 @@ public class OnboardingAuditService {
                         inviteId,
                         correlationId,
                         correlationSource.name(),
-                        ExecutionContext.HTTP.name(),
+                        EXEC_CTX,
                         ctx.ip(),
                         ctx.userAgent(),
                         AuditResult.FAILED.name(),
@@ -214,10 +217,10 @@ public class OnboardingAuditService {
 
         String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
 
+        final long startNs = System.nanoTime();
         try {
-
             AuditPartition partition =
-                    AuditPartition.tenant(STREAM, tenantId.toString());
+                    partitionResolver.onboarding(tenantId.toString());
 
             AuditChainService.ChainHash chain =
                     auditChainService.nextHash(partition, canonicalMaterial);
@@ -243,33 +246,37 @@ public class OnboardingAuditService {
                     chain.eventHash()
             ));
 
-        } catch (DataIntegrityViolationException ignored) {
+            metrics.incrementSuccess(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
 
-            log.debug(
-                    "ONBOARDING_AUDIT_DEDUP_FAILURE correlationId={} inviteId={}",
-                    correlationId,
-                    inviteId
-            );
+        } catch (DataIntegrityViolationException ignored) {
+            metrics.incrementDedup(STREAM, EXEC_CTX);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
 
         } catch (Exception ex) {
+            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
+            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
 
-            metrics.increment(
-                    STREAM,
-                    ExecutionContext.HTTP.name(),
-                    ex
-            );
-
-            log.error(
-                    "ONBOARDING_AUDIT_WRITE_FAILED_FAILURE correlationId={} inviteId={} reason={}",
-                    correlationId,
-                    inviteId,
-                    resolvedReason,
+            log.error("security_event",
+                    kv("schema_version", "docflow_siem_v1"),
+                    kv("event.category", "audit"),
+                    kv("event.action", "onboarding_audit_record_failed"),
+                    kv("event.outcome", "failure"),
+                    kv("audit.stream", STREAM),
+                    kv("audit.partition", "TENANT"),
+                    kv("audit.result", AuditResult.FAILED.name()),
+                    kv("execution.context", EXEC_CTX),
+                    kv("correlation.id", correlationId),
+                    kv("correlation.source", correlationSource.name()),
+                    kv("tenant.id", tenantId),
+                    kv("invite.id", inviteId),
+                    kv("onboarding.outcome", "FAILURE"),
+                    kv("onboarding.failure_reason", resolvedReason),
+                    kv("exception.class", ex.getClass().getSimpleName()),
                     ex
             );
         }
     }
-
-    /* ========================================================= */
 
     private static void ensureHttpContext() {
         if (RequestContextHolder.getRequestAttributes() == null) {
@@ -286,7 +293,7 @@ public class OnboardingAuditService {
     }
 
     private static CorrelationSource resolveCorrelationSource() {
-        return "GENERATED".equalsIgnoreCase(MDC.get("correlationSource"))
+        return "GENERATED".equalsIgnoreCase(MDC.get(RequestCorrelationIdFilter.MDC_SOURCE_KEY))
                 ? CorrelationSource.GENERATED
                 : CorrelationSource.REQUEST_ID;
     }

@@ -1,11 +1,11 @@
 package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.AuditLegalHoldDTO;
+import com.brutecx.docflow_backend.api.dto.audit.CreateLegalHoldRequestDTO;
 import com.brutecx.docflow_backend.domain.audit.retention.*;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
-import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -57,11 +57,11 @@ public class AdminAuditLegalHoldController {
                         createdBy,
                         pageable
                 )
-                .map(this::toDto);
+                .map(this::mapToDto);
     }
 
     @PostMapping
-    public AuditLegalHold create(@RequestBody CreateLegalHoldRequest request) {
+    public AuditLegalHold create(@RequestBody CreateLegalHoldRequestDTO request) {
 
         User actor = userService.getRequiredCurrentUser();
         UUID rootTenantId = tenantService.getRootTenant().getId();
@@ -90,16 +90,7 @@ public class AdminAuditLegalHoldController {
         );
     }
 
-    public record CreateLegalHoldRequest(
-            @NotBlank String streamName,
-            UUID eventId,
-            String correlationId,
-            @NotBlank String caseReferenceId,
-            @NotBlank String reason
-    ) {
-    }
-
-    private AuditLegalHoldDTO toDto(AuditLegalHold h) {
+    private AuditLegalHoldDTO mapToDto(AuditLegalHold h) {
         return new AuditLegalHoldDTO(
                 h.getId(),
                 h.getStreamName(),

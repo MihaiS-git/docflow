@@ -46,9 +46,11 @@ public class Tenant {
     private Tenant parentTenant;
 
     @NotNull
+    @Column(name="created_at")
     private Instant createdAt;
 
     @NotNull
+    @Column(name="updated_at")
     private Instant updatedAt;
 
     @Column(name = "data_region", length = 512)
@@ -62,10 +64,6 @@ public class Tenant {
      */
     @Column(name = "bootstrap_enabled", nullable = false)
     private Boolean bootstrapEnabled;
-
-    /* =====================================================
-       Constructors / factories
-       ===================================================== */
 
     /**
      * Normal tenant creation (admin/UI).
@@ -84,15 +82,18 @@ public class Tenant {
         return new Tenant(name, TenantType.ROOT, null, true);
     }
 
-    private Tenant(String name, TenantType type, Tenant parentTenant, boolean bootstrapEnabled) {
+    private Tenant(
+            String name,
+            TenantType type,
+            Tenant parentTenant,
+            boolean bootstrapEnabled
+    ) {
         this.name = canonicalize(name);
         this.status = TenantStatus.ACTIVE;
         this.tenantType = Objects.requireNonNull(type, "type");
         this.parentTenant = parentTenant;
         this.bootstrapEnabled = bootstrapEnabled;
     }
-
-    /* ===================================================== */
 
     @PrePersist
     protected void onCreate() {
@@ -113,8 +114,6 @@ public class Tenant {
         }
         return normalized;
     }
-
-    /* ===================================================== */
 
     public void updateName(String name) {
         requireActive("UPDATE_NAME");

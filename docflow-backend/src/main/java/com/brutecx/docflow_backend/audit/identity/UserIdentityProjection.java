@@ -37,7 +37,7 @@ public class UserIdentityProjection {
     @Column(nullable = false)
     private String source;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name="last_synced_at")
     private Instant lastSyncedAt;
 
     public UserIdentityProjection(String subjectId, String source) {

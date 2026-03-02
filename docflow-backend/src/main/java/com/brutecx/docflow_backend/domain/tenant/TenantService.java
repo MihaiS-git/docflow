@@ -1,7 +1,6 @@
 package com.brutecx.docflow_backend.domain.tenant;
 
 import com.brutecx.docflow_backend.api.dto.tenant.TenantUserResponseDTO;
-import com.brutecx.docflow_backend.api.dto.tenant.TenantUserResponseMapper;
 import com.brutecx.docflow_backend.api.error.LastManagerViolationException;
 import com.brutecx.docflow_backend.api.error.SelfActionForbiddenException;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
@@ -13,21 +12,32 @@ import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
+import com.brutecx.docflow_backend.logging.InfraEventActions;
+import com.brutecx.docflow_backend.logging.InfraEventLogger;
+import com.brutecx.docflow_backend.logging.InfraEventType;
+import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.data.domain.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+
+import static net.logstash.logback.argument.StructuredArguments.entries;
 
 @Service
 @RequiredArgsConstructor
 public class TenantService {
+
+    private static final Logger SECURITY_LOG = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -42,13 +52,10 @@ public class TenantService {
 
     private final TenantRepository tenantRepository;
     private final UserTenantMembershipRepository membershipRepository;
+    private final TenantMembershipService tenantMembershipService;
     private final IAdminAuditEventService adminAuditEventService;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
     private final UserService userService;
-
-    /* =====================================================
-       USER LISTING (FILTERED + SAFE SORT)
-       ===================================================== */
 
     public Page<TenantUserResponseDTO> listUsersByTenant(
             UUID tenantId,
@@ -108,7 +115,7 @@ public class TenantService {
                 null
         );
 
-        return memberships.map(TenantUserResponseMapper::from);
+        return memberships.map(TenantUserResponseDTO::from);
     }
 
     private static String mapSortField(String field) {
@@ -125,10 +132,6 @@ public class TenantService {
         };
     }
 
-    /* =====================================================
-       EVERYTHING BELOW REMAINS UNCHANGED
-       ===================================================== */
-
     @Transactional(readOnly = true)
     public TenantStatus getRequiredTenantStatus(UUID tenantId) {
         return tenantRepository.findStatusById(tenantId)
@@ -138,7 +141,19 @@ public class TenantService {
     @Transactional
     public Tenant getOrCreateBootstrapTenant() {
         return tenantRepository.findFirstByTenantType(TenantType.ROOT)
-                .orElseGet(() -> tenantRepository.save(Tenant.bootstrapTenant("Company")));
+                .orElseGet(() -> {
+                    try {
+                        return tenantRepository.save(Tenant.bootstrapTenant("Company"));
+                    } catch (RuntimeException ex) {
+                        InfraEventLogger.failure(
+                                InfraEventType.DATABASE,
+                                InfraEventActions.DB_ENTITY_PERSIST,
+                                "bootstrap_tenant_persist_failure",
+                                ex
+                        );
+                        throw ex;
+                    }
+                });
     }
 
     @Transactional(readOnly = true)
@@ -163,13 +178,9 @@ public class TenantService {
         return tenantRepository.findByStatus(TenantStatus.ACTIVE, pageable);
     }
 
-    /* =====================================================
-       TENANT CREATION
-       ===================================================== */
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
     public Tenant create(String name, String comment) {
-
         if (name == null || name.trim().isBlank()) {
             recordCreateFailureAudit(name);
             throw new IllegalArgumentException("Tenant name is required");
@@ -180,21 +191,31 @@ public class TenantService {
         Tenant created = null;
 
         try {
-            created = tenantRepository.save(new Tenant(name));
+            try {
+                created = tenantRepository.save(new Tenant(name));
+            } catch (RuntimeException ex) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_create_persist_failure",
+                        ex
+                );
+                throw ex;
+            }
 
-            // Ensure creator becomes MANAGER of the new tenant
             User actor = userService.getRequiredCurrentUser();
-            if (!membershipRepository.existsByUserIdAndTenantId(
-                    actor.getId(),
-                    created.getId()
-            )) {
-                UserTenantMembership membership =
-                        UserTenantMembership.create(
-                                actor,
-                                created,
-                                TenantRole.MANAGER
-                        );
-                membershipRepository.save(membership);
+
+            // Ensure creator becomes MANAGER of the new tenant (idempotent upsert)
+            try {
+                tenantMembershipService.ensureMembership(actor.getId(), created.getId(), TenantRole.MANAGER);
+            } catch (RuntimeException ex) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_create_membership_persist_failure",
+                        ex
+                );
+                throw ex;
             }
 
             success = true;
@@ -202,26 +223,20 @@ public class TenantService {
         } catch (RuntimeException ex) {
             failure = ex;
             throw ex;
-
         } finally {
-
             UUID auditTenantId = success ? created.getId() : null;
-
             AdminAuditActionType actionType =
                     success
                             ? AdminAuditActionType.TENANT_CREATED
                             : AdminAuditActionType.TENANT_CREATE_FAILED;
-
             String subjectId =
                     success
                             ? created.getId().toString()
                             : "TENANT_CREATE:" + name.trim();
-
             String failureType =
                     success
                             ? null
                             : (failure != null ? failure.getClass().getSimpleName() : "UNKNOWN");
-
             TenantAuditMetadata metadata = new TenantAuditMetadata(
                     success ? created.getId().toString() : null,
                     "CREATE_TENANT",
@@ -238,13 +253,8 @@ public class TenantService {
         }
     }
 
-    /* =====================================================
-       Mutations
-       ===================================================== */
-
     @Transactional
     public void suspendTenant(UUID tenantId, String comment) {
-
         Objects.requireNonNull(tenantId, "tenantId");
 
         Tenant tenant = tenantRepository.findById(tenantId)
@@ -252,7 +262,17 @@ public class TenantService {
 
         try {
             tenant.suspend();
-            tenantRepository.save(tenant);
+            try {
+                tenantRepository.save(tenant);
+            } catch (RuntimeException ex) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_suspend_persist_failure",
+                        ex
+                );
+                throw ex;
+            }
 
             recordTenantAdminAudit(
                     tenant,
@@ -276,7 +296,6 @@ public class TenantService {
 
     @Transactional
     public void reactivateTenant(UUID tenantId, String comment) {
-
         Objects.requireNonNull(tenantId, "tenantId");
 
         Tenant tenant = tenantRepository.findById(tenantId)
@@ -284,7 +303,17 @@ public class TenantService {
 
         try {
             tenant.reactivate();
-            tenantRepository.save(tenant);
+            try {
+                tenantRepository.save(tenant);
+            } catch (RuntimeException ex) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_reactivate_persist_failure",
+                        ex
+                );
+                throw ex;
+            }
 
             recordTenantAdminAudit(
                     tenant,
@@ -315,7 +344,6 @@ public class TenantService {
             Boolean disableBootstrap,
             String comment
     ) {
-
         Objects.requireNonNull(tenantId, "tenantId");
 
         Tenant tenant = tenantRepository.findById(tenantId)
@@ -345,7 +373,18 @@ public class TenantService {
             }
 
             if (changed) {
-                tenantRepository.save(tenant);
+                try {
+                    tenantRepository.save(tenant);
+                } catch (RuntimeException ex) {
+                    InfraEventLogger.failure(
+                            InfraEventType.DATABASE,
+                            InfraEventActions.DB_ENTITY_PERSIST,
+                            "tenant_update_persist_failure",
+                            ex
+                    );
+                    throw ex;
+                }
+
                 recordTenantAdminAudit(
                         // audits remain tenant-specific here
                         tenant,
@@ -367,10 +406,6 @@ public class TenantService {
         }
     }
 
-     /* =====================================================
-        Membership management
-        ===================================================== */
-
     @Transactional
     public void updateMembership(
             UUID tenantId,
@@ -379,19 +414,32 @@ public class TenantService {
             MembershipStatus newStatus,
             String comment
     ) {
-
         Objects.requireNonNull(tenantId, "tenantId");
         Objects.requireNonNull(targetUserId, "targetUserId");
 
         User actor = userService.getRequiredCurrentUser();
         boolean actorIsTarget = actor.getId().equals(targetUserId);
 
-        // Self-protection: prevent a MANAGER from demoting or suspending themselves
         if (actorIsTarget) {
-            if (newRole != null && newRole != TenantRole.MANAGER) {
+            if (newRole != TenantRole.MANAGER) {
+                securityWarnDenied(
+                        "TENANT_MEMBERSHIP_SELF_DEMOTION_DENIED",
+                        tenantId,
+                        actor,
+                        targetUserId,
+                        "SELF_DEMOTION_DENIED"
+                );
                 throw new SelfActionForbiddenException("Self-demotion is not allowed");
             }
+
             if (newStatus == MembershipStatus.SUSPENDED) {
+                securityWarnDenied(
+                        "TENANT_MEMBERSHIP_SELF_SUSPEND_DENIED",
+                        tenantId,
+                        actor,
+                        targetUserId,
+                        "SELF_SUSPEND_DENIED"
+                );
                 throw new SelfActionForbiddenException("Self-suspension is not allowed");
             }
         }
@@ -403,20 +451,45 @@ public class TenantService {
         TenantRole oldRole = membership.getRole();
         MembershipStatus oldStatus = membership.getStatus();
 
-        Logger securityLog = LoggerFactory.getLogger("SECURITY_AUDIT");
+    /* =====================================================
+       ROLE CHANGE
+       ===================================================== */
 
-        // ---------------- ROLE CHANGE ----------------
-        if (newRole != null && newRole != oldRole) {
+        if (!newRole.equals(oldRole)) {
 
-            if (oldRole == TenantRole.MANAGER && newRole != TenantRole.MANAGER) {
-                ensureNotLastActiveManager(tenantId);
+            if (oldRole == TenantRole.MANAGER
+                    && oldStatus == MembershipStatus.ACTIVE
+            ) {
+                try {
+                    ensureNotLastActiveManager(tenantId);
+                } catch (LastManagerViolationException ex) {
+                    securityWarnDenied(
+                            "TENANT_MEMBERSHIP_LAST_MANAGER_DENIED",
+                            tenantId,
+                            actor,
+                            targetUserId,
+                            "LAST_MANAGER_VIOLATION"
+                    );
+                    throw ex;
+                }
             }
 
             membership.changeRole(newRole);
-            membershipRepository.save(membership);
+
+            try {
+                membershipRepository.save(membership);
+            } catch (RuntimeException ex) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_membership_role_persist_failure",
+                        ex
+                );
+                throw ex;
+            }
 
             AdminAuditActionType roleAction =
-                    (newRole.ordinal() > oldRole.ordinal())
+                    newRole.isMorePrivilegedThan(oldRole)
                             ? AdminAuditActionType.ROLE_ASSIGNED
                             : AdminAuditActionType.ROLE_REVOKED;
 
@@ -440,26 +513,49 @@ public class TenantService {
                     metadata
             );
 
-            securityLog.info(
-                    "TENANT_MEMBERSHIP_ROLE_CHANGED tenantId={} actorUserId={} actorSubjectId={} targetUserId={} oldRole={} newRole={} oldStatus={} newStatus={}",
-                    tenantId,
-                    actor.getId(),
-                    actor.getExternalSubjectId(),
-                    targetUserId,
-                    oldRole,
-                    newRole,
-                    oldStatus,
-                    membership.getStatus()
-            );
+            Map<String, Object> fields = new HashMap<>();
+            fields.put("schema_version", "docflow_siem_v1");
+            fields.put("correlation.id", MDC.get(RequestCorrelationIdFilter.MDC_KEY));
+            fields.put("event.category", "security");
+            fields.put("event.type", "tenant_membership");
+            fields.put("event.action", "TENANT_MEMBERSHIP_ROLE_CHANGED");
+            fields.put("event.outcome", "success");
+            fields.put("tenant.id", tenantId);
+            fields.put("actor.user_id", actor.getId());
+            fields.put("actor.subject_id", actor.getExternalSubjectId());
+            fields.put("target.user_id", targetUserId);
+            fields.put("membership.old_role", oldRole.name());
+            fields.put("membership.new_role", newRole.name());
+            fields.put("membership.old_status", oldStatus.name());
+            fields.put("membership.new_status", membership.getStatus().name());
 
-            oldRole = newRole; // refresh for subsequent status change
+            SECURITY_LOG.info("security_event {}", entries(fields));
+
+            oldRole = newRole;
         }
 
-        // ---------------- STATUS CHANGE ----------------
-        if (newStatus != null && newStatus != oldStatus) {
+    /* =====================================================
+       STATUS CHANGE
+       ===================================================== */
 
-            if (oldRole == TenantRole.MANAGER && newStatus == MembershipStatus.SUSPENDED) {
-                ensureNotLastActiveManager(tenantId);
+        if (!newStatus.equals(oldStatus)) {
+
+            if (oldRole == TenantRole.MANAGER
+                    && oldStatus == MembershipStatus.ACTIVE
+                    && newStatus == MembershipStatus.SUSPENDED) {
+
+                try {
+                    ensureNotLastActiveManager(tenantId);
+                } catch (LastManagerViolationException ex) {
+                    securityWarnDenied(
+                            "TENANT_MEMBERSHIP_LAST_MANAGER_DENIED",
+                            tenantId,
+                            actor,
+                            targetUserId,
+                            "LAST_MANAGER_VIOLATION"
+                    );
+                    throw ex;
+                }
             }
 
             if (newStatus == MembershipStatus.SUSPENDED) {
@@ -468,7 +564,17 @@ public class TenantService {
                 membership.activate();
             }
 
-            membershipRepository.save(membership);
+            try {
+                membershipRepository.save(membership);
+            } catch (RuntimeException ex) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_membership_status_persist_failure",
+                        ex
+                );
+                throw ex;
+            }
 
             TenantMembershipChangeMetadata metadata =
                     new TenantMembershipChangeMetadata(
@@ -494,18 +600,46 @@ public class TenantService {
                     metadata
             );
 
-            securityLog.info(
-                    "TENANT_MEMBERSHIP_STATUS_CHANGED tenantId={} actorUserId={} actorSubjectId={} targetUserId={} oldRole={} newRole={} oldStatus={} newStatus={}",
-                    tenantId,
-                    actor.getId(),
-                    actor.getExternalSubjectId(),
-                    targetUserId,
-                    oldRole,
-                    membership.getRole(),
-                    oldStatus,
-                    newStatus
-            );
+            Map<String, Object> fields = new HashMap<>();
+            fields.put("schema_version", "docflow_siem_v1");
+            fields.put("correlation.id", MDC.get(RequestCorrelationIdFilter.MDC_KEY));
+            fields.put("event.category", "security");
+            fields.put("event.type", "tenant_membership");
+            fields.put("event.action", "TENANT_MEMBERSHIP_STATUS_CHANGED");
+            fields.put("event.outcome", "success");
+            fields.put("tenant.id", tenantId);
+            fields.put("actor.user_id", actor.getId());
+            fields.put("actor.subject_id", actor.getExternalSubjectId());
+            fields.put("target.user_id", targetUserId);
+            fields.put("membership.role", membership.getRole().name());
+            fields.put("membership.old_status", oldStatus.name());
+            fields.put("membership.new_status", newStatus.name());
+
+            SECURITY_LOG.info("security_event {}", entries(fields));
         }
+    }
+
+    private static void securityWarnDenied(
+            String eventAction,
+            UUID tenantId,
+            User actor,
+            UUID targetUserId,
+            String errorCode
+    ) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("schema_version", "docflow_siem_v1");
+        fields.put("correlation.id", MDC.get(RequestCorrelationIdFilter.MDC_KEY)); // ADDED
+        fields.put("event.category", "security");
+        fields.put("event.type", "tenant_membership");
+        fields.put("event.action", eventAction);
+        fields.put("event.outcome", "failure");
+        fields.put("error.code", errorCode);
+        fields.put("tenant.id", tenantId);
+        fields.put("actor.user_id", actor != null ? actor.getId() : null);
+        fields.put("actor.subject_id", actor != null ? actor.getExternalSubjectId() : null);
+        fields.put("target.user_id", targetUserId);
+
+        SECURITY_LOG.warn("security_event {}", entries(fields));
     }
 
     private void recordTenantAdminAudit(
@@ -531,7 +665,6 @@ public class TenantService {
     }
 
     private void recordCreateFailureAudit(String name) {
-
         TenantAuditMetadata metadata = new TenantAuditMetadata(
                 null,
                 "CREATE_TENANT",
@@ -548,12 +681,24 @@ public class TenantService {
     }
 
     private void ensureNotLastActiveManager(UUID tenantId) {
-        List<UUID> locked =
-                membershipRepository.lockActiveManagers(
-                        tenantId,
-                        TenantRole.MANAGER,
-                        MembershipStatus.ACTIVE
-                );
+        final List<UUID> locked;
+
+        try {
+            locked =
+                    membershipRepository.lockActiveManagers(
+                            tenantId,
+                            TenantRole.MANAGER,
+                            MembershipStatus.ACTIVE
+                    );
+        } catch (RuntimeException ex) {
+            InfraEventLogger.failure(
+                    InfraEventType.DATABASE,
+                    InfraEventActions.DB_QUERY_EXECUTE,
+                    "lock_active_managers_failure",
+                    ex
+            );
+            throw ex;
+        }
 
         if (locked.size() <= 1) {
             throw new LastManagerViolationException("Cannot remove or suspend last MANAGER in tenant");
