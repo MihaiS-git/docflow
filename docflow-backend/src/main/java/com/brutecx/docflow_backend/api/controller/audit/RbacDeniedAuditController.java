@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/rbac-denied")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class RbacDeniedAuditController {
 
     private final RbacDeniedAuditQueryService queryService;

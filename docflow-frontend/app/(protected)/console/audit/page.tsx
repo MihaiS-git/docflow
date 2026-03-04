@@ -12,7 +12,6 @@ export default function AuditConsolePage() {
     { name: "Unauthenticated Access", path: "unauthenticated" },
     { name: "Identity Projection", path: "identity-projection" },
     { name: "Retention Policies", path: "retention" },
-    { name: "Legal Holds", path: "legal-holds" },
   ];
 
   return (
@@ -37,13 +36,13 @@ export default function AuditConsolePage() {
           href="/console/audit/exports"
           className="border rounded p-4 hover:bg-gray-50 transition"
         >
-          <div className="font-semibold">Export Snapshots</div>
+          <div className="font-semibold">Audit Export Snapshots</div>
           <div className="text-sm text-gray-500">
             Registry and verification of sealed JSONL exports
           </div>
         </Link>
 
-        {/* 🔐 Signing Keys Management */}
+        {/* Signing Keys Management */}
         <Link
           href="/console/security/audit-keys"
           className="border rounded p-4 hover:bg-gray-50 transition border-red-200"

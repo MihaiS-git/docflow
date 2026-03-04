@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.domain.audit.retention;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Positive;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -33,6 +34,7 @@ public class AuditRetentionPolicy {
     private String streamName;
 
     @Column(name = "retention_days", nullable = false)
+    @Positive
     private int retentionDays;
 
     @Column(name = "archive_enabled", nullable = false)

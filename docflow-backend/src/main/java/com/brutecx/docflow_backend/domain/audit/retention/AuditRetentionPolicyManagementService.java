@@ -6,10 +6,10 @@ import com.brutecx.docflow_backend.audit.admin.RetentionPolicyAuditMetadata;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
@@ -34,20 +34,23 @@ public class AuditRetentionPolicyManagementService {
         this.tenantService = Objects.requireNonNull(tenantService);
     }
 
+    @Transactional(readOnly = true)
+    public List<AuditRetentionPolicy> listAll() {
+        return repository.findAll();
+    }
+
     @Transactional
     public AuditRetentionPolicy upsert(
             String streamName,
             int retentionDays,
             boolean archiveEnabled
     ) {
-
         String normalized = null;
 
         try {
-
             normalized = normalize(streamName);
 
-            if (!AuditRetentionStreamRegistry.streamNames().contains(normalized)) {
+            if (!AuditRetentionStreamRegistry.STREAM_NAMES.contains(normalized)) {
                 throw new IllegalArgumentException("Unknown streamName");
             }
 
@@ -111,19 +114,7 @@ public class AuditRetentionPolicyManagementService {
             }
 
             return saved;
-
-        } catch (IllegalArgumentException ex) {
-
-            recordFailure(normalized, retentionDays, archiveEnabled);
-            throw ex;
-
-        } catch (DataAccessException ex) {
-
-            recordFailure(normalized, retentionDays, archiveEnabled);
-            throw ex;
-
         } catch (RuntimeException ex) {
-
             recordFailure(normalized, retentionDays, archiveEnabled);
             throw ex;
         }
@@ -154,7 +145,6 @@ public class AuditRetentionPolicyManagementService {
                     actor.getId(),
                     metadata
             );
-
         } catch (Exception ignored) {
             // Do not override original exception
         }

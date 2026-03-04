@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import jakarta.annotation.Nonnull;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -18,7 +17,6 @@ import java.util.HexFormat;
  * Writes JSONL payload lines while computing:
  *  - SHA-256 digest over payload bytes
  *  - Optional streaming signature over EXACT same payload bytes
- *
  * STRICT INVARIANTS:
  *  - Digest/signature cover ONLY payload lines
  *  - Metadata line is EXCLUDED
@@ -86,13 +84,12 @@ public class DigestingForensicExportService {
             }
 
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            OutputStream raw = new BufferedOutputStream(responseOut);
 
             OutputStream payload = new OutputStream() {
 
                 @Override
                 public void write(int b) throws IOException {
-                    raw.write(b);
+                    responseOut.write(b);
                     md.update((byte) b);
                     if (signatureOrNull != null) {
                         try {
@@ -105,7 +102,7 @@ public class DigestingForensicExportService {
 
                 @Override
                 public void write(@Nonnull byte[] b, int off, int len) throws IOException {
-                    raw.write(b, off, len);
+                    responseOut.write(b, off, len);
                     md.update(b, off, len);
                     if (signatureOrNull != null) {
                         try {
@@ -118,12 +115,11 @@ public class DigestingForensicExportService {
 
                 @Override
                 public void flush() throws IOException {
-                    raw.flush();
+                    responseOut.flush();
                 }
             };
 
-            return new ExportDigestContext(raw, payload, md);
-
+            return new ExportDigestContext(responseOut, payload, md);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to initialize digest stream", e);
         }

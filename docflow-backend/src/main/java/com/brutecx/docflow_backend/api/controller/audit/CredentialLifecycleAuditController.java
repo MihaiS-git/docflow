@@ -21,7 +21,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/credential-lifecycle")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class CredentialLifecycleAuditController {
 
     private final CredentialLifecycleAuditQueryService queryService;

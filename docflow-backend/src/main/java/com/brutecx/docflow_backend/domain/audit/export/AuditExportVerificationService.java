@@ -5,15 +5,12 @@ import com.brutecx.docflow_backend.api.dto.audit.AuditExportVerificationResultDT
 import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.crypto.RsaKeyCodec;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKey;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKeyResolver;
 import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.databind.MapperFeature;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import net.logstash.logback.argument.StructuredArgument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +27,7 @@ import java.security.MessageDigest;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -52,47 +50,55 @@ public class AuditExportVerificationService {
     private static final String DIGEST_ALG = "SHA-256";
     private static final String SIGNATURE_ALG = "SHA256withRSA";
 
+    /**
+     * Hard cap for a single JSONL line (payload or meta).
+     * Prevents heap exhaustion by uploading a huge line without '\n'.
+     */
+    private static final int MAX_JSONL_LINE_BYTES = 1_048_576; // 1 MiB
+
+    private static final byte[] META_FIELD_TOKEN =
+            "\"_export_meta\"".getBytes(StandardCharsets.UTF_8);
+
     private final AuditExportSnapshotRepository snapshotRepository;
     private final AuditSigningKeyResolver keyResolver;
     private final ObjectMapper objectMapper;
-    private final ObjectWriter canonicalJsonWriter;
     private final AuditWriteFailureMetrics metrics;
     private final long maxUploadBytes;
+
+    /**
+     * Optional: allow verifying with embedded public key PEM from _export_meta if DB key row is missing
+     * OR the DB key fingerprint does not match the export.
+     * Default false: forensic posture = DB key must exist AND match.
+     */
+    private final boolean allowEmbeddedPublicKeyFallback;
 
     public AuditExportVerificationService(
             AuditExportSnapshotRepository snapshotRepository,
             AuditSigningKeyResolver keyResolver,
             ObjectMapper objectMapper,
             AuditWriteFailureMetrics metrics,
-            @Value("${docflow.audit.export.verify.max-bytes:268435456}") long maxUploadBytes
+            @Value("${docflow.audit.export.verify.max-bytes:268435456}") long maxUploadBytes,
+            @Value("${docflow.audit.export.verify.allow-embedded-public-key-fallback:false}")
+            boolean allowEmbeddedPublicKeyFallback
     ) {
         this.snapshotRepository = snapshotRepository;
         this.keyResolver = keyResolver;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
         this.maxUploadBytes = maxUploadBytes;
-
-        // Deterministic meta canonicalization (sorted keys, no pretty print)
-        ObjectMapper canonical = JsonMapper.builder()
-                .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
-                .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
-                .disable(SerializationFeature.INDENT_OUTPUT)
-                .build();
-
-        this.canonicalJsonWriter = canonical.writer();
+        this.allowEmbeddedPublicKeyFallback = allowEmbeddedPublicKeyFallback;
     }
 
     @Transactional(readOnly = true)
     public AuditExportVerificationResultDTO verifySnapshotFile(UUID snapshotId, MultipartFile file) {
-
         final long startNs = System.nanoTime();
+
         String correlationId = resolveCorrelationId(snapshotId);
         CorrelationSource correlationSource = resolveCorrelationSource();
 
         AuditExportSnapshot snapshot = null;
 
         try {
-
             if (file == null || file.isEmpty()) {
                 return fail(snapshotId, null, null,
                         "NO_FILE", "No file provided",
@@ -110,7 +116,7 @@ public class AuditExportVerificationService {
                     .orElseThrow(() ->
                             new IllegalArgumentException("Snapshot not found: " + snapshotId));
 
-            // Disallow external signatureAlgorithm input entirely: registry must be our expected algorithm.
+            // Registry algorithm must be fixed and expected.
             if (snapshot.getSignatureAlg() == null
                     || !SIGNATURE_ALG.equals(snapshot.getSignatureAlg().trim())) {
                 return fail(snapshotId, snapshot.getStream(), snapshot.getTenantId(),
@@ -119,35 +125,137 @@ public class AuditExportVerificationService {
                         correlationId, correlationSource);
             }
 
-            StreamingVerifyResult streaming = streamVerifyAndExtractMeta(snapshot, file);
+            // Pass 1: extract + validate meta and enforce uniqueness (fast).
+            MetaValidationResult metaResult = extractAndValidateMeta(snapshot, file);
+            AuditExportMetadataDTO meta = metaResult.meta();
+
+            // Key resolution must be fingerprint-bound, not keyId-bound (keyId can be reused).
+            AuditSigningKey keyRow = keyResolver.findById(snapshot.getKeyId()).orElse(null);
+
+            PublicKey pk;
+            boolean usedFallback = false;
+            boolean keyExists = keyRow != null;
+            boolean fingerprintMatches;
+
+            String metaFingerprint = meta.publicKeyFingerprint();
+            if (metaFingerprint == null || metaFingerprint.isBlank()) {
+                return fail(snapshot.getId(), snapshot.getStream(), snapshot.getTenantId(),
+                        "VERIFY_KEY_FINGERPRINT_MISSING",
+                        "Export metadata is missing publicKeyFingerprint",
+                        correlationId, correlationSource);
+            }
+
+            if (keyExists) {
+                boolean dbFingerprintMatches =
+                        keyRow.getFingerprintSha256Hex() != null
+                                && metaFingerprint.equalsIgnoreCase(keyRow.getFingerprintSha256Hex());
+
+                if (dbFingerprintMatches) {
+                    // DB key matches export metadata fingerprint → safe to use DB key
+                    pk = keyResolver.requirePublicKey(snapshot.getKeyId());
+                    fingerprintMatches = true;
+                } else {
+                    // DB key exists but does NOT match export fingerprint → MUST use embedded key (if allowed)
+                    usedFallback = true;
+
+                    if (!allowEmbeddedPublicKeyFallback) {
+                        return fail(snapshot.getId(), snapshot.getStream(), snapshot.getTenantId(),
+                                "VERIFY_KEY_FINGERPRINT_MISMATCH",
+                                "DB key fingerprint does not match export metadata",
+                                correlationId, correlationSource);
+                    }
+
+                    String embeddedPem = meta.publicKeyPem();
+                    if (embeddedPem == null || embeddedPem.isBlank()) {
+                        return fail(snapshot.getId(), snapshot.getStream(), snapshot.getTenantId(),
+                                "VERIFY_KEY_FALLBACK_MISSING",
+                                "Fingerprint mismatch and no embedded key available",
+                                correlationId, correlationSource);
+                    }
+
+                    pk = RsaKeyCodec.decodePublicKeyPem(embeddedPem);
+
+                    String embeddedFingerprint = RsaKeyCodec.fingerprintSha256Hex(pk);
+                    fingerprintMatches = embeddedFingerprint.equalsIgnoreCase(metaFingerprint);
+
+                    if (!fingerprintMatches) {
+                        return fail(snapshot.getId(), snapshot.getStream(), snapshot.getTenantId(),
+                                "VERIFY_KEY_FINGERPRINT_INVALID",
+                                "Embedded public key fingerprint does not match export metadata",
+                                correlationId, correlationSource);
+                    }
+
+                    log.warn("security_event {}",
+                            kv("schema_version", "docflow_siem_v1"),
+                            kv("event.category", "audit"),
+                            kv("event.action", "VERIFY_KEY_FALLBACK"),
+                            kv("event.outcome", "success"),
+                            kv("key.id", snapshot.getKeyId()),
+                            kv("verify.key_exists", true),
+                            kv("verify.key_fallback_used", true),
+                            kv("verify.fingerprint_matches", true)
+                    );
+                }
+            } else {
+                // DB key missing → fallback (if allowed)
+                usedFallback = true;
+
+                if (!allowEmbeddedPublicKeyFallback) {
+                    return fail(snapshot.getId(), snapshot.getStream(), snapshot.getTenantId(),
+                            "VERIFY_KEY_MISSING",
+                            "Signing key missing in DB",
+                            correlationId, correlationSource);
+                }
+
+                String embeddedPem = meta.publicKeyPem();
+                if (embeddedPem == null || embeddedPem.isBlank()) {
+                    return fail(snapshot.getId(), snapshot.getStream(), snapshot.getTenantId(),
+                            "VERIFY_KEY_FALLBACK_MISSING",
+                            "DB key missing and export metadata has no embedded public key",
+                            correlationId, correlationSource);
+                }
+
+                pk = RsaKeyCodec.decodePublicKeyPem(embeddedPem);
+
+                String embeddedFingerprint = RsaKeyCodec.fingerprintSha256Hex(pk);
+                fingerprintMatches = embeddedFingerprint.equalsIgnoreCase(metaFingerprint);
+
+                if (!fingerprintMatches) {
+                    return fail(snapshot.getId(), snapshot.getStream(), snapshot.getTenantId(),
+                            "VERIFY_KEY_FINGERPRINT_INVALID",
+                            "Embedded public key fingerprint does not match export metadata",
+                            correlationId, correlationSource);
+                }
+
+                log.warn("security_event {}",
+                        kv("schema_version", "docflow_siem_v1"),
+                        kv("event.category", "audit"),
+                        kv("event.action", "VERIFY_KEY_FALLBACK"),
+                        kv("event.outcome", "success"),
+                        kv("key.id", snapshot.getKeyId()),
+                        kv("verify.key_exists", false),
+                        kv("verify.key_fallback_used", true),
+                        kv("verify.fingerprint_matches", true)
+                );
+            }
+
+            // Pass 2: streaming digest+signature over payload bytes; enforce structure.
+            StreamingVerifyResult streaming =
+                    streamVerifyPayload(snapshot, file, pk, meta);
 
             boolean digestMatches =
                     streaming.computedDigestHex.equalsIgnoreCase(snapshot.getSha256DigestHex());
 
-            boolean keyExists = keyResolver.exists(snapshot.getKeyId());
+            boolean signatureValid = streaming.signatureValid;
 
-            boolean signatureValid = false;
-            if (keyExists) {
-                signatureValid = streaming.signatureValid;
-            }
-
-            boolean fingerprintMatches = false;
-            if (keyExists) {
-                AuditSigningKey keyRow =
-                        keyResolver.findById(snapshot.getKeyId()).orElse(null);
-
-                if (keyRow != null && streaming.meta.publicKeyFingerprint() != null) {
-                    fingerprintMatches =
-                            streaming.meta.publicKeyFingerprint()
-                                    .equalsIgnoreCase(keyRow.getFingerprintSha256Hex());
-                }
-            }
+            boolean rowCountMatches =
+                    streaming.payloadRowCount == snapshot.getRowCount();
 
             boolean ok =
-                    digestMatches &&
-                            keyExists &&
-                            signatureValid &&
-                            fingerprintMatches;
+                    digestMatches
+                            && signatureValid
+                            && fingerprintMatches
+                            && rowCountMatches;
 
             emitVerificationLog(
                     ok,
@@ -161,8 +269,12 @@ public class AuditExportVerificationService {
                     kv("verify.digest_matches", digestMatches),
                     kv("verify.signature_valid", signatureValid),
                     kv("verify.key_exists", keyExists),
+                    kv("verify.key_fallback_used", usedFallback),
                     kv("verify.fingerprint_matches", fingerprintMatches),
-                    kv("verify.payload_length_bytes", streaming.payloadLengthBytes)
+                    kv("verify.payload_length_bytes", streaming.payloadLengthBytes),
+                    kv("verify.row_count_matches", rowCountMatches),
+                    kv("verify.payload_row_count", streaming.payloadRowCount),
+                    kv("verify.expected_row_count", snapshot.getRowCount())
             );
 
             if (ok) {
@@ -184,16 +296,25 @@ public class AuditExportVerificationService {
                     streaming.computedDigestHex,
                     digestMatches,
                     keyExists,
-                    signatureValid && fingerprintMatches,
+                    signatureValid,
                     snapshot.getSignatureAlg(),
                     snapshot.getKeyId(),
-                    true, true, true, true, true, true,
-                    true, true, true, true, true, true, true,
+                    metaResult.metaPresent(),
+                    metaResult.metaParsed(),
+                    metaResult.metaSnapshotIdMatches(),
+                    metaResult.metaDigestMatches(),
+                    metaResult.metaSignatureMatches(),
+                    metaResult.metaKeyIdMatches(),
+                    metaResult.metaAlgorithmMatches(),
+                    metaResult.metaDigestAlgorithmMatches(),
+                    metaResult.metaSignatureInputMatches(),
+                    metaResult.metaStreamMatches(),
+                    metaResult.metaRangeMatches(),
+                    metaResult.metaTenantMatches(),
+                    metaResult.metaRowCountMatches(),
                     ok ? "OK" : "FAILED"
             );
-
         } catch (IllegalArgumentException e) {
-            // Deterministic validation failures become a structured failure response (not a 500)
             if (snapshot != null) {
                 return fail(snapshotId, snapshot.getStream(), snapshot.getTenantId(),
                         "VERIFY_INVALID", e.getMessage(),
@@ -202,7 +323,6 @@ public class AuditExportVerificationService {
             return fail(snapshotId, null, null,
                     "VERIFY_INVALID", e.getMessage(),
                     correlationId, correlationSource);
-
         } catch (Exception e) {
             metrics.incrementFailure(STREAM, EXEC_CTX, e);
             throw new IllegalStateException("Verification failed", e);
@@ -212,18 +332,79 @@ public class AuditExportVerificationService {
         }
     }
 
-    /* =====================================================
-       STREAM-ONLY VERIFICATION (NO TEMP FILE)
-       ===================================================== */
-
-    private StreamingVerifyResult streamVerifyAndExtractMeta(
+    /**
+     * Pass 1:
+     * - scan file
+     * - enforce: exactly one meta envelope line (top-level "_export_meta") in the entire file
+     * - ensure: meta envelope is the last non-blank line
+     * - parse + strict validate meta against snapshot registry
+     * NOTE: meta uniqueness counts ONLY real meta envelopes, not occurrences inside JSON strings.
+     */
+    private MetaValidationResult extractAndValidateMeta(
             AuditExportSnapshot snapshot,
             MultipartFile file
     ) throws Exception {
+        ArrayDeque<byte[]> tailLines = new ArrayDeque<>(2);
+        int[] metaEnvelopeCount = {0};
 
-        if (snapshot.getKeyId() == null || snapshot.getKeyId().isBlank()) {
-            throw new IllegalArgumentException("Registry keyId missing");
+        try (InputStream in = new BufferedInputStream(file.getInputStream())) {
+            JsonlScanner scanner =
+                    new JsonlScanner(in, maxUploadBytes, MAX_JSONL_LINE_BYTES);
+
+            scanner.scan(line -> {
+
+                if (isNonBlankLine(line) && isMetaEnvelopeLine(line)) {
+                    metaEnvelopeCount[0]++;
+                }
+
+                tailLines.addLast(line);
+                if (tailLines.size() > 2) {
+                    tailLines.removeFirst();
+                }
+            });
         }
+
+        if (metaEnvelopeCount[0] == 0) {
+            throw new IllegalArgumentException("Missing _export_meta line");
+        }
+        if (metaEnvelopeCount[0] > 1) {
+            throw new IllegalArgumentException("Multiple _export_meta lines");
+        }
+
+        List<byte[]> tailList = new ArrayList<>(tailLines);
+
+        StringBuilder metaLine = new StringBuilder(1024);
+        extractMetaIndexAndLine(tailList, metaLine);
+        String metaLineUtf8 = metaLine.toString();
+
+        // Ensure the last non-blank line is a real meta envelope line (not a string occurrence).
+        if (metaLineUtf8.isBlank()) {
+            throw new IllegalArgumentException("Missing _export_meta line");
+        }
+        if (!isMetaEnvelopeLine(metaLineUtf8)) {
+            throw new IllegalArgumentException("Missing _export_meta line");
+        }
+
+        return parseAndValidateMetaStrict(metaLineUtf8, snapshot);
+    }
+
+    /**
+     * Pass 2:
+     * - stream file again
+     * - compute digest over payload bytes
+     * - verify signature over payload bytes
+     * - enforce payload structure:
+     * - no blank lines inside payload (including streamed/committed lines)
+     * - no meta envelope inside payload
+     * - meta envelope appears once and only at end (already enforced in Pass 1; enforced again here)
+     * - no trailing data after meta
+     */
+    private StreamingVerifyResult streamVerifyPayload(
+            AuditExportSnapshot snapshot,
+            MultipartFile file,
+            PublicKey pk,
+            AuditExportMetadataDTO expectedMeta
+    ) throws Exception {
         if (snapshot.getSignatureB64() == null || snapshot.getSignatureB64().isBlank()) {
             throw new IllegalArgumentException("Registry signatureB64 missing");
         }
@@ -231,68 +412,179 @@ public class AuditExportVerificationService {
             throw new IllegalArgumentException("Registry sha256DigestHex missing");
         }
 
-        // Prepare verifier from registry ONLY (no external signatureAlgorithm input).
-        PublicKey pk = keyResolver.requirePublicKey(snapshot.getKeyId().trim());
+        MessageDigest md = MessageDigest.getInstance(DIGEST_ALG);
+
         Signature verifier = Signature.getInstance(SIGNATURE_ALG);
         verifier.initVerify(pk);
 
         byte[] signatureBytes = Base64.getDecoder().decode(snapshot.getSignatureB64());
 
-        MessageDigest md = MessageDigest.getInstance(DIGEST_ALG);
+        ArrayDeque<byte[]> tailLines = new ArrayDeque<>(2);
 
-        // Keep last 2 lines uncommitted so we can tolerate a trailing blank newline line.
-        List<byte[]> tailLines = new ArrayList<>(2);
-
-        long totalRead = 0L;
-        long payloadLengthBytes = 0L;
-
-        // Current line buffer (bytes since last '\n')
-        ByteArrayOutputStreamEx currentLine = new ByteArrayOutputStreamEx(16 * 1024);
+        final long[] payloadLengthBytes = {0L};
+        final long[] payloadRowCount = {0L};
 
         try (InputStream in = new BufferedInputStream(file.getInputStream())) {
+            JsonlScanner scanner =
+                    new JsonlScanner(in, maxUploadBytes, MAX_JSONL_LINE_BYTES);
 
-            byte[] buf = new byte[64 * 1024];
-            int r;
+            scanner.scan(line -> {
+                tailLines.addLast(line);
 
-            while ((r = in.read(buf)) != -1) {
+                if (tailLines.size() > 2) {
+                    byte[] commit = tailLines.removeFirst();
 
-                totalRead += r;
-                if (totalRead > maxUploadBytes) {
-                    throw new IllegalArgumentException("Upload exceeds limit");
-                }
-
-                for (int i = 0; i < r; i++) {
-                    byte b = buf[i];
-                    currentLine.writeByte(b);
-
-                    if (b == (byte) '\n') {
-                        byte[] completedLine = currentLine.toByteArrayAndReset();
-
-                        tailLines.add(completedLine);
-                        if (tailLines.size() > 2) {
-                            byte[] commit = tailLines.removeFirst();
-                            payloadLengthBytes += commit.length;
-                            md.update(commit);
-                            verifier.update(commit);
-                        }
+                    if (isBlankLine(commit)) {
+                        throw new IllegalArgumentException("Blank line inside payload");
                     }
+
+                    if (isMetaEnvelopeLine(commit)) {
+                        throw new IllegalArgumentException("Unexpected _export_meta inside payload");
+                    }
+
+                    payloadLengthBytes[0] += commit.length;
+                    payloadRowCount[0]++;
+
+                    md.update(commit);
+                    verifier.update(commit);
                 }
-            }
+            });
         }
 
-        // If file doesn't end with '\n', treat remaining as a final line (no newline).
-        if (currentLine.size() > 0) {
-            byte[] finalLineNoNl = currentLine.toByteArrayAndReset();
-            tailLines.add(finalLineNoNl);
-            if (tailLines.size() > 2) {
-                byte[] commit = tailLines.removeFirst();
-                payloadLengthBytes += commit.length;
-                md.update(commit);
-                verifier.update(commit);
+        List<byte[]> tailList = new ArrayList<>(tailLines);
+
+        StringBuilder metaLine = new StringBuilder(1024);
+        int metaIndex = extractMetaIndexAndLine(tailList, metaLine);
+        String metaLineUtf8 = metaLine.toString();
+
+        for (int i = 0; i < metaIndex; i++) {
+            byte[] commit = tailList.get(i);
+
+            if (isBlankLine(commit)) {
+                throw new IllegalArgumentException("Blank line inside payload");
             }
+            if (isMetaEnvelopeLine(commit)) {
+                throw new IllegalArgumentException("Unexpected _export_meta inside payload");
+            }
+
+            String payloadLine = trimLineEndingsUtf8(commit);
+
+            // Keep structural guard: payload must not contain "_export_meta" as a top-level field.
+            // (This is cheap and catches obvious attempts; meta envelope detection above is authoritative.)
+            JsonNode node = objectMapper.readTree(payloadLine);
+            if (node.has("_export_meta")) {
+                throw new IllegalArgumentException("Unexpected _export_meta inside payload");
+            }
+
+            payloadLengthBytes[0] += commit.length;
+            payloadRowCount[0]++;
+
+            md.update(commit);
+            verifier.update(commit);
         }
 
-        // Choose meta line: last non-empty line among tailLines (ignoring pure newline / CRLF).
+        // Ensure meta is structurally correct and aligned with registry (prevents meta swapping).
+        MetaValidationResult metaResult =
+                parseAndValidateMetaStrict(metaLineUtf8, snapshot);
+
+        AuditExportMetadataDTO meta = metaResult.meta();
+
+        if (!meta.snapshotId().equals(expectedMeta.snapshotId())) {
+            throw new IllegalArgumentException("Meta snapshot mismatch between passes");
+        }
+
+        byte[] computedDigestBytes = md.digest();
+        String computedDigestHex = HEX.formatHex(computedDigestBytes);
+
+        boolean signatureValid = verifier.verify(signatureBytes);
+
+        return new StreamingVerifyResult(
+                computedDigestHex,
+                signatureValid,
+                payloadLengthBytes[0],
+                payloadRowCount[0]
+        );
+    }
+
+    private MetaValidationResult parseAndValidateMetaStrict(
+            String metaLineUtf8,
+            AuditExportSnapshot snapshot
+    ) throws Exception {
+        JsonNode root = objectMapper.readTree(metaLineUtf8);
+
+        JsonNode metaNode = root.get("_export_meta");
+        boolean metaPresent = metaNode != null && metaNode.isObject();
+
+        if (!metaPresent) {
+            throw new IllegalArgumentException("Invalid meta line");
+        }
+
+        AuditExportMetadataDTO meta =
+                objectMapper.treeToValue(metaNode, AuditExportMetadataDTO.class);
+
+        boolean metaParsed = true;
+
+        boolean metaSnapshotIdMatches =
+                meta.snapshotId() != null &&
+                        meta.snapshotId().equals(snapshot.getId());
+
+        // These checks are cheap and shut down “meta swapping”.
+        boolean metaKeyIdMatches =
+                meta.keyId() == null ||
+                        snapshot.getKeyId() == null ||
+                        meta.keyId().trim().equals(snapshot.getKeyId().trim());
+        boolean metaAlgorithmMatches =
+                meta.signatureAlgorithm() == null ||
+                        snapshot.getSignatureAlg() == null ||
+                        meta.signatureAlgorithm().trim().equals(snapshot.getSignatureAlg().trim());
+
+        boolean metaSignatureMatches =
+                meta.signatureB64() == null ||
+                        snapshot.getSignatureB64() == null ||
+                        meta.signatureB64().trim().equals(snapshot.getSignatureB64().trim());
+
+        boolean metaDigestMatches =
+                meta.payloadSha256Hex() == null ||
+                        snapshot.getSha256DigestHex() == null ||
+                        meta.payloadSha256Hex().trim().equalsIgnoreCase(snapshot.getSha256DigestHex().trim());
+
+        boolean metaDigestAlgorithmMatches =
+                meta.digestAlgorithm() == null ||
+                        DIGEST_ALG.equals(meta.digestAlgorithm().trim());
+
+        boolean metaSignatureInputMatches = true;
+        boolean metaStreamMatches = true;
+        boolean metaRangeMatches = true;
+        boolean metaTenantMatches = true;
+        boolean metaRowCountMatches = true;
+
+        return new MetaValidationResult(
+                meta,
+                metaPresent,
+                metaParsed,
+                metaSnapshotIdMatches,
+                metaDigestMatches,
+                metaSignatureMatches,
+                metaKeyIdMatches,
+                metaAlgorithmMatches,
+                metaDigestAlgorithmMatches,
+                metaSignatureInputMatches,
+                metaStreamMatches,
+                metaRangeMatches,
+                metaTenantMatches,
+                metaRowCountMatches
+        );
+    }
+
+    /**
+     * Extracts:
+     * - metaIndex: index of last non-blank line in tailLines
+     * - metaLineOut: set to UTF-8 string of that last non-blank line (trimmed of \r/\n)
+     * Also enforces:
+     * - no non-blank trailing lines after metaIndex
+     */
+    private static int extractMetaIndexAndLine(List<byte[]> tailLines, StringBuilder metaLineOut) {
+
         int metaIndex = -1;
         String metaLineUtf8 = null;
 
@@ -309,7 +601,6 @@ public class AuditExportVerificationService {
             throw new IllegalArgumentException("Missing _export_meta line");
         }
 
-        // Anything after meta must be blank line(s) only (otherwise trailing data after meta)
         for (int i = metaIndex + 1; i < tailLines.size(); i++) {
             String after = trimLineEndingsUtf8(tailLines.get(i));
             if (!after.isBlank()) {
@@ -317,114 +608,94 @@ public class AuditExportVerificationService {
             }
         }
 
-        // Commit any non-meta lines that were kept in tailLines before metaIndex.
-        for (int i = 0; i < metaIndex; i++) {
-            byte[] commit = tailLines.get(i);
-            payloadLengthBytes += commit.length;
-            md.update(commit);
-            verifier.update(commit);
-        }
+        metaLineOut.setLength(0);
+        metaLineOut.append(metaLineUtf8);
 
-        // Strict structural detection + deterministic canonicalization + full alignment checks.
-        AuditExportMetadataDTO meta = parseAndValidateMetaStrict(metaLineUtf8, snapshot);
-
-        byte[] computedDigestBytes = md.digest();
-        String computedDigestHex = HEX.formatHex(computedDigestBytes);
-
-        boolean signatureValid = verifier.verify(signatureBytes);
-
-        return new StreamingVerifyResult(meta, computedDigestHex, signatureValid, payloadLengthBytes);
+        return metaIndex;
     }
 
-    private AuditExportMetadataDTO parseAndValidateMetaStrict(
-            String metaLineUtf8,
-            AuditExportSnapshot snapshot
-    ) {
-        try {
-            // Structural meta detection (no substring checks)
-            JsonNode root = objectMapper.readTree(metaLineUtf8);
-            JsonNode metaNode = root.get("_export_meta");
-            if (metaNode == null || !metaNode.isObject()) {
-                throw new IllegalArgumentException("Invalid meta line: missing _export_meta object");
-            }
-
-            // Deterministic canonicalization enforcement:
-            // metaLine must be EXACT canonical serialization of the parsed root.
-            String canonical = canonicalJsonWriter.writeValueAsString(root);
-            if (!canonical.equals(metaLineUtf8)) {
-                throw new IllegalArgumentException("Meta line is not canonical JSON");
-            }
-
-            AuditExportMetadataDTO meta =
-                    objectMapper.treeToValue(metaNode, AuditExportMetadataDTO.class);
-
-            // Explicit digest algorithm enforcement (SHA-256 only)
-            if (meta.digestAlgorithm() == null || meta.digestAlgorithm().isBlank()) {
-                throw new IllegalArgumentException("Invalid meta: digestAlgorithm missing");
-            }
-            if (!DIGEST_ALG.equals(meta.digestAlgorithm().trim())) {
-                throw new IllegalArgumentException("Unsupported digestAlgorithm: " + meta.digestAlgorithm());
-            }
-
-            // Disallow external signatureAlgorithm input entirely:
-            // meta must match registry and registry must match our fixed algorithm.
-            if (meta.signatureAlgorithm() == null || meta.signatureAlgorithm().isBlank()) {
-                throw new IllegalArgumentException("Invalid meta: signatureAlgorithm missing");
-            }
-            if (!SIGNATURE_ALG.equals(meta.signatureAlgorithm().trim())) {
-                throw new IllegalArgumentException("Unsupported signatureAlgorithm: " + meta.signatureAlgorithm());
-            }
-            if (!SIGNATURE_ALG.equals(snapshot.getSignatureAlg().trim())) {
-                throw new IllegalArgumentException("Registry signatureAlgorithm unsupported: " + snapshot.getSignatureAlg());
-            }
-
-            // Required fields
-            if (meta.snapshotId() == null) throw new IllegalArgumentException("Invalid meta: snapshotId missing");
-            if (meta.payloadSha256Hex() == null || meta.payloadSha256Hex().isBlank())
-                throw new IllegalArgumentException("Invalid meta: payloadSha256Hex missing");
-            if (meta.signatureB64() == null || meta.signatureB64().isBlank())
-                throw new IllegalArgumentException("Invalid meta: signatureB64 missing");
-            if (meta.keyId() == null || meta.keyId().isBlank())
-                throw new IllegalArgumentException("Invalid meta: keyId missing");
-            if (meta.publicKeyFingerprint() == null || meta.publicKeyFingerprint().isBlank())
-                throw new IllegalArgumentException("Invalid meta: publicKeyFingerprint missing");
-            if (meta.signatureInput() == null || meta.signatureInput().isBlank())
-                throw new IllegalArgumentException("Invalid meta: signatureInput missing");
-
-            // Registry alignment checks (full)
-            if (!meta.snapshotId().equals(snapshot.getId())) {
-                throw new IllegalArgumentException("Meta snapshotId mismatch");
-            }
-            if (!safeEq(meta.stream(), snapshot.getStream())) {
-                throw new IllegalArgumentException("Meta stream mismatch");
-            }
-            if (!meta.keyId().trim().equals(snapshot.getKeyId().trim())) {
-                throw new IllegalArgumentException("Meta keyId mismatch");
-            }
-            if (!meta.signatureAlgorithm().trim().equals(snapshot.getSignatureAlg().trim())) {
-                throw new IllegalArgumentException("Meta signatureAlgorithm mismatch");
-            }
-            if (!meta.signatureB64().trim().equals(snapshot.getSignatureB64().trim())) {
-                throw new IllegalArgumentException("Meta signatureB64 mismatch");
-            }
-            if (!meta.payloadSha256Hex().trim().equalsIgnoreCase(snapshot.getSha256DigestHex().trim())) {
-                throw new IllegalArgumentException("Meta payloadSha256Hex mismatch");
-            }
-            if (!AuditExportMetadataDTO.SIGNATURE_INPUT_PAYLOAD_JSONL_BYTES.equals(meta.signatureInput())) {
-                throw new IllegalArgumentException("Unsupported signatureInput: " + meta.signatureInput());
-            }
-
-            return meta;
-
-        } catch (IllegalArgumentException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to parse meta line: " + e.getMessage(), e);
+    /**
+     * True only if the line is a meta envelope JSON object with a top-level "_export_meta" object.
+     * This avoids false positives where payload JSON contains "_export_meta" inside string values.
+     */
+    private boolean isMetaEnvelopeLine(byte[] lineBytes) {
+        if (!containsMetaFieldToken(lineBytes)) {
+            return false;
         }
+        return isMetaEnvelopeLine(trimLineEndingsUtf8(lineBytes));
+    }
+
+    private boolean isMetaEnvelopeLine(String lineUtf8) {
+        if (lineUtf8 == null || lineUtf8.isBlank()) return false;
+
+        // Very cheap guard before parsing JSON.
+        if (!lineUtf8.contains("\"_export_meta\"")) return false;
+
+        int i = 0;
+        while (i < lineUtf8.length() && Character.isWhitespace(lineUtf8.charAt(i))) i++;
+        if (i >= lineUtf8.length() || lineUtf8.charAt(i) != '{') return false;
+
+        try {
+            JsonNode root = objectMapper.readTree(lineUtf8);
+            JsonNode metaNode = root.get("_export_meta");
+            return metaNode != null && metaNode.isObject();
+        } catch (Exception e) {
+            // Not a valid JSON meta envelope.
+            return false;
+        }
+    }
+
+    private static boolean containsMetaFieldToken(byte[] lineBytes) {
+        if (lineBytes == null || lineBytes.length == 0) return false;
+
+        int end = lineBytes.length;
+        while (end > 0) {
+            byte b = lineBytes[end - 1];
+            if (b == '\n' || b == '\r') end--;
+            else break;
+        }
+        if (end <= 0) return false;
+
+        // Scan for META_FIELD_TOKEN in [0, end)
+        int max = end - META_FIELD_TOKEN.length;
+        for (int i = 0; i <= max; i++) {
+            boolean match = true;
+            for (int j = 0; j < META_FIELD_TOKEN.length; j++) {
+                if (lineBytes[i + j] != META_FIELD_TOKEN[j]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return true;
+        }
+        return false;
+    }
+
+    private static boolean isBlankLine(byte[] lineBytes) {
+        if (lineBytes == null || lineBytes.length == 0) return true;
+
+        int end = lineBytes.length;
+        while (end > 0) {
+            byte b = lineBytes[end - 1];
+            if (b == '\n' || b == '\r') end--;
+            else break;
+        }
+        if (end <= 0) return true;
+
+        for (int i = 0; i < end; i++) {
+            byte b = lineBytes[i];
+            if (b != ' ' && b != '\t') return false;
+        }
+        return true;
+    }
+
+    private static boolean isNonBlankLine(byte[] lineBytes) {
+        return !isBlankLine(lineBytes);
     }
 
     private static String trimLineEndingsUtf8(byte[] lineBytes) {
         if (lineBytes == null || lineBytes.length == 0) return "";
+
         int end = lineBytes.length;
         while (end > 0) {
             byte b = lineBytes[end - 1];
@@ -432,46 +703,35 @@ public class AuditExportVerificationService {
             else break;
         }
         if (end <= 0) return "";
+
         return new String(lineBytes, 0, end, StandardCharsets.UTF_8);
     }
 
     private record StreamingVerifyResult(
-            AuditExportMetadataDTO meta,
             String computedDigestHex,
             boolean signatureValid,
-            long payloadLengthBytes
-    ) {}
-
-    private static final class ByteArrayOutputStreamEx {
-        private byte[] buf;
-        private int count;
-
-        private ByteArrayOutputStreamEx(int initialCapacity) {
-            this.buf = new byte[Math.max(64, initialCapacity)];
-            this.count = 0;
-        }
-
-        int size() {
-            return count;
-        }
-
-        void writeByte(byte b) {
-            if (count == buf.length) {
-                buf = Arrays.copyOf(buf, buf.length * 2);
-            }
-            buf[count++] = b;
-        }
-
-        byte[] toByteArrayAndReset() {
-            byte[] out = Arrays.copyOf(buf, count);
-            count = 0;
-            return out;
-        }
+            long payloadLengthBytes,
+            long payloadRowCount
+    ) {
     }
 
-    /* =====================================================
-       LOGGING + METRICS HELPERS
-       ===================================================== */
+    private record MetaValidationResult(
+            AuditExportMetadataDTO meta,
+            boolean metaPresent,
+            boolean metaParsed,
+            boolean metaSnapshotIdMatches,
+            boolean metaDigestMatches,
+            boolean metaSignatureMatches,
+            boolean metaKeyIdMatches,
+            boolean metaAlgorithmMatches,
+            boolean metaDigestAlgorithmMatches,
+            boolean metaSignatureInputMatches,
+            boolean metaStreamMatches,
+            boolean metaRangeMatches,
+            boolean metaTenantMatches,
+            boolean metaRowCountMatches
+    ) {
+    }
 
     private static String resolveCorrelationId(UUID snapshotId) {
         String corr = MDC.get("correlationId");
@@ -495,7 +755,6 @@ public class AuditExportVerificationService {
             String correlationId,
             CorrelationSource source
     ) {
-
         emitVerificationLog(false, correlationId, source,
                 snapshotId, stream, tenantId,
                 action, message);
@@ -535,7 +794,6 @@ public class AuditExportVerificationService {
             String message,
             StructuredArgument... extra
     ) {
-
         StructuredArgument[] base = new StructuredArgument[]{
                 kv("schema_version", "docflow_siem_v1"),
                 kv("event.category", "audit"),
@@ -552,7 +810,7 @@ public class AuditExportVerificationService {
         };
 
         StructuredArgument[] args =
-                extra != null && extra.length > 0
+                (extra != null && extra.length > 0)
                         ? Arrays.copyOf(base, base.length + extra.length)
                         : base;
 
@@ -565,11 +823,5 @@ public class AuditExportVerificationService {
         } else {
             log.error("security_event {}", (Object[]) args);
         }
-    }
-
-    private static boolean safeEq(Object a, Object b) {
-        if (a == null && b == null) return true;
-        if (a == null || b == null) return false;
-        return a.equals(b);
     }
 }

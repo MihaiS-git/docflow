@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/identity-projection")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class IdentityProjectionAuditController {
 
     private final IdentityProjectionAuditQueryService queryService;

@@ -21,7 +21,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/authentication")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class AuthenticationAuditController {
 
     private final AuthenticationAuditQueryService queryService;

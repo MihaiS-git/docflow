@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/onboarding")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class OnboardingAuditController {
 
     private final OnboardingAuditQueryService queryService;

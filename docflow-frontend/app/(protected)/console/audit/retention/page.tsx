@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { ApiError } from "@/lib/apiErrors";
 import { toast } from "sonner";
@@ -16,7 +16,6 @@ type AuditRetentionPolicyDTO = {
 export default function RetentionPolicyPage() {
   const [policies, setPolicies] = useState<AuditRetentionPolicyDTO[]>([]);
   const [loading, setLoading] = useState(false);
-  const [savingStream, setSavingStream] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -25,7 +24,7 @@ export default function RetentionPolicyPage() {
 
     try {
       const data = await apiFetch<AuditRetentionPolicyDTO[]>(
-        "/api/audit/retention"
+        "/api/audit/retention",
       );
       setPolicies(data);
     } catch (e) {
@@ -39,37 +38,43 @@ export default function RetentionPolicyPage() {
     load();
   }, []);
 
-  async function upsert(
-    streamName: string,
-    retentionDays: number | null,
-    archiveEnabled: boolean
-  ) {
-    setSavingStream(streamName);
+  const upsert = useCallback(
+    async (
+      streamName: string,
+      retentionDays: number | null,
+      archiveEnabled: boolean,
+    ) => {
+      try {
+        await apiFetch<AuditRetentionPolicyDTO>(
+          `/api/audit/retention/${streamName}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              retentionDays,
+              archiveEnabled,
+            }),
+          },
+        );
 
-    try {
-      await apiFetch<AuditRetentionPolicyDTO>(
-        `/api/audit/retention/${streamName}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            retentionDays,
-            archiveEnabled,
-          }),
+        toast.success("Retention policy updated");
+
+        setPolicies((prev) =>
+          prev.map((p) =>
+            p.streamName === streamName
+              ? { ...p, retentionDays, archiveEnabled }
+              : p,
+          ),
+        );
+      } catch (e) {
+        if (e instanceof ApiError) {
+          toast.error(e.message);
+        } else {
+          toast.error("Update failed");
         }
-      );
-
-      toast.success("Retention policy updated");
-      await load();
-    } catch (e) {
-      if (e instanceof ApiError) {
-        toast.error(e.message);
-      } else {
-        toast.error("Update failed");
       }
-    } finally {
-      setSavingStream(null);
-    }
-  }
+    },
+    [],
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -82,7 +87,7 @@ export default function RetentionPolicyPage() {
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       <div className="overflow-auto border rounded">
-        <table className="min-w-full text-xs">
+        <table className="min-w-full text-xs table-fixed">
           <thead>
             <tr>
               <th className="p-2 border-b text-left">Stream</th>
@@ -93,12 +98,7 @@ export default function RetentionPolicyPage() {
           </thead>
           <tbody>
             {policies.map((p) => (
-              <RetentionRow
-                key={p.streamName}
-                policy={p}
-                onSave={upsert}
-                saving={savingStream === p.streamName}
-              />
+              <RetentionRow key={p.streamName} policy={p} onSave={upsert} />
             ))}
           </tbody>
         </table>
@@ -107,26 +107,22 @@ export default function RetentionPolicyPage() {
   );
 }
 
-function RetentionRow({
+const RetentionRow = memo(function RetentionRow({
   policy,
   onSave,
-  saving,
 }: {
   policy: AuditRetentionPolicyDTO;
   onSave: (
     streamName: string,
     retentionDays: number | null,
-    archiveEnabled: boolean
-  ) => void;
-  saving: boolean;
+    archiveEnabled: boolean,
+  ) => Promise<void> | void;
 }) {
-  const [retentionDays, setRetentionDays] = useState<number | null>(
-    policy.retentionDays
-  );
-  const [archiveEnabled, setArchiveEnabled] = useState<boolean>(
-    policy.archiveEnabled
-  );
+  const retentionRef = useRef<HTMLInputElement>(null);
+  const archiveRef = useRef<HTMLInputElement>(null);
+
   const [localError, setLocalError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   return (
     <tr>
@@ -136,26 +132,9 @@ function RetentionRow({
         <input
           type="number"
           min={1}
-          value={retentionDays ?? ""}
-          disabled={saving}
-          onChange={(e) => {
-            const value = e.target.value;
-
-            if (value === "") {
-              setRetentionDays(null);
-              setLocalError(null);
-              return;
-            }
-
-            const parsed = Number(value);
-
-            if (!Number.isInteger(parsed) || parsed < 1) {
-              setLocalError("Retention must be >= 1 day");
-            } else {
-              setLocalError(null);
-              setRetentionDays(parsed);
-            }
-          }}
+          step={1}
+          defaultValue={policy.retentionDays ?? ""}
+          ref={retentionRef}
           className="border rounded px-2 py-1 w-24"
         />
         {localError && (
@@ -166,23 +145,44 @@ function RetentionRow({
       <td className="p-2">
         <input
           type="checkbox"
-          checked={archiveEnabled}
+          defaultChecked={policy.archiveEnabled}
           disabled={saving}
-          onChange={(e) => setArchiveEnabled(e.target.checked)}
+          ref={archiveRef}
         />
       </td>
 
       <td className="p-2">
         <button
           disabled={saving || !!localError}
-          onClick={() =>
-            onSave(policy.streamName, retentionDays, archiveEnabled)
-          }
-          className="px-3 py-1 rounded bg-black text-white text-xs disabled:opacity-50"
+          onClick={async () => {
+            const value = retentionRef.current?.value ?? "";
+
+            if (value !== "") {
+              const parsed = Number(value);
+
+              if (!Number.isInteger(parsed) || parsed < 1) {
+                setLocalError("Retention must be >= 1 day");
+                return;
+              }
+            }
+
+            setLocalError(null);
+            setSaving(true);
+
+            try {
+              const retention = value === "" ? null : Number(value);
+              const archiveEnabled = archiveRef.current?.checked ?? false;
+
+              await onSave(policy.streamName, retention, archiveEnabled);
+            } finally {
+              setSaving(false);
+            }
+          }}
+          className="w-20 px-3 py-1 rounded bg-black text-white text-xs disabled:opacity-50"
         >
-          {saving ? "Saving..." : "Save"}
+          {saving ? "..." : "Save"}
         </button>
       </td>
     </tr>
   );
-}
+});

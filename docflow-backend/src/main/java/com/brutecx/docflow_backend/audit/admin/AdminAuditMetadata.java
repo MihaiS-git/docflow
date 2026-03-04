@@ -29,6 +29,5 @@ public sealed interface AdminAuditMetadata
         UserStateChangeMetadata,
         TenantAuditMetadata,
         TenantMembershipChangeMetadata,
-        LegalHoldAuditMetadata,
         RetentionPolicyAuditMetadata {
 }

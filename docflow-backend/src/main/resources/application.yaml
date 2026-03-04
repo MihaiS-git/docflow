@@ -135,3 +135,15 @@ docflow:
         private-key-pkcs8-pem: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM:}
         private-key-pkcs8-pem-path: ${DOCFLOW_AUDIT_EXPORT_SIGNING_PRIVATE_KEY_PKCS8_PEM_PATH:}
         key-id: ${DOCFLOW_AUDIT_EXPORT_SIGNING_KEY_ID}
+        rsa-bits: 4096
+      verify:
+        max-bytes: 268435456
+        allow-embedded-public-key-fallback: true
+    retention:
+      enabled: true
+      cron: "0 0 3 * * *"
+    signing:
+      rotation:
+        enabled: true
+        cron: "0 30 2 * * *"
+        max-age-days: 180

@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 /**
  * Scheduled runner for audit retention enforcement.
- *
  * Auditor-grade properties:
  * - property-gated (can be disabled in strict deployments)
  * - delegates to service which ensures single-instance execution via PG advisory lock
@@ -18,8 +17,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(
         prefix = "docflow.audit.retention",
         name = "enabled",
-        havingValue = "true",
-        matchIfMissing = false
+        havingValue = "true"
 )
 public class AuditRetentionScheduler {
 

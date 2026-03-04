@@ -4,16 +4,21 @@ import com.brutecx.docflow_backend.api.dto.audit.AuditRetentionPolicyDTO;
 import com.brutecx.docflow_backend.api.dto.audit.UpsertAuditRetentionPolicyRequest;
 import com.brutecx.docflow_backend.domain.audit.retention.AuditRetentionPolicy;
 import com.brutecx.docflow_backend.domain.audit.retention.AuditRetentionPolicyManagementService;
-import com.brutecx.docflow_backend.domain.audit.retention.AuditRetentionPolicyRepository;
 import com.brutecx.docflow_backend.domain.audit.retention.AuditRetentionStreamRegistry;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/audit/retention")
@@ -22,27 +27,32 @@ import java.util.*;
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminAuditRetentionPolicyController {
 
-    private final AuditRetentionPolicyRepository policyRepository;
     private final AuditRetentionPolicyManagementService managementService;
 
     @GetMapping
     public ResponseEntity<List<AuditRetentionPolicyDTO>> listAll() {
-        List<AuditRetentionPolicy> existing = policyRepository.findAll();
+        List<AuditRetentionPolicy> existing = managementService.listAll();
 
         Map<String, AuditRetentionPolicy> byStream = new HashMap<>();
         for (AuditRetentionPolicy p : existing) {
-            byStream.put(p.getStreamName(), p);
+            if (p == null) continue;
+            String s = p.getStreamName();
+            if (s == null || s.isBlank()) continue;
+            byStream.put(s.trim().toUpperCase(Locale.ROOT), p);
         }
 
         List<AuditRetentionPolicyDTO> out = new ArrayList<>();
 
-        for (String streamName : AuditRetentionStreamRegistry.streamNames()) {
+        for (String streamName : AuditRetentionStreamRegistry.STREAM_NAMES) {
             AuditRetentionPolicy p = byStream.get(streamName);
             if (p == null) {
+                AuditRetentionStreamRegistry.RetentionDefault d =
+                        AuditRetentionStreamRegistry.defaultFor(streamName);
+
                 out.add(new AuditRetentionPolicyDTO(
                         streamName,
-                        null,
-                        false,
+                        d.retentionDays(),
+                        d.archiveEnabled(),
                         null,
                         null
                 ));
@@ -50,19 +60,19 @@ public class AdminAuditRetentionPolicyController {
                 out.add(mapToDto(p));
             }
         }
-        out.sort(Comparator.comparing(AuditRetentionPolicyDTO::streamName));
 
+        out.sort(Comparator.comparing(AuditRetentionPolicyDTO::streamName));
         return ResponseEntity.ok(out);
     }
 
     @PutMapping("/{streamName}")
     public ResponseEntity<AuditRetentionPolicyDTO> upsert(
-            @PathVariable String streamName,
+            @PathVariable @NotBlank String streamName,
             @Valid @RequestBody UpsertAuditRetentionPolicyRequest request
     ) {
         AuditRetentionPolicy saved =
                 managementService.upsert(
-                        streamName,
+                        streamName.trim().toUpperCase(Locale.ROOT),
                         request.retentionDays(),
                         request.archiveEnabled()
                 );
@@ -78,5 +88,4 @@ public class AdminAuditRetentionPolicyController {
                 p.getUpdatedAt()
         );
     }
-
 }

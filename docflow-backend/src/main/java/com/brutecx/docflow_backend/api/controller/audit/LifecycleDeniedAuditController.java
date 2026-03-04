@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/lifecycle-denied")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class LifecycleDeniedAuditController {
 
     private final LifecycleDeniedAuditQueryService queryService;

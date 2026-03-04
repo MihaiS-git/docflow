@@ -1,53 +1,29 @@
 -- =====================================================
--- Audit signing keys: constraints + indexes (PostgreSQL)
+-- Audit signing keys: PostgreSQL hard invariants
+-- Compatible with ddl-auto=validate
 -- =====================================================
 
 -- -----------------------------------------------------
--- Fingerprint uniqueness (cryptographic identity)
+-- Ensure table exists (defensive safety)
 -- -----------------------------------------------------
 DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'uk_audit_signing_keys_fingerprint'
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'audit_signing_keys'
     ) THEN
-ALTER TABLE audit_signing_keys
-    ADD CONSTRAINT uk_audit_signing_keys_fingerprint
-        UNIQUE (fingerprint_sha256_hex);
-END IF;
+        RAISE EXCEPTION 'audit_signing_keys table does not exist';
+    END IF;
 END
 $$;
 
 -- -----------------------------------------------------
--- Enforce deterministic keyId format
--- -----------------------------------------------------
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'chk_audit_signing_keys_key_id_format'
-    ) THEN
-ALTER TABLE audit_signing_keys
-    ADD CONSTRAINT chk_audit_signing_keys_key_id_format
-        CHECK (key_id ~ '^audit-export:v[1-9][0-9]*$');
-END IF;
-END
-$$;
-
--- -----------------------------------------------------
--- Helpful indexes
--- -----------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_audit_signing_keys_active
-    ON audit_signing_keys (active);
-
-CREATE INDEX IF NOT EXISTS idx_audit_signing_keys_expires_at
-    ON audit_signing_keys (expires_at);
-
--- -----------------------------------------------------
--- At most ONE active key
+-- Critical invariant:
+-- At most ONE active signing key
+-- (Hibernate cannot generate partial indexes)
 -- -----------------------------------------------------
 CREATE UNIQUE INDEX IF NOT EXISTS ux_audit_signing_keys_active_true
-    ON audit_signing_keys (active)
+    ON public.audit_signing_keys (active)
     WHERE active = true;

@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/admin-actions")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class AdminAuditController {
 
     private final AdminAuditQueryService queryService;

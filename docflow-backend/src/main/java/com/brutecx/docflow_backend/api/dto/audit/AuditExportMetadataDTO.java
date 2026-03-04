@@ -15,6 +15,7 @@ public record AuditExportMetadataDTO(
         String signatureAlgorithm,
         String keyId,
         String publicKeyFingerprint,
+        String publicKeyPem,
         String digestAlgorithm,
         String signatureInput,
         UUID snapshotId,

@@ -11,13 +11,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.sql.Array;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -58,9 +60,13 @@ public class AuditRetentionEnforcementService {
     }
 
     public void enforceAllStreams() {
-        List<AuditRetentionPolicy> policies = policyRepository.findAll();
-        if (policies.isEmpty()) {
-            return;
+        // DB rows are overrides; defaults apply when DB has no row.
+        Map<String, AuditRetentionPolicy> overrides = new HashMap<>();
+        for (AuditRetentionPolicy p : policyRepository.findAll()) {
+            if (p == null) continue;
+            String s = p.getStreamName();
+            if (s == null || s.isBlank()) continue;
+            overrides.put(s.trim().toUpperCase(Locale.ROOT), p);
         }
 
         if (!tryAcquireLock()) {
@@ -69,32 +75,40 @@ public class AuditRetentionEnforcementService {
         }
 
         try {
-            for (AuditRetentionPolicy p : policies) {
-                enforcePolicy(p);
+            for (String streamName : AuditRetentionStreamRegistry.STREAM_NAMES) {
+                AuditRetentionPolicy override = overrides.get(streamName);
+                enforceEffectivePolicy(streamName, override);
             }
         } finally {
             releaseLock();
         }
     }
 
-    private void enforcePolicy(AuditRetentionPolicy p) {
-        if (p == null) return;
-        if (!p.isArchiveEnabled()) return;
+    private void enforceEffectivePolicy(String streamName, AuditRetentionPolicy override) {
+        if (streamName == null || streamName.isBlank()) return;
 
-        int days = p.getRetentionDays();
-        if (days <= 0) return;
-
-        String raw = p.getStreamName();
-        if (raw == null || raw.isBlank()) return;
-
-        String streamKey = raw.trim().toUpperCase(Locale.ROOT);
+        String streamKey = streamName.trim().toUpperCase(Locale.ROOT);
 
         AuditRetentionStreamRegistry.StreamTable t =
                 AuditRetentionStreamRegistry.STREAMS.get(streamKey);
 
         if (t == null) {
             log.warn("audit_retention unknown_stream policy_stream={} normalized_stream={} - skipping",
-                    raw, streamKey);
+                    streamName, streamKey);
+            return;
+        }
+
+        AuditRetentionStreamRegistry.RetentionDefault def =
+                AuditRetentionStreamRegistry.defaultFor(streamKey);
+
+        int days = override != null ? override.getRetentionDays() : def.retentionDays();
+        boolean archiveEnabled = override != null ? override.isArchiveEnabled() : def.archiveEnabled();
+
+        if (days <= 0) return;
+
+        // IMPORTANT: Preserve existing semantics:
+        // archiveEnabled=false => do nothing (no archive, no delete).
+        if (!archiveEnabled) {
             return;
         }
 
@@ -102,15 +116,14 @@ public class AuditRetentionEnforcementService {
 
         long total = 0L;
         while (true) {
-            int updated = txTemplate.execute(status ->
-                    exportAndDeleteBatch(t, cutoff)
-            );
+            Integer updated = txTemplate.execute(status -> exportAndDeleteBatch(t, cutoff));
 
-            if (updated <= 0) break;
+            int u = updated != null ? updated : 0;
+            if (u <= 0) break;
 
-            total += updated;
+            total += u;
 
-            if (updated < batchSize) break;
+            if (u < batchSize) break;
         }
 
         if (total > 0) {
@@ -123,68 +136,47 @@ public class AuditRetentionEnforcementService {
             AuditRetentionStreamRegistry.StreamTable t,
             Instant cutoff
     ) {
-
-        List<UUID> ids = jdbcTemplate.query(
-                "SELECT e." + t.idColumn() +
+        // One DB round-trip:
+        // - select victim ids (ordered, limited)
+        // - delete them
+        // - return deleted rows for export
+        // NOTE: table/column names are registry-controlled (not user input).
+        final String sql =
+                "WITH victim AS ( " +
+                        " SELECT e." + t.idColumn() +
                         " FROM " + t.tableName() + " e " +
                         " WHERE e." + t.timestampColumn() + " < ? " +
-                        " AND NOT EXISTS ( " +
-                        "   SELECT 1 FROM audit_legal_holds h " +
-                        "   WHERE h.active = TRUE " +
-                        "     AND h.stream_name = ? " +
-                        "     AND ( " +
-                        "       (h.event_id IS NULL AND h.correlation_id IS NULL) " +
-                        "       OR (h.event_id = e." + t.idColumn() + ") " +
-                        "       OR (h.correlation_id IS NOT NULL " +
-                        "           AND e." + t.correlationIdColumn() + " IS NOT NULL " +
-                        "           AND h.correlation_id = e." + t.correlationIdColumn() + ") " +
-                        "     ) " +
-                        " ) " +
                         " ORDER BY e." + t.timestampColumn() + " ASC, e." + t.idColumn() + " ASC " +
-                        " LIMIT ?",
-                (rs, rowNum) -> rs.getObject(1, UUID.class),
+                        " LIMIT ? " +
+                        " ), deleted AS ( " +
+                        " DELETE FROM " + t.tableName() + " d " +
+                        " USING victim v " +
+                        " WHERE d." + t.idColumn() + " = v." + t.idColumn() + " " +
+                        " RETURNING d.* " +
+                        " ) " +
+                        "SELECT * FROM deleted " +
+                        "ORDER BY " + t.timestampColumn() + " ASC, " + t.idColumn() + " ASC";
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                sql,
                 Timestamp.from(cutoff),
-                t.streamName(),
                 batchSize
         );
 
-        if (ids.isEmpty()) {
+        if (rows.isEmpty()) {
             return 0;
         }
 
         UUID systemActorId = actorProps.systemActorUuid();
 
         SealedJsonlAuditExportFileService.ExportResult result =
-                exportFileService.exportByIds(
+                exportFileService.exportRows(
                         t.streamName(),
-                        t.tableName(),
-                        ids,
+                        rows,
                         systemActorId
                 );
 
-        final String deleteSql =
-                "DELETE FROM " + t.tableName() + " e " +
-                        " WHERE e.id = ANY (?::uuid[]) " +
-                        " AND NOT EXISTS ( " +
-                        "   SELECT 1 FROM audit_legal_holds h " +
-                        "   WHERE h.active = TRUE " +
-                        "     AND h.stream_name = ? " +
-                        "     AND ( " +
-                        "       (h.event_id IS NULL AND h.correlation_id IS NULL) " +
-                        "       OR (h.event_id = e.id) " +
-                        "       OR (h.correlation_id IS NOT NULL " +
-                        "           AND e." + t.correlationIdColumn() + " IS NOT NULL " +
-                        "           AND h.correlation_id = e." + t.correlationIdColumn() + ") " +
-                        "     ) " +
-                        " )";
-
-        int deleted = jdbcTemplate.execute((Connection con) -> {
-            PreparedStatement ps = con.prepareStatement(deleteSql);
-            Array uuidArray = con.createArrayOf("uuid", ids.toArray(new UUID[0]));
-            ps.setArray(1, uuidArray);
-            ps.setString(2, t.streamName());
-            return ps;
-        }, PreparedStatement::executeUpdate);
+        int deleted = rows.size();
 
         exportedRowsCounter(t.streamName()).increment(result.rowCount());
         deletedRowsCounter(t.streamName()).increment(deleted);

@@ -9,10 +9,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Enforces DB-level invariants for audit signing keys:
- * 1) At most one active key (partial unique index)
- * 2) Startup validation to detect corruption
- * Runs AFTER JPA/Hibernate schema initialization.
+ * Startup validation for audit signing keys.
+ * NOTE:
+ * - Partial unique index must be enforced via Flyway migration.
+ * - This component only validates DB integrity at startup.
  */
 @Slf4j
 @Component
@@ -23,24 +23,11 @@ public class AuditSigningKeySchemaInitializer {
     private final JdbcTemplate jdbcTemplate;
 
     @EventListener(ApplicationReadyEvent.class)
-    public void enforceInvariants() {
-
-        ensurePartialUniqueIndex();
+    public void validateInvariants() {
 
         validateSingleActiveKey();
 
-        log.info("Audit signing key DB invariants verified");
-    }
-
-    private void ensurePartialUniqueIndex() {
-
-        jdbcTemplate.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS ux_audit_signing_keys_active_true
-            ON audit_signing_keys (active)
-            WHERE active = true
-        """);
-
-        log.info("Ensured partial unique index ux_audit_signing_keys_active_true");
+        log.info("Audit signing key DB validation completed");
     }
 
     private void validateSingleActiveKey() {

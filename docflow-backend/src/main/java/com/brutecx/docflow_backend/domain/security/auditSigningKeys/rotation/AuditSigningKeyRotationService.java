@@ -1,18 +1,15 @@
 package com.brutecx.docflow_backend.domain.security.auditSigningKeys.rotation;
 
-import com.brutecx.docflow_backend.audit.keyrotation.AuditExportSigningKeyRotationAuditService;
-import com.brutecx.docflow_backend.audit.keyrotation.AuditExportSigningKeyRotationReason;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.crypto.AuditKeyCrypto;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.crypto.RsaKeyCodec;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKey;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKeyRepository;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKeyResolver;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,112 +17,120 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
-import java.time.ZoneOffset;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Slf4j
 @Service
 public class AuditSigningKeyRotationService {
 
-    private static final int ROTATION_MONTHS = 6;
     private static final String NAMESPACE = "audit-export";
     private static final String KEY_PREFIX = NAMESPACE + ":v";
 
+    private static final long ROTATION_LOCK_KEY = 884422113377L;
+
     private final AuditSigningKeyRepository repository;
     private final AuditSigningKeyResolver resolver;
-    private final AuditSigningKeyRotationLockRepository lockRepository;
     private final AuditKeyCrypto crypto;
-    private final AuditExportSigningKeyRotationAuditService rotationAuditService;
-
-    private final Counter rotatedMissingCounter;
-    private final Counter rotatedExpiredCounter;
+    private final JdbcTemplate jdbcTemplate;
 
     private final int rsaBits;
+    private final int maxAgeDays;
 
     public AuditSigningKeyRotationService(
             AuditSigningKeyRepository repository,
             AuditSigningKeyResolver resolver,
-            AuditSigningKeyRotationLockRepository lockRepository,
             AuditKeyCrypto crypto,
-            AuditExportSigningKeyRotationAuditService rotationAuditService,
-            MeterRegistry meterRegistry,
-            @Value("${docflow.audit.export.signing.rsa-bits:3072}") int rsaBits
+            JdbcTemplate jdbcTemplate,
+            @Value("${docflow.audit.export.signing.rsa-bits}") int rsaBits,
+            @Value("${docflow.audit.signing.rotation.max-age-days}") int maxAgeDays
     ) {
         this.repository = repository;
         this.resolver = resolver;
-        this.lockRepository = lockRepository;
         this.crypto = crypto;
-        this.rotationAuditService = rotationAuditService;
-        this.rsaBits = (rsaBits == 2048 || rsaBits == 3072) ? rsaBits : 3072;
-
-        this.rotatedMissingCounter = Counter.builder("docflow.audit.export.signing_key.rotated_missing")
-                .register(meterRegistry);
-
-        this.rotatedExpiredCounter = Counter.builder("docflow.audit.export.signing_key.rotated_expired")
-                .register(meterRegistry);
+        this.jdbcTemplate = jdbcTemplate;
+        this.rsaBits = rsaBits;
+        this.maxAgeDays = maxAgeDays;
     }
 
     /**
-     * Guarantees a non-expired active key.
-     * Auto-rotates inside same transaction if needed.
+     * Used by export pipeline.
+     * Guarantees an active signing key exists.
      */
     @Transactional
     public AuditSigningKey requireActiveForExport() {
-
-        // First optimistic check (no lock)
         AuditSigningKey current = resolver.findActive().orElse(null);
 
         if (current != null && !isExpired(current)) {
             return current;
         }
 
-        // Acquire rotation lock
-        lockRepository.lockRow();
+        acquireAdvisoryLock();
 
-        // Re-check AFTER acquiring lock
         AuditSigningKey afterLock = repository.findActiveForUpdate().orElse(null);
 
         if (afterLock != null && !isExpired(afterLock)) {
             return afterLock;
         }
 
-        AuditExportSigningKeyRotationReason reason =
-                (afterLock == null)
-                        ? AuditExportSigningKeyRotationReason.MISSING
-                        : AuditExportSigningKeyRotationReason.EXPIRED;
-
+        String reason = (afterLock == null) ? "MISSING" : "EXPIRED";
         String oldKeyId = (afterLock == null) ? null : afterLock.getKeyId();
 
         return rotate(reason, oldKeyId);
     }
 
+    /**
+     * Used by scheduler.
+     */
+    @Transactional
+    public void rotateIfRequired() {
+        AuditSigningKey active = resolver.findActive().orElse(null);
+
+        if (active == null) {
+            requireActiveForExport();
+            return;
+        }
+
+        if (!isExpired(active)) {
+            return;
+        }
+
+        acquireAdvisoryLock();
+
+        AuditSigningKey afterLock = repository.findActiveForUpdate().orElse(null);
+
+        if (afterLock != null && !isExpired(afterLock)) {
+            return;
+        }
+
+        rotate("EXPIRED", afterLock == null ? null : afterLock.getKeyId());
+    }
+
     private boolean isExpired(AuditSigningKey key) {
-        return key.getExpiresAt() == null || Instant.now().isAfter(key.getExpiresAt());
+        if (key.getExpiresAt() == null) {
+            return true;
+        }
+
+        return Instant.now().isAfter(key.getExpiresAt());
+    }
+
+    private void acquireAdvisoryLock() {
+        jdbcTemplate.queryForObject(
+                "SELECT pg_advisory_xact_lock(?)",
+                Object.class,
+                ROTATION_LOCK_KEY
+        );
     }
 
     @Transactional
-    private AuditSigningKey rotate(
-            AuditExportSigningKeyRotationReason reason,
-            String oldKeyId
-    ) {
+    private AuditSigningKey rotate(String reason, String oldKeyId) {
         final int maxAttempts = 5;
 
-        String nextKeyId = generateNextVersionKeyId();
-
-        if (reason == AuditExportSigningKeyRotationReason.MISSING) {
-            rotatedMissingCounter.increment();
-        }
-        if (reason == AuditExportSigningKeyRotationReason.EXPIRED) {
-            rotatedExpiredCounter.increment();
-        }
-
         repository.deactivateAll();
-
-        Instant now = Instant.now();
-        Instant expiresAt = now.atOffset(ZoneOffset.UTC)
-                .plusMonths(ROTATION_MONTHS)
-                .toInstant();
+        repository.flush();
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            String nextKeyId = generateNextVersionKeyId();
 
             KeyPair kp = generateRsaKeyPair();
 
@@ -139,32 +144,45 @@ public class AuditSigningKeyRotationService {
             byte[] privatePkcs8Der = kp.getPrivate().getEncoded();
             byte[] encrypted = crypto.encrypt(privatePkcs8Der);
 
-            AuditSigningKey newKey = new AuditSigningKey(
+            AuditSigningKey newKey = AuditSigningKey.create(
                     nextKeyId,
                     publicPem,
                     encrypted,
                     fingerprint,
-                    now,
-                    expiresAt,
-                    true
+                    maxAgeDays
             );
 
             try {
                 repository.saveAndFlush(newKey);
-                resolver.evict(nextKeyId);
 
-                rotationAuditService.recordRotation(reason, oldKeyId, nextKeyId, fingerprint);
-                logRotation(reason, oldKeyId, nextKeyId, now);
+                String correlationId = MDC.get("correlationId");
+                if (correlationId == null) {
+                    correlationId = "rotation-" + nextKeyId;
+                }
+
+                log.info("security_event {}",
+                        kv("schema_version", "docflow_siem_v1"),
+                        kv("event.category", "key_management"),
+                        kv("event.action", "audit_export_key_rotation"),
+                        kv("event.outcome", "success"),
+                        kv("keyrotation.reason", reason),
+                        kv("keyrotation.old_key_id", oldKeyId),
+                        kv("keyrotation.new_key_id", nextKeyId),
+                        kv("keyrotation.fingerprint", fingerprint),
+                        kv("correlation.id", correlationId)
+                );
 
                 return newKey;
-
             } catch (DataIntegrityViolationException ex) {
                 if (attempt == maxAttempts) {
-                    log.error(
-                            "AUDIT_EXPORT_SIGNING_KEY_ROTATION_FAILED reason={} oldKeyId={} correlationId={}",
-                            reason,
-                            oldKeyId,
-                            MDC.get("correlationId"),
+                    log.error("security_event {}",
+                            kv("schema_version", "docflow_siem_v1"),
+                            kv("event.category", "key_management"),
+                            kv("event.action", "audit_export_key_rotation"),
+                            kv("event.outcome", "failure"),
+                            kv("keyrotation.reason", reason),
+                            kv("keyrotation.old_key_id", oldKeyId),
+                            kv("error", ex.getClass().getSimpleName()),
                             ex
                     );
                     throw ex;
@@ -172,43 +190,18 @@ public class AuditSigningKeyRotationService {
             }
         }
 
-        log.error(
-                "AUDIT_EXPORT_SIGNING_KEY_ROTATION_FAILED_EXHAUSTED reason={} oldKeyId={} correlationId={}",
-                reason,
-                oldKeyId,
-                MDC.get("correlationId")
-        );
-
-        throw new IllegalStateException(
-                "Failed to rotate signing key after " + maxAttempts + " attempts"
-        );
-    }
-
-    private static void logRotation(
-            AuditExportSigningKeyRotationReason reason,
-            String oldKeyId,
-            String nextKeyId,
-            Instant now
-    ) {
-        String correlationId = MDC.get("correlationId");
-        log.info(
-                "AUDIT_EXPORT_SIGNING_KEY_ROTATED reason={} oldKeyId={} newKeyId={} ts={} correlationId={}",
-                reason,
-                oldKeyId,
-                nextKeyId,
-                now,
-                correlationId
-        );
+        throw new IllegalStateException("Failed to rotate signing key");
     }
 
     private KeyPair generateRsaKeyPair() {
         try {
             KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
             kpg.initialize(rsaBits);
+
             KeyPair kp = kpg.generateKeyPair();
 
             if (!(kp.getPublic() instanceof RSAPublicKey)) {
-                throw new IllegalStateException("Generated non-RSA public key");
+                throw new IllegalStateException("Generated non RSA key");
             }
 
             return kp;

@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/sensitive-access")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class SensitiveAccessAuditController {
 
     private final SensitiveAccessAuditQueryService queryService;

@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/unauthenticated-access")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class UnauthenticatedAccessAuditController {
 
     private final UnauthenticatedAccessAuditQueryService queryService;

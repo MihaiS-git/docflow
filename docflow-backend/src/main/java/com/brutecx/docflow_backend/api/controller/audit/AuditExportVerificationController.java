@@ -16,7 +16,7 @@ import java.util.UUID;
 @RequestMapping("/api/audit/exports")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('AUDITOR')")
 public class AuditExportVerificationController {
 
     private final AuditExportVerificationService verificationService;

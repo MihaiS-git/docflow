@@ -1,24 +1,32 @@
 package com.brutecx.docflow_backend.domain.audit.export;
 
+import com.brutecx.docflow_backend.api.dto.audit.AuditExportMetadataDTO;
 import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.domain.audit.forensic.DigestingForensicExportService;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.rotation.AuditSigningKeyRotationService;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKey;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.ExportSigningService;
 import net.logstash.logback.argument.StructuredArgument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.io.*;
-import java.nio.file.*;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.io.BufferedOutputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.Signature;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
@@ -31,66 +39,62 @@ public class SealedJsonlAuditExportFileService {
     private static final String STREAM = "AUDIT_RETENTION_EXPORT";
     private static final String EXEC_CTX = "SYSTEM";
 
-    private final JdbcTemplate jdbcTemplate;
+    private static final int META_VERSION = 1;
+
     private final DigestingForensicExportService digestService;
     private final ExportSigningService signingService;
+    private final AuditSigningKeyRotationService rotationService;
     private final AuditExportSnapshotRepository snapshotRepository;
     private final AuditWriteFailureMetrics metrics;
 
     private final Path exportDir;
 
     public SealedJsonlAuditExportFileService(
-            JdbcTemplate jdbcTemplate,
             DigestingForensicExportService digestService,
             ExportSigningService signingService,
+            AuditSigningKeyRotationService rotationService,
             AuditExportSnapshotRepository snapshotRepository,
             AuditWriteFailureMetrics metrics,
             @Value("${docflow.audit.retention.export-dir:/var/lib/docflow/audit-retention}")
             String exportDir
     ) {
-        this.jdbcTemplate = jdbcTemplate;
         this.digestService = digestService;
         this.signingService = signingService;
+        this.rotationService = rotationService;
         this.snapshotRepository = snapshotRepository;
         this.metrics = metrics;
         this.exportDir = Path.of(exportDir);
     }
 
-    public ExportResult exportByIds(
+    private ExportResult exportInternal(
             String streamName,
-            String tableName,
-            List<UUID> ids,
+            List<Map<String, Object>> rows,
             UUID systemUserId
     ) {
-
         final long startNs = System.nanoTime();
         String correlationId = Optional.ofNullable(MDC.get("correlationId"))
                 .orElse("retention-" + UUID.randomUUID());
 
-        try {
+        final long requestedRowCount = (rows == null) ? 0L : rows.size();
 
-            if (ids.isEmpty()) {
-                throw new IllegalArgumentException("ids required");
+        try {
+            Objects.requireNonNull(streamName, "streamName");
+            Objects.requireNonNull(systemUserId, "systemUserId");
+
+            if (rows == null || rows.isEmpty()) {
+                throw new IllegalArgumentException("rows required");
             }
 
             Files.createDirectories(exportDir);
             Path tmp = Files.createTempFile(exportDir, "retention-", ".jsonl.tmp");
 
+            // Rotation happens exactly once here
+            AuditSigningKey activeKey = rotationService.requireActiveForExport();
+
             ExportSigningService.PayloadSigner signer =
-                    signingService.beginPayloadSigner();
+                    signingService.beginPayloadSigner(activeKey);
 
             Signature signature = signer.signature();
-
-            List<Map<String, Object>> rows =
-                    jdbcTemplate.queryForList(
-                            "SELECT * FROM " + tableName +
-                                    " WHERE id = ANY (?) ORDER BY timestamp ASC, id ASC",
-                            ids.toArray()
-                    );
-
-            if (rows.size() != ids.size()) {
-                throw new IllegalStateException("Retention export row mismatch");
-            }
 
             try (OutputStream out =
                          new BufferedOutputStream(Files.newOutputStream(tmp))) {
@@ -110,11 +114,14 @@ public class SealedJsonlAuditExportFileService {
 
                 Instant now = Instant.now();
 
+                Instant firstTs = (Instant) rows.getFirst().get("timestamp");
+                Instant lastTs = (Instant) rows.getLast().get("timestamp");
+
                 AuditExportSnapshot snapshot =
                         new AuditExportSnapshot(
                                 streamName,
-                                (Instant) rows.getFirst().get("timestamp"),
-                                (Instant) rows.getLast().get("timestamp"),
+                                firstTs,
+                                lastTs,
                                 null,
                                 digestHex,
                                 rows.size(),
@@ -127,16 +134,27 @@ public class SealedJsonlAuditExportFileService {
 
                 snapshotRepository.saveAndFlush(snapshot);
 
+                AuditExportMetadataDTO meta = new AuditExportMetadataDTO(
+                        META_VERSION,
+                        streamName,
+                        firstTs,
+                        lastTs,
+                        null,
+                        rows.size(),
+                        digestHex,
+                        sigResult.signatureB64(),
+                        sigResult.algorithm(),
+                        sigResult.keyId(),
+                        activeKey.getFingerprintSha256Hex(),
+                        activeKey.getPublicKeyPem(),
+                        AuditExportMetadataDTO.DIGEST_ALG_SHA256,
+                        AuditExportMetadataDTO.SIGNATURE_INPUT_PAYLOAD_JSONL_BYTES,
+                        snapshot.getId(),
+                        now
+                );
+
                 digestService.writeMetaJsonl(
-                        Map.of(
-                                "_export_meta", true,
-                                "snapshotId", snapshot.getId(),
-                                "sha256DigestHex", digestHex,
-                                "rowCount", rows.size(),
-                                "signature", sigResult.signatureB64(),
-                                "signatureAlg", sigResult.algorithm(),
-                                "keyId", sigResult.keyId()
-                        ),
+                        Map.of("_export_meta", meta),
                         ctx
                 );
 
@@ -150,14 +168,6 @@ public class SealedJsonlAuditExportFileService {
                         finalPath,
                         StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING
-                );
-
-                validateArtifact(
-                        finalPath,
-                        digestHex,
-                        sigResult.signatureB64(),
-                        sigResult.algorithm(),
-                        sigResult.keyId()
                 );
 
                 emitLog(
@@ -182,12 +192,17 @@ public class SealedJsonlAuditExportFileService {
                         sigResult.keyId()
                 );
             }
-
         } catch (Exception e) {
-
-            emitLog(false, correlationId, null,
-                    streamName, ids.size(), null, null,
-                    kv("exception.class", e.getClass().getSimpleName()));
+            emitLog(
+                    false,
+                    correlationId,
+                    null,
+                    streamName,
+                    requestedRowCount,
+                    null,
+                    null,
+                    kv("exception.class", e.getClass().getSimpleName())
+            );
 
             metrics.incrementFailure(STREAM, EXEC_CTX, e);
             metrics.recordLatency(STREAM, EXEC_CTX,
@@ -237,71 +252,6 @@ public class SealedJsonlAuditExportFileService {
         }
     }
 
-    private void validateArtifact(
-            Path file,
-            String expectedDigestHex,
-            String signatureB64,
-            String signatureAlg,
-            String keyId
-    ) throws IOException, NoSuchAlgorithmException {
-
-        long payloadLen = determinePayloadLength(file);
-
-        MessageDigest md = MessageDigest.getInstance("SHA-256");
-
-        try (InputStream in = Files.newInputStream(file)) {
-            byte[] buf = new byte[64 * 1024];
-            long remaining = payloadLen;
-            while (remaining > 0) {
-                int r = in.read(buf, 0, (int) Math.min(buf.length, remaining));
-                md.update(buf, 0, r);
-                remaining -= r;
-            }
-        }
-
-        String actualDigestHex =
-                DigestingForensicExportService.hexSha256(md.digest());
-
-        if (!expectedDigestHex.equalsIgnoreCase(actualDigestHex)) {
-            throw new IllegalStateException("Retention digest mismatch");
-        }
-
-        try (InputStream in = Files.newInputStream(file)) {
-            boolean sigOk =
-                    signingService.verifyPayloadSignatureStream(
-                            in,
-                            payloadLen,
-                            signatureB64,
-                            signatureAlg,
-                            keyId
-                    );
-
-            if (!sigOk) {
-                throw new IllegalStateException("Retention signature invalid");
-            }
-        }
-    }
-
-    private long determinePayloadLength(Path file) throws IOException {
-        try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
-            long length = raf.length();
-            long pos = length - 1;
-            int newlineCount = 0;
-
-            while (pos >= 0) {
-                raf.seek(pos);
-                if (raf.readByte() == '\n') {
-                    newlineCount++;
-                    if (newlineCount == 2) {
-                        return pos + 1;
-                    }
-                }
-                pos--;
-            }
-            throw new IllegalStateException("Invalid JSONL structure");
-        }
-    }
-
     public record ExportResult(
             UUID snapshotId,
             Path filePath,
@@ -310,4 +260,20 @@ public class SealedJsonlAuditExportFileService {
             String keyId
     ) {
     }
+
+    /**
+     * Export rows already fetched by caller.
+     * Intended for retention enforcement using DELETE ... RETURNING (avoids re-reading rows).
+     * Contract:
+     * - rows must include the "timestamp" column (Instant) used for snapshot bounds.
+     * - rows should be ordered by timestamp ASC, id ASC for determinism.
+     */
+    public ExportResult exportRows(
+            String streamName,
+            List<Map<String, Object>> rows,
+            UUID systemUserId
+    ) {
+        return exportInternal(streamName, rows, systemUserId);
+    }
+
 }

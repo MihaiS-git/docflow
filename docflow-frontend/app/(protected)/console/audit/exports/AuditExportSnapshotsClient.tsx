@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
-import { downloadAuditFile } from "@/lib/audit/auditDownload";
 import { AuditCursorPagination } from "@/lib/audit/AuditCursorPagination";
 import {
   toDateTimeLocalString,
@@ -20,24 +19,6 @@ type Filters = {
   snapshotId: string;
   createdFrom: string;
   createdTo: string;
-};
-
-type CurrentAuditKeyJson = {
-  keyId: string;
-  algorithm: string;
-  publicKeyPem: string;
-};
-
-const STREAM_EXPORT_ENDPOINT_BY_STREAM: Record<string, string> = {
-  ADMIN_ACTIONS: "/api/audit/admin-actions",
-  AUTHENTICATION: "/api/audit/authentication",
-  CREDENTIAL_LIFECYCLE: "/api/audit/credential-lifecycle",
-  IDENTITY_PROJECTION: "/api/audit/identity-projection",
-  LIFECYCLE_DENIED: "/api/audit/lifecycle-denied",
-  ONBOARDING: "/api/audit/onboarding",
-  RBAC_DENIED: "/api/audit/rbac-denied",
-  SENSITIVE_ACCESS: "/api/audit/sensitive-access",
-  UNAUTHENTICATED_ACCESS: "/api/audit/unauthenticated-access",
 };
 
 function buildSnapshotQuery(
@@ -64,22 +45,6 @@ function buildSnapshotQuery(
   }
 
   return qs;
-}
-
-function buildRegeneratedExportPath(s: AuditExportSnapshotDTO): string {
-  const endpointBase = STREAM_EXPORT_ENDPOINT_BY_STREAM[s.stream];
-  if (!endpointBase) {
-    throw new Error(
-      `Unknown stream "${s.stream}" (no export endpoint mapping).`,
-    );
-  }
-
-  const qs = new URLSearchParams();
-  qs.set("from", s.fromTs);
-  qs.set("to", s.toTs);
-  if (s.tenantId) qs.set("tenantId", s.tenantId);
-
-  return `${endpointBase}/export?${qs.toString()}`;
 }
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -114,14 +79,6 @@ export function AuditExportSnapshotsClient() {
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [verifySnapshot, setVerifySnapshot] =
     useState<AuditExportSnapshotDTO | null>(null);
-
-  // Global key viewer (single current key)
-  const [keyPanelOpen, setKeyPanelOpen] = useState(false);
-  const [currentKey, setCurrentKey] = useState<CurrentAuditKeyJson | null>(
-    null,
-  );
-  const [keyLoading, setKeyLoading] = useState(false);
-  const [keyError, setKeyError] = useState<string | null>(null);
 
   const streamOptions = useMemo(() => {
     const s = new Set<string>();
@@ -198,18 +155,6 @@ export function AuditExportSnapshotsClient() {
     setFilters((prev) => ({ ...prev, [key]: value }));
   }
 
-  function onDownloadJsonl(snapshot: AuditExportSnapshotDTO) {
-    try {
-      const path = buildRegeneratedExportPath(snapshot);
-      downloadAuditFile({
-        path,
-        filename: `audit-export-${snapshot.id}.jsonl`,
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Download failed");
-    }
-  }
-
   function onOpenVerify(s: AuditExportSnapshotDTO) {
     setVerifySnapshot(s);
     setVerifyOpen(true);
@@ -220,41 +165,6 @@ export function AuditExportSnapshotsClient() {
     setVerifySnapshot(null);
   }
 
-  async function fetchCurrentKey() {
-    setKeyLoading(true);
-    setKeyError(null);
-    try {
-      const json = await apiFetch<CurrentAuditKeyJson>(
-        "/api/security/audit-keys/current.json",
-      );
-      setCurrentKey(json);
-    } catch (e) {
-      setKeyError(
-        e instanceof Error ? e.message : "Failed to load current key",
-      );
-      setCurrentKey(null);
-    } finally {
-      setKeyLoading(false);
-    }
-  }
-
-  function onToggleKeyPanel() {
-    setKeyPanelOpen((v) => {
-      const next = !v;
-      if (next && !currentKey && !keyLoading) {
-        void fetchCurrentKey();
-      }
-      return next;
-    });
-  }
-
-  function onDownloadCurrentPublicKeyPem() {
-    downloadAuditFile({
-      path: "/api/security/audit-keys/current",
-      filename: `audit-export-public-key-current.pem`,
-    });
-  }
-
   return (
     <div className="space-y-4">
       <header className="space-y-1">
@@ -263,74 +173,6 @@ export function AuditExportSnapshotsClient() {
           Registry and offline verification for sealed JSONL exports.
         </p>
       </header>
-
-      {/* Global key viewer (single current key) */}
-      <section className="rounded border p-3 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold">
-              Audit export signing key
-            </div>
-            <div className="text-xs text-neutral-600">
-              Single global current key (not per snapshot).
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onToggleKeyPanel}
-            className="rounded border px-2 py-1 text-sm"
-          >
-            {keyPanelOpen ? "Hide" : "Show"}
-          </button>
-        </div>
-
-        {keyPanelOpen ? (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void fetchCurrentKey()}
-                className="rounded border px-2 py-1 text-sm disabled:opacity-50"
-                disabled={keyLoading}
-              >
-                {keyLoading ? "Loading…" : "Refresh"}
-              </button>
-
-              <button
-                type="button"
-                onClick={onDownloadCurrentPublicKeyPem}
-                className="rounded border px-2 py-1 text-sm"
-              >
-                Download PEM
-              </button>
-
-              {keyError ? (
-                <span role="alert" className="text-sm text-red-700">
-                  {keyError}
-                </span>
-              ) : null}
-            </div>
-
-            {currentKey ? (
-              <div className="rounded border p-2 text-sm space-y-1">
-                <div>
-                  <span className="text-neutral-600">keyId:</span>{" "}
-                  <span className="font-mono">{currentKey.keyId}</span>
-                </div>
-                <div>
-                  <span className="text-neutral-600">algorithm:</span>{" "}
-                  <span className="font-mono">{currentKey.algorithm}</span>
-                </div>
-                <div className="text-xs text-neutral-600">publicKeyPem:</div>
-                <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word rounded bg-neutral-50 p-2 text-xs">
-                  {currentKey.publicKeyPem}
-                </pre>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
 
       <section className="rounded border p-3 space-y-3">
         <div className="grid gap-3 md:grid-cols-5">
@@ -394,14 +236,14 @@ export function AuditExportSnapshotsClient() {
           <table className="min-w-full text-sm">
             <thead className="border-b bg-neutral-50">
               <tr>
-                <th className="px-3 py-2">Snapshot ID</th>
-                <th className="px-3 py-2">Created</th>
-                <th className="px-3 py-2">Stream</th>
-                <th className="px-3 py-2">Tenant</th>
-                <th className="px-3 py-2">Rows</th>
-                <th className="px-3 py-2">KeyId</th>
-                <th className="px-3 py-2">Digest</th>
-                <th className="px-3 py-2">Actions</th>
+                <th className="px-3 py-2 text-black">Snapshot ID</th>
+                <th className="px-3 py-2 text-black">Created</th>
+                <th className="px-3 py-2 text-black">Stream</th>
+                <th className="px-3 py-2 text-black">Tenant</th>
+                <th className="px-3 py-2 text-black">Rows</th>
+                <th className="px-3 py-2 text-black">KeyId</th>
+                <th className="px-3 py-2 text-black">Digest</th>
+                <th className="px-3 py-2 text-black">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -420,12 +262,6 @@ export function AuditExportSnapshotsClient() {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        className="rounded border px-2 py-1"
-                        onClick={() => onDownloadJsonl(s)}
-                      >
-                        Download JSONL
-                      </button>
                       <button
                         className="rounded border px-2 py-1"
                         onClick={() => onOpenVerify(s)}

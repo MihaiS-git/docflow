@@ -6,16 +6,12 @@ import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.security.PublicKey;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AuditSigningKeyResolver {
 
     private final AuditSigningKeyRepository repository;
-
-    private final Map<String, PublicKey> publicKeyCache = new ConcurrentHashMap<>();
 
     public AuditSigningKeyResolver(AuditSigningKeyRepository repository) {
         this.repository = repository;
@@ -38,27 +34,9 @@ public class AuditSigningKeyResolver {
         if (keyId == null || keyId.isBlank())
             throw new IllegalArgumentException("keyId is required");
 
-        String trimmed = keyId.trim();
-
-        PublicKey cached = publicKeyCache.get(trimmed);
-        if (cached != null) return cached;
-
-        AuditSigningKey row = repository.findById(trimmed)
+        AuditSigningKey row = repository.findById(keyId.trim())
                 .orElseThrow(() -> new ResourceNotFoundException("Audit signing key not found"));
 
-        PublicKey pk = RsaKeyCodec.decodePublicKeyPem(row.getPublicKeyPem());
-        PublicKey prev = publicKeyCache.putIfAbsent(trimmed, pk);
-        return prev != null ? prev : pk;
-    }
-
-    @Transactional
-    public boolean exists(String keyId) {
-        if (keyId == null || keyId.isBlank()) return false;
-        return repository.existsById(keyId.trim());
-    }
-
-    public void evict(String keyId) {
-        if (keyId == null || keyId.isBlank()) return;
-        publicKeyCache.remove(keyId.trim());
+        return RsaKeyCodec.decodePublicKeyPem(row.getPublicKeyPem());
     }
 }
