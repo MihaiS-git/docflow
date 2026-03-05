@@ -1,9 +1,10 @@
-import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
-import { ResultBadge } from "@/components/audit/ResultBadge";
-import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 import type { CredentialLifecycleAuditRow } from "@/types/api/CredentialLifecycleAuditRow";
 import type { AuditStreamDefinition } from "@/lib/audit/AuditStreamDefinition";
-import { pivotColumn } from "@/components/audit/pivotColumn";
+
+import { timestampColumn } from "@/components/audit/columns/timestampColumn";
+import { textColumn } from "@/components/audit/columns/textColumn";
+import { badgeColumn } from "@/components/audit/columns/badgeColumn";
+import { pivotColumn } from "@/components/audit/columns/pivotColumn";
 
 type CredentialLifecycleFilters = {
   correlationId: string;
@@ -19,49 +20,24 @@ export const credentialLifecycleStream: AuditStreamDefinition<
   title: "Credential Lifecycle Audit",
   endpoint: "/api/audit/credential-lifecycle",
   filenameBase: "credential-lifecycle-audit",
+
   filterDefinitions: [
     { key: "subjectExternalId", label: "Subject External ID" },
     { key: "correlationId", label: "Correlation ID" },
   ],
+
   columns: [
-    {
-      header: "timestamp",
-      render: (r) => formatAuditTimestamp(r.timestamp),
-    },
-    pivotColumn<CredentialLifecycleAuditRow, CredentialLifecycleFilters>(
-      "subjectExternalId",
-      "subjectExternalId",
-      (r) => r.subjectExternalId,
-      "font-mono",
-    ),
-    {
-      header: "eventType",
-      render: (r) => r.eventType,
-    },
-    {
-      header: "requiredAction",
-      render: (r) => r.requiredAction ?? "",
-    },
-    {
-      header: "result",
-      render: (r) => (
-        <ResultBadge result={normalizeAuditResult(String(r.result))} />
-      ),
-    },
-    {
-      header: "ip",
-      render: (r) => r.ip ?? "",
-    },
-    pivotColumn<CredentialLifecycleAuditRow, CredentialLifecycleFilters>(
-      "correlationId",
-      "correlationId",
-      (r) => r.correlationId,
-      "font-mono",
-    ),
-    {
-      header: "fingerprint",
-      className: "font-mono",
-      render: (r) => r.eventFingerprint,
-    },
+    timestampColumn("timestamp", r => r.timestamp),
+
+    pivotColumn("subjectExternalId", "subjectExternalId", r => r.subjectExternalId, "font-mono"),
+
+    textColumn("eventType", r => r.eventType),
+    textColumn("requiredAction", r => r.requiredAction),
+    badgeColumn("result", r => String(r.result)),
+    textColumn("ip", r => r.ip),
+
+    pivotColumn("correlationId", "correlationId", r => r.correlationId, "font-mono"),
+
+    textColumn("fingerprint", r => r.eventFingerprint, "font-mono"),
   ],
 };

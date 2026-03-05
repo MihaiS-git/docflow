@@ -1,9 +1,10 @@
-import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
-import { ResultBadge } from "@/components/audit/ResultBadge";
-import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 import type { IdentityProjectionAuditRow } from "@/types/api/IdentityProjectionAuditRow";
 import type { AuditStreamDefinition } from "@/lib/audit/AuditStreamDefinition";
-import { pivotColumn } from "@/components/audit/pivotColumn";
+
+import { timestampColumn } from "@/components/audit/columns/timestampColumn";
+import { textColumn } from "@/components/audit/columns/textColumn";
+import { badgeColumn } from "@/components/audit/columns/badgeColumn";
+import { pivotColumn } from "@/components/audit/columns/pivotColumn";
 
 type IdentityProjectionFilters = {
   correlationId: string;
@@ -18,41 +19,23 @@ export const identityProjectionStream: AuditStreamDefinition<
   title: "Identity Projection Audit",
   endpoint: "/api/audit/identity-projection",
   filenameBase: "identity-projection-audit",
+
   filterDefinitions: [
     { key: "subjectId", label: "Subject ID" },
     { key: "correlationId", label: "Correlation ID" },
   ],
+
   columns: [
-    {
-      header: "timestamp",
-      render: (r) => formatAuditTimestamp(r.timestamp),
-    },
-    pivotColumn<IdentityProjectionAuditRow, IdentityProjectionFilters>(
-      "subjectId",
-      "subjectId",
-      (r) => r.subjectId,
-      "font-mono",
-    ),
-    {
-      header: "result",
-      render: (r) => (
-        <ResultBadge result={normalizeAuditResult(String(r.result))} />
-      ),
-    },
-    {
-      header: "reason",
-      render: (r) => r.reasonCode ?? "",
-    },
-    pivotColumn<IdentityProjectionAuditRow, IdentityProjectionFilters>(
-      "correlationId",
-      "correlationId",
-      (r) => r.correlationId,
-      "font-mono",
-    ),
-    {
-      header: "fingerprint",
-      className: "font-mono",
-      render: (r) => r.eventFingerprint,
-    },
+    timestampColumn("timestamp", r => r.timestamp),
+
+    pivotColumn("subjectId", "subjectId", r => r.subjectId, "font-mono"),
+
+    badgeColumn("result", r => String(r.result)),
+
+    textColumn("reason", r => r.reasonCode),
+
+    pivotColumn("correlationId", "correlationId", r => r.correlationId, "font-mono"),
+
+    textColumn("fingerprint", r => r.eventFingerprint, "font-mono"),
   ],
 };

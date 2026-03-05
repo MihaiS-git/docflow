@@ -6,7 +6,7 @@ export type AuditColumn<T> = {
   render: (
     row: T,
     ctx: {
-      setFilter?: (key: string, value: string) => void;
+      setFilter?: <K extends string>(key: K, value: string) => void;
       triggerQuery?: () => void;
     }
   ) => ReactNode;

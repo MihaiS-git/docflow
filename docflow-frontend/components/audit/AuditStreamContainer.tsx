@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { downloadAuditFile } from "@/lib/audit/auditDownload";
 import { buildRangeQueryParams } from "@/lib/audit/auditRange";
@@ -28,7 +28,7 @@ type Props<T> = {
   endpoint: string;
   filenameBase: string;
 
-  buildFilterParams: () => Record<string, string>;
+  filters: Record<string, string>;
   renderFilters: () => React.ReactNode;
 
   columns: AuditColumn<T>[];
@@ -43,13 +43,13 @@ export function AuditStreamContainer<T>({
   title,
   endpoint,
   filenameBase,
-  buildFilterParams,
+  filters,
   renderFilters,
   columns,
   rowKey,
   setFilter,
   queryNonce,
-  triggerQuery
+  triggerQuery,
 }: Props<T>) {
   const { from, to, size, setFrom, setTo, setSize } = useDefaultAuditRange();
 
@@ -73,22 +73,27 @@ export function AuditStreamContainer<T>({
   const [error, setError] = useState<string | null>(null);
   const [queried, setQueried] = useState(false);
 
-  function buildParams(cursorTs?: string, cursorId?: string) {
-    const qs = buildRangeQueryParams({ from, to });
+  const buildParams = useCallback(
+    (cursorTs?: string, cursorId?: string) => {
+      const qs = buildRangeQueryParams({ from, to });
 
-    const filters = buildFilterParams();
-    Object.entries(filters).forEach(([k, v]) => {
-      if (v?.trim()) qs.set(k, v.trim());
-    });
+      Object.entries(filters).forEach(([k, v]) => {
+        if (typeof v === "string" && v.trim()) {
+          qs.set(k, v.trim());
+        }
+      });
 
-    if (cursorTs) qs.set("cursorTimestamp", cursorTs);
-    if (cursorId) qs.set("cursorId", cursorId);
+      if (cursorTs) qs.set("cursorTimestamp", cursorTs);
+      if (cursorId) qs.set("cursorId", cursorId);
 
-    qs.set("size", String(size));
-    return qs;
-  }
+      qs.set("size", String(size));
 
-  async function handleQuery() {
+      return qs;
+    },
+    [filters, from, size, to],
+  );
+
+  const handleQuery = useCallback(async () => {
     setLoading(true);
     setError(null);
     setVerifyResult(null);
@@ -107,7 +112,7 @@ export function AuditStreamContainer<T>({
     } finally {
       setLoading(false);
     }
-  }
+  }, [applyFirstPage, buildParams, endpoint, reset]);
 
   useEffect(() => {
     if (!queryNonce) return;
@@ -143,35 +148,41 @@ export function AuditStreamContainer<T>({
     setVerifying,
   );
 
-  async function handleExportJsonl() {
-    setDownloading("jsonl");
+  const buildExportParams = useCallback(() => {
+    const qs = buildRangeQueryParams({ from, to });
 
-    try {
-      const qs = buildRangeQueryParams({ from, to });
+    Object.entries(filters).forEach(([k, v]) => {
+      if (typeof v === "string" && v.trim()) {
+        qs.set(k, v.trim());
+      }
+    });
 
-      await downloadAuditFile({
-        path: `${endpoint}/export?${qs.toString()}`,
-        filename: `${filenameBase}.jsonl`,
-      });
-    } finally {
-      setDownloading(null);
-    }
-  }
+    return qs;
+  }, [filters, from, to]);
 
-  async function handleExportCsv() {
-    setDownloading("csv");
+  const handleExport = useCallback(
+    async (format: "jsonl" | "csv") => {
+      setDownloading(format);
 
-    try {
-      const qs = buildRangeQueryParams({ from, to });
+      try {
+        const qs = buildExportParams();
 
-      await downloadAuditFile({
-        path: `${endpoint}/export/csv?${qs.toString()}`,
-        filename: `${filenameBase}.csv`,
-      });
-    } finally {
-      setDownloading(null);
-    }
-  }
+        const path =
+          format === "jsonl" ? `${endpoint}/export` : `${endpoint}/export/csv`;
+
+        const filename =
+          format === "jsonl" ? `${filenameBase}.jsonl` : `${filenameBase}.csv`;
+
+        await downloadAuditFile({
+          path: `${path}?${qs.toString()}`,
+          filename,
+        });
+      } finally {
+        setDownloading(null);
+      }
+    },
+    [buildExportParams, endpoint, filenameBase],
+  );
 
   return (
     <div className="p-4 space-y-6">
@@ -188,7 +199,7 @@ export function AuditStreamContainer<T>({
         loading={loading}
       />
 
-      {renderFilters()}
+      {renderFilters && renderFilters()}
 
       <div className="grid gap-4 md:grid-cols-2">
         <AuditVerifyPanel
@@ -200,8 +211,8 @@ export function AuditStreamContainer<T>({
         />
 
         <AuditExportButtons
-          onExportJsonl={handleExportJsonl}
-          onExportCsv={handleExportCsv}
+          onExportJsonl={() => handleExport("jsonl")}
+          onExportCsv={() => handleExport("csv")}
           loading={downloading}
         />
       </div>

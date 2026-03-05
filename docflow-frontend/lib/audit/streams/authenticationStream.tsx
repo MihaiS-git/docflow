@@ -1,9 +1,10 @@
-import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
-import { ResultBadge } from "@/components/audit/ResultBadge";
-import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 import type { AuthenticationAuditRow } from "@/types/api/AuthenticationAuditRow";
 import type { AuditStreamDefinition } from "@/lib/audit/AuditStreamDefinition";
-import { pivotColumn } from "@/components/audit/pivotColumn";
+
+import { timestampColumn } from "@/components/audit/columns/timestampColumn";
+import { textColumn } from "@/components/audit/columns/textColumn";
+import { badgeColumn } from "@/components/audit/columns/badgeColumn";
+import { pivotColumn } from "@/components/audit/columns/pivotColumn";
 
 type AuthenticationFilters = {
   correlationId: string;
@@ -20,53 +21,28 @@ export const authenticationStream: AuditStreamDefinition<
   title: "Authentication Audit",
   endpoint: "/api/audit/authentication",
   filenameBase: "authentication-audit",
+
   filterDefinitions: [
     { key: "username", label: "Username" },
     { key: "subjectId", label: "Subject ID" },
     { key: "correlationId", label: "Correlation ID" },
   ],
+
   columns: [
-    {
-      header: "timestamp",
-      render: (r) => formatAuditTimestamp(r.timestamp),
-    },
-    pivotColumn<AuthenticationAuditRow, AuthenticationFilters>(
-      "username",
-      "username",
-      (r) => r.username,
-    ),
-    pivotColumn<AuthenticationAuditRow, AuthenticationFilters>(
-      "subjectId",
-      "subjectId",
-      (r) => r.subjectId,
-      "font-mono",
-    ),
-    {
-      header: "source",
-      render: (r) => r.source,
-    },
-    {
-      header: "authResult",
-      render: (r) => r.authenticationResult,
-    },
-    {
-      header: "auditResult",
-      render: (r) => <ResultBadge result={normalizeAuditResult(r.result)} />,
-    },
-    {
-      header: "ip",
-      render: (r) => r.ip,
-    },
-    pivotColumn<AuthenticationAuditRow, AuthenticationFilters>(
-      "correlationId",
-      "correlationId",
-      (r) => r.correlationId,
-      "font-mono",
-    ),
-    {
-      header: "fingerprint",
-      className: "font-mono",
-      render: (r) => r.eventFingerprint,
-    },
+    timestampColumn("timestamp", r => r.timestamp),
+
+    pivotColumn("username", "username", r => r.username),
+    pivotColumn("subjectId", "subjectId", r => r.subjectId, "font-mono"),
+
+    textColumn("source", r => r.source),
+    textColumn("authResult", r => r.authenticationResult),
+
+    badgeColumn("auditResult", r => r.result),
+
+    textColumn("ip", r => r.ip),
+
+    pivotColumn("correlationId", "correlationId", r => r.correlationId, "font-mono"),
+
+    textColumn("fingerprint", r => r.eventFingerprint, "font-mono"),
   ],
 };

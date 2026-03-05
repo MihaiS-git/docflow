@@ -6,7 +6,7 @@ type AuditTableProps<T> = {
   rows: T[];
   columns: AuditColumn<T>[];
   rowKey: (row: T) => string;
-  setFilter?: (key: string, value: string) => void;
+  setFilter?: <K extends string>(key: K, value: string) => void;
   triggerQuery?: () => void;
 };
 

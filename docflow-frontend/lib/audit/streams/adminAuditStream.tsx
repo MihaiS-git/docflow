@@ -1,9 +1,9 @@
-import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
-import { ResultBadge } from "@/components/audit/ResultBadge";
-import { normalizeAuditResult } from "@/lib/audit/normalizeAuditResult";
 import type { AdminAuditRow } from "@/types/api/AdminAuditRow";
 import type { AuditStreamDefinition } from "@/lib/audit/AuditStreamDefinition";
 import { pivotColumn } from "@/components/audit/pivotColumn";
+import { timestampColumn } from "@/components/audit/columns/timestampColumn";
+import { textColumn } from "@/components/audit/columns/textColumn";
+import { badgeColumn } from "@/components/audit/columns/badgeColumn";
 
 type AdminAuditFilters = {
   correlationId: string;
@@ -25,53 +25,15 @@ export const adminAuditStream: AuditStreamDefinition<
     { key: "tenantId", label: "Tenant ID" },
   ],
   columns: [
-    {
-      header: "timestamp",
-      render: (r) => formatAuditTimestamp(r.timestamp),
-    },
-    {
-      header: "action",
-      render: (r) => r.actionType,
-    },
-    pivotColumn<AdminAuditRow, AdminAuditFilters>(
-      "actor",
-      "actorUserId",
-      (r) => r.actorUserId,
-      "font-mono"
-    ),
-    pivotColumn<AdminAuditRow, AdminAuditFilters>(
-      "tenant",
-      "tenantId",
-      (r) => r.tenantId,
-      "font-mono"
-    ),
-    {
-      header: "target",
-      render: (r) => r.targetUserId ?? "",
-    },
-    {
-      header: "subject",
-      render: (r) => r.subjectId,
-    },
-    {
-      header: "result",
-      render: (r) => (
-        <ResultBadge result={normalizeAuditResult(String(r.result))} />
-      ),
-    },
-    pivotColumn<AdminAuditRow, AdminAuditFilters>(
-      "correlationId",
-      "correlationId",
-      (r) => r.correlationId,
-      "font-mono"
-    ),
-    {
-      header: "ip",
-      render: (r) => r.ip,
-    },
-    {
-      header: "fingerprint",
-      render: (r) => r.eventFingerprint,
-    },
+    timestampColumn("timestamp", (r) => r.timestamp),
+    textColumn("action", (r) => r.actionType),
+    pivotColumn("actor", "actorUserId", (r) => r.actorUserId),
+    pivotColumn("tenant", "tenantId", (r) => r.tenantId),
+    textColumn("target", (r) => r.targetUserId),
+    textColumn("subject", (r) => r.subjectId),
+    badgeColumn("result", (r) => String(r.result)),
+    pivotColumn("correlationId", "correlationId", (r) => r.correlationId),
+    textColumn("ip", (r) => r.ip),
+    textColumn("fingerprint", (r) => r.eventFingerprint, "font-mono"),
   ],
 };

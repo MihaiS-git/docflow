@@ -1,6 +1,6 @@
 "use client";
 
-type FilterDef<F> = {
+type FilterDefinition<F> = {
   key: keyof F;
   label: string;
 };
@@ -9,7 +9,7 @@ type Props<F extends Record<string, string>> = {
   filters: F;
   setFilter: (key: keyof F, value: string) => void;
   triggerQuery?: () => void;
-  definitions: FilterDef<F>[];
+  definitions: FilterDefinition<F>[];
 };
 
 export function AuditFiltersPanel<F extends Record<string, string>>({
@@ -23,15 +23,24 @@ export function AuditFiltersPanel<F extends Record<string, string>>({
     triggerQuery?.();
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      triggerQuery?.();
+    }
+  }
+
   return (
     <div className="border rounded p-4 grid gap-4 md:grid-cols-3">
       {definitions.map((d) => (
         <div key={String(d.key)} className="flex flex-col gap-1">
           <label className="text-xs font-semibold">{d.label}</label>
+
           <input
             className="border rounded px-2 py-1"
             value={filters[d.key]}
             onChange={(e) => setFilter(d.key, e.target.value)}
+            onKeyDown={handleKeyDown}
           />
         </div>
       ))}

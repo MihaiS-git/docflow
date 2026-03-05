@@ -1,34 +1,80 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-export type AuditFilterState = Record<string, string>;
+export function useAuditFilters<F extends Record<string, string>>(
+  namespace: string,
+  initial: F
+) {
+  const [filters, setFilters] = useState<F>(() => {
+    if (typeof window === "undefined") return initial;
 
-export function useAuditFilters<T extends AuditFilterState>(initial: T) {
-  const [filters, setFilters] = useState<T>(initial);
+    const params = new URLSearchParams(window.location.search);
+    const next = { ...initial };
 
-  function setFilter<K extends keyof T>(key: K, value: string) {
+    Object.keys(initial).forEach((k) => {
+      const v = params.get(`${namespace}.${k}`);
+      if (v !== null) next[k as keyof F] = v as F[keyof F];
+    });
+
+    return next;
+  });
+
+  const setFilter = useCallback((key: keyof F, value: string) => {
     setFilters((prev) => ({
       ...prev,
       [key]: value,
     }));
-  }
+  }, []);
 
-  function buildParams(): Record<string, string> {
-    const params: Record<string, string> = {};
+  const resetFilters = useCallback(() => {
+    setFilters((prev) => {
+      const cleared = { ...prev };
 
-    for (const [key, value] of Object.entries(filters)) {
-      if (value.trim()) {
-        params[key] = value.trim();
-      }
-    }
+      Object.keys(cleared).forEach((k) => {
+        cleared[k as keyof F] = "" as F[keyof F];
+      });
+
+      return cleared;
+    });
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    Object.entries(filters)
+      .filter(([, v]) => v?.trim())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([k, v]) => {
+        params.set(`${namespace}.${k}`, v.trim());
+      });
+
+    const query = params.toString();
+
+    if (window.location.search === (query ? `?${query}` : "")) return;
+
+    const url = window.location.pathname + (query ? `?${query}` : "");
+
+    window.history.replaceState(null, "", url);
+  }, [filters, namespace]);
+
+  const buildParams = useCallback(() => {
+    const params = new URLSearchParams();
+
+    Object.entries(filters)
+      .filter(([, v]) => v?.trim())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([k, v]) => {
+        params.set(k, v.trim());
+      });
 
     return params;
-  }
+  }, [filters]);
 
   return {
     filters,
     setFilter,
+    resetFilters,
     buildParams,
   };
 }
