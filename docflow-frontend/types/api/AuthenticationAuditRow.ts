@@ -9,16 +9,24 @@ export type AuthenticationResult = "SUCCESS" | "FAILURE" | "LOGOUT";
 export type AuthenticationAuditRow = {
   id: string;
   timestamp: string;
+
   source: AuthenticationEventSource;
+
   username: string;
   subjectId: string;
-  result: AuthenticationResult;
+
   idp: string;
+
+  authenticationResult: AuthenticationResult;
+
   ip: string;
   userAgent: string;
+
   correlationId: string;
   correlationSource: CorrelationSource;
   executionContext: ExecutionContext;
-  auditResult: AuditResult;
+
+  result: AuditResult;
+
   eventFingerprint: string;
 };

@@ -46,7 +46,7 @@ public class AuthenticationAuditController {
             String subjectId,
 
             @RequestParam(required = false)
-            AuthenticationResult result,
+            String result,
 
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
@@ -58,6 +58,16 @@ public class AuthenticationAuditController {
             @RequestParam(defaultValue = "20")
             int size
     ) {
+        AuthenticationResult parsedResult = null;
+
+        if (result != null && !result.isBlank()) {
+            try {
+                parsedResult = AuthenticationResult.valueOf(result.toUpperCase());
+            } catch (IllegalArgumentException ignored) {
+                // ignore
+            }
+        }
+
         return ResponseEntity.ok(
                 queryService.query(
                         from,
@@ -65,7 +75,7 @@ public class AuthenticationAuditController {
                         correlationId,
                         username,
                         subjectId,
-                        result,
+                        parsedResult,
                         cursorTimestamp,
                         cursorId,
                         size

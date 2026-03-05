@@ -1,7 +1,7 @@
 "use client";
 
 import { AuthContext } from "@/lib/auth/AuthProvider";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useContext, useMemo } from "react";
 
 function mapBlocked(code: string): { title: string; message: string } {
@@ -35,6 +35,8 @@ export default function AuthLifecycleGuard({
 }: {
   children: React.ReactNode;
 }) {
+  const path = usePathname();
+
   const rawCtx = useContext(AuthContext);
   const router = useRouter();
 
@@ -59,14 +61,24 @@ export default function AuthLifecycleGuard({
     return mapBlocked(ctx.blockedCode);
   }, [ctx]);
 
+  if (ctx.status === "LOADING") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        Loading session…
+      </div>
+    );
+  }
+
   if (ctx.status === "BOOTSTRAP") {
-    if (
-      typeof window !== "undefined" &&
-      window.location.pathname !== "/bootstrap/activate"
-    ) {
-      router.replace("/bootstrap/activate");
-      return null;
+    if (typeof window !== "undefined") {
+      if (path !== "/bootstrap/activate") {
+        router.replace("/bootstrap/activate");
+        return null;
+      }
     }
+
+    // already on /bootstrap/activate → allow rendering
+    return <>{children}</>;
   }
 
   if (blocked) {
