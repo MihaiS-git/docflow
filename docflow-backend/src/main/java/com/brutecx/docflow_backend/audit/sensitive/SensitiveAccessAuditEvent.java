@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.sensitive;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.ChainSegmentAware;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -16,19 +17,8 @@ import java.util.UUID;
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(
-        name = "sensitive_access_audit_events",
-        indexes = {
-                @Index(name = "idx_sensitive_access_actor_user_id", columnList = "actor_user_id"),
-                @Index(name = "idx_sensitive_access_subject_id", columnList = "subject_id"),
-                @Index(name = "idx_sensitive_access_tenant_id", columnList = "tenant_id"),
-                @Index(name = "idx_sensitive_access_resource", columnList = "resource"),
-                @Index(name = "idx_sensitive_access_timestamp", columnList = "timestamp,id"),
-                @Index(name = "idx_sensitive_access_correlation_id", columnList = "correlation_id"),
-                @Index(name = "ux_sensitive_access_fingerprint", columnList = "event_fingerprint", unique = true)
-        }
-)
-public class SensitiveAccessAuditEvent {
+@Table(name = "sensitive_access_audit_events")
+public class SensitiveAccessAuditEvent implements ChainSegmentAware {
 
     @Id
     @GeneratedValue
@@ -95,7 +85,7 @@ public class SensitiveAccessAuditEvent {
     @Column(nullable = false, updatable = false, name = "data_classification", length = 32)
     private SensitiveDataClassification dataClassification;
 
-    @Column(nullable = false, updatable = false, name = "event_fingerprint", length = 128)
+    @Column(nullable = false, updatable = false, name = "event_fingerprint", unique = true, length = 128)
     private String eventFingerprint;
 
     @Column(nullable = false, updatable = false, name = "chain_version")
@@ -106,6 +96,9 @@ public class SensitiveAccessAuditEvent {
 
     @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
     private String eventHash;
+
+    @Column(name = "chain_segment_hash", length = 128, updatable = false)
+    private String chainSegmentHash;
 
     public SensitiveAccessAuditEvent(
             Instant timestamp,
@@ -131,7 +124,6 @@ public class SensitiveAccessAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-
         this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
         this.actorUserId = actorUserId;
         this.actorExternalSubjectId = actorExternalSubjectId;
@@ -159,6 +151,11 @@ public class SensitiveAccessAuditEvent {
         }
 
         this.chainVersion = chainVersion;
+    }
+
+    @Override
+    public void setChainSegmentHash(String chainSegmentHash) {
+        this.chainSegmentHash = chainSegmentHash;
     }
 
     private static String requireNonBlank(String value, String field) {

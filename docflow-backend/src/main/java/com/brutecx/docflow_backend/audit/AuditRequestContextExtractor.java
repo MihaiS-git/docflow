@@ -18,16 +18,21 @@ public final class AuditRequestContextExtractor {
     }
 
     public AuditRequestContext from(HttpServletRequest request) {
-        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_KEY);
+
+        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_CORRELATION_ID);
+        String requestId = MDC.get(RequestCorrelationIdFilter.MDC_REQUEST_ID);
 
         String ip = clientIpResolver.resolve(request);
         String ua = request.getHeader("User-Agent");
 
+        String resourcePath = request.getRequestURI();
+
         return new AuditRequestContext(
                 correlationId,
-                null,
+                requestId,
                 ip != null ? ip : "UNKNOWN",
-                ua != null ? ua : "N/A"
+                ua != null ? ua : "N/A",
+                resourcePath != null ? resourcePath : "UNKNOWN"
         );
     }
 
@@ -36,15 +41,25 @@ public final class AuditRequestContextExtractor {
      * Works only in request threads.
      */
     public AuditRequestContext fromCurrentRequest() {
+
         ServletRequestAttributes attrs =
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
 
+        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_CORRELATION_ID);
+        String requestId = MDC.get(RequestCorrelationIdFilter.MDC_REQUEST_ID);
+
         if (attrs == null) {
+
+            String path = MDC.get(RequestCorrelationIdFilter.MDC_REQUEST_PATH);
+            String ip = MDC.get(RequestCorrelationIdFilter.MDC_CLIENT_IP);
+            String ua = MDC.get(RequestCorrelationIdFilter.MDC_USER_AGENT);
+
             return new AuditRequestContext(
-                    MDC.get(RequestCorrelationIdFilter.MDC_KEY),
-                    null,
-                    "N/A",
-                    "N/A"
+                    correlationId != null ? correlationId : "UNKNOWN",
+                    requestId != null ? requestId : "UNKNOWN",
+                    ip != null ? ip : "N/A",
+                    ua != null ? ua : "N/A",
+                    path != null ? path : "UNKNOWN"
             );
         }
 

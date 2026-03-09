@@ -360,7 +360,7 @@ public class GlobalExceptionHandler {
         boolean includeStacktrace = status.is5xxServerError();
 
         Actor actor = resolveActor();
-        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_KEY);
+        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_CORRELATION_ID);
 
         if (includeStacktrace) {
             log.error("application_error",
@@ -407,7 +407,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         Actor actor = resolveActor();
-        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_KEY);
+        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_CORRELATION_ID);
 
         log.error("application_error",
                 kv("schema_version", SCHEMA_VERSION),

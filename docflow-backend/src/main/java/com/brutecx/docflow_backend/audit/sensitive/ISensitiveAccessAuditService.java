@@ -13,12 +13,8 @@ public interface ISensitiveAccessAuditService {
             String resource,
             String action,
             String resourcePath,
-            String correlationId,
-            String ip,
-            String userAgent,
             String reasonCode,
             String reasonDetail,
-            SensitiveDataClassification dataClassification,
-            String eventFingerprint
+            SensitiveDataClassification dataClassification
     );
 }

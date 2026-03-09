@@ -27,7 +27,6 @@ public class JsonlScanner {
         int r;
 
         while ((r = in.read(buf)) != -1) {
-
             totalRead += r;
 
             if (totalRead > maxUploadBytes) {
@@ -36,13 +35,10 @@ public class JsonlScanner {
 
             for (int i = 0; i < r; i++) {
                 byte b = buf[i];
-
                 currentLine.writeByte(b);
-
                 if (currentLine.size() > maxLineBytes) {
                     throw new IllegalArgumentException("JSONL line exceeds limit");
                 }
-
                 if (b == '\n') {
                     consumer.accept(currentLine.toByteArrayAndReset());
                 }

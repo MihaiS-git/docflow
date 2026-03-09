@@ -2,8 +2,8 @@ package com.brutecx.docflow_backend.security.session;
 
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
-import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
+import com.brutecx.docflow_backend.audit.lifecycle.SessionRevocationMetadata;
 import com.brutecx.docflow_backend.logging.InfraEventActions;
 import com.brutecx.docflow_backend.logging.InfraEventLogger;
 import com.brutecx.docflow_backend.logging.InfraEventOutcome;
@@ -45,7 +45,6 @@ public class SessionRevocationService {
         int revoked = 0;
 
         for (Object principal : sessionRegistry.getAllPrincipals()) {
-
             if (!(principal instanceof OidcUser oidcUser)) {
                 continue;
             }
@@ -68,7 +67,6 @@ public class SessionRevocationService {
         }
 
         if (revoked > 0) {
-
             AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
 
             if (ctx.correlationId() == null || ctx.correlationId().isBlank()) {
@@ -89,20 +87,16 @@ public class SessionRevocationService {
                     StructuredArguments.kv("revoked.count", revoked)
             );
 
-            // ---- Tamper-evident audit ----
-            String fingerprint = EventFingerprint.of(List.of(
-                    "USER_SESSION_REVOKED",
-                    targetExternalSubjectId,
-                    String.valueOf(revoked),
-                    ctx.correlationId()
-            ));
-
             lifecycleDeniedAuditService.record(
                     targetExternalSubjectId,
                     "USER_SESSION_REVOKED",
                     "ADMIN_ACTION",
                     "SESSION_INVALIDATION",
-                    fingerprint
+                    new SessionRevocationMetadata(
+                            targetExternalSubjectId,
+                            actorExternalSubjectId,
+                            revoked
+                    )
             );
         }
 

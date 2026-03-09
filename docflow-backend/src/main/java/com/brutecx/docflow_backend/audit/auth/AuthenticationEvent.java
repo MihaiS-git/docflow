@@ -3,7 +3,13 @@ package com.brutecx.docflow_backend.audit.auth;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
-import jakarta.persistence.*;
+import com.brutecx.docflow_backend.audit.tamper.ChainSegmentAware;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,23 +22,12 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Entity
-@Table(
-        name = "authentication_events",
-        indexes = {
-                @Index(name = "idx_auth_events_ts_id", columnList = "timestamp,id"),
-                @Index(name = "idx_auth_events_username_ts_id", columnList = "username,timestamp,id"),
-                @Index(name = "idx_auth_events_subject_ts_id", columnList = "subject_id,timestamp,id"),
-                @Index(name = "idx_auth_events_correlation_id", columnList = "correlation_id")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(name = "uk_auth_events_event_fingerprint", columnNames = {"event_fingerprint"})
-        }
-)
+@Table(name = "authentication_events")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class AuthenticationEvent {
+public class AuthenticationEvent implements ChainSegmentAware {
 
-    @Id
+    @jakarta.persistence.Id
     @GeneratedValue
     @UuidGenerator
     private UUID id;
@@ -51,7 +46,7 @@ public class AuthenticationEvent {
     private String subjectId;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false, length = 32, name="authentication_result")
+    @Column(name = "authentication_result", nullable = false, updatable = false, length = 32)
     private AuthenticationResult authenticationResult;
 
     @Column(nullable = false, updatable = false, length = 64)
@@ -82,17 +77,20 @@ public class AuthenticationEvent {
     @Column(columnDefinition = "jsonb", updatable = false)
     private AuthenticationAuditMetadata metadata;
 
-    @Column(nullable = false, updatable = false, unique = true, name="event_fingerprint")
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 128)
     private String eventFingerprint;
 
-    @Column(nullable = false, updatable = false, name="chain_version")
+    @Column(name = "chain_version", nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(nullable = false, updatable = false, name="prev_event_hash")
+    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 128)
     private String prevEventHash;
 
-    @Column(nullable = false, updatable = false, name="event_hash")
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
+
+    @Column(name = "chain_segment_hash", length = 128, updatable = false)
+    private String chainSegmentHash;
 
     public AuthenticationEvent(
             AuthenticationEventSource source,
@@ -121,6 +119,7 @@ public class AuthenticationEvent {
         this.idp = requireNonBlank(idp);
         this.ip = requireNonBlank(ip);
         this.userAgent = requireNonBlank(userAgent);
+        this.correlationId = correlationId;
         this.correlationSource = Objects.requireNonNull(correlationSource);
         this.executionContext = Objects.requireNonNull(executionContext);
         this.result = Objects.requireNonNull(result);
@@ -133,13 +132,18 @@ public class AuthenticationEvent {
             throw new IllegalArgumentException("chainVersion must be > 0");
         }
 
-        this.correlationId = correlationId;
         this.chainVersion = chainVersion;
     }
 
-    private static String requireNonBlank(String v) {
-        if (v == null || v.isBlank()) throw new IllegalArgumentException();
-        return v;
+    @Override
+    public void setChainSegmentHash(String chainSegmentHash) {
+        this.chainSegmentHash = chainSegmentHash;
     }
 
+    private static String requireNonBlank(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException();
+        }
+        return value;
+    }
 }

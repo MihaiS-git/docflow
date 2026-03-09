@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.admin;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.ChainSegmentAware;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -16,18 +17,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Entity
-@Table(
-        name = "admin_audit_events",
-        indexes = {
-                @Index(name = "idx_admin_audit_ts_id", columnList = "timestamp,id"),
-                @Index(name = "idx_admin_audit_tenant_ts_id", columnList = "tenant_id,timestamp,id"),
-                @Index(name = "idx_admin_audit_actor", columnList = "actor_user_id"),
-                @Index(name = "idx_admin_audit_correlation", columnList = "correlation_id")
-        }
-)
+@Table(name = "admin_audit_events")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class AdminAuditEvent {
+public class AdminAuditEvent implements ChainSegmentAware {
 
     @Id
     @GeneratedValue
@@ -40,13 +33,13 @@ public class AdminAuditEvent {
     @Column(nullable = false, updatable = false, name = "actor_user_id")
     private UUID actorUserId;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, length = 128)
     private String ip;
 
-    @Column(nullable = false, updatable = false, name = "user_agent")
+    @Column(nullable = false, updatable = false, name = "user_agent", length = 512)
     private String userAgent;
 
-    @Column(nullable = false, updatable = false, name = "correlation_id")
+    @Column(nullable = false, updatable = false, name = "correlation_id", length = 128)
     private String correlationId;
 
     @Enumerated(EnumType.STRING)
@@ -61,7 +54,7 @@ public class AdminAuditEvent {
     @Column(nullable = false, updatable = false)
     private AuditResult result;
 
-    @Column(nullable = false, updatable = false, name = "subject_id")
+    @Column(nullable = false, updatable = false, name = "subject_id", length = 128)
     private String subjectId;
 
     @Column(nullable = false, updatable = false, name = "tenant_id")
@@ -78,17 +71,20 @@ public class AdminAuditEvent {
     @Column(columnDefinition = "jsonb", updatable = false)
     private AdminAuditMetadata metadata;
 
-    @Column(nullable = false, updatable = false, unique = true, name = "event_fingerprint")
+    @Column(nullable = false, updatable = false, unique = true, name = "event_fingerprint", length = 128)
     private String eventFingerprint;
 
     @Column(nullable = false, updatable = false, name = "chain_version")
     private int chainVersion;
 
-    @Column(nullable = false, updatable = false, name = "prev_event_hash")
+    @Column(nullable = false, updatable = false, name = "prev_event_hash", length = 128)
     private String prevEventHash;
 
-    @Column(nullable = false, updatable = false, name = "event_hash")
+    @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
     private String eventHash;
+
+    @Column(name = "chain_segment_hash", length = 128, updatable = false)
+    private String chainSegmentHash;
 
     public AdminAuditEvent(
             Instant timestamp,
@@ -109,7 +105,6 @@ public class AdminAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-
         this.timestamp = Objects.requireNonNull(timestamp);
         this.actorUserId = Objects.requireNonNull(actorUserId);
         this.ip = requireNonBlank(ip);
@@ -132,6 +127,11 @@ public class AdminAuditEvent {
         this.chainVersion = chainVersion;
         this.targetUserId = targetUserId;
         this.metadata = metadata;
+    }
+
+    @Override
+    public void setChainSegmentHash(String chainSegmentHash) {
+        this.chainSegmentHash = chainSegmentHash;
     }
 
     private static String requireNonBlank(String v) {

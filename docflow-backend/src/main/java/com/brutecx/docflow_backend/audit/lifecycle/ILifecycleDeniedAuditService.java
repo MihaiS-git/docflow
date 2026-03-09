@@ -7,6 +7,6 @@ public interface ILifecycleDeniedAuditService {
             String reasonCode,
             String httpMethod,
             String path,
-            String eventFingerprint
+            LifecycleAuditMetadata metadata
     );
 }

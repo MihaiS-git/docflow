@@ -1,11 +1,16 @@
 package com.brutecx.docflow_backend.domain.audit;
 
-import com.brutecx.docflow_backend.api.dto.audit.*;
-import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditCursorPageDTO;
+import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditDTO;
+import com.brutecx.docflow_backend.api.dto.audit.OnboardingAuditForensicExportDTO;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
-import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.onboarding.*;
-import com.brutecx.docflow_backend.audit.sensitive.*;
+import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditEvent;
+import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditEventRepository;
+import com.brutecx.docflow_backend.audit.onboarding.OnboardingCanonicalMaterialBuilder;
+import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
+import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
+import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.domain.audit.export.SealedJsonlAuditExportService;
@@ -14,7 +19,6 @@ import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,14 +26,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.time.Instant;
-import java.util.*;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class OnboardingAuditQueryService {
+public class OnboardingAuditQueryService extends AbstractAuditStreamQueryService {
 
     private static final int MAX_PAGE_SIZE = 100;
-    private static final int VERIFY_BATCH_SIZE = 1_000;
     private static final int EXPORT_BATCH_SIZE = 1_000;
     private static final int EXPORT_MAX_ROWS = 200_000;
 
@@ -38,12 +41,12 @@ public class OnboardingAuditQueryService {
 
     private final OnboardingAuditEventRepository repository;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
-    private final AuditRequestContextExtractor ctxExtractor;
     private final UserService userService;
     private final TenantService tenantService;
     private final AuditChainService auditChainService;
     private final OnboardingCanonicalMaterialBuilder canonicalBuilder;
     private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
+    private final AuditRequestContextExtractor contextExtractor;
 
     @Transactional(readOnly = true)
     public OnboardingAuditCursorPageDTO query(
@@ -57,51 +60,41 @@ public class OnboardingAuditQueryService {
             UUID cursorId,
             int size
     ) {
-        AuditStreamSupport.validateRange(from, to);
-        AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
-
-        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-
-        Pageable pageable = PageRequest.of(
-                0,
-                safeSize + 1,
-                Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id"))
+        CursorQueryResult<OnboardingAuditDTO> result = executeCursorQuery(
+                from,
+                to,
+                cursorTimestamp,
+                cursorId,
+                size,
+                MAX_PAGE_SIZE,
+                false,
+                pageable -> repository.findAll(
+                        Specification.allOf(
+                                from != null ? OnboardingAuditSpecifications.timestampFrom(from) : null,
+                                to != null ? OnboardingAuditSpecifications.timestampTo(to) : null,
+                                hasText(correlationId) ? OnboardingAuditSpecifications.hasCorrelationId(correlationId) : null,
+                                hasText(subjectId) ? OnboardingAuditSpecifications.hasSubjectId(subjectId) : null,
+                                tenantId != null ? OnboardingAuditSpecifications.hasTenantId(tenantId) : null,
+                                inviteId != null ? OnboardingAuditSpecifications.hasInviteId(inviteId) : null,
+                                cursorTimestamp != null
+                                        ? OnboardingAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false)
+                                        : null
+                        ),
+                        pageable
+                ),
+                OnboardingAuditDTO::from,
+                OnboardingAuditEvent::getTimestamp,
+                OnboardingAuditEvent::getId
         );
-
-        Specification<OnboardingAuditEvent> spec = Specification.allOf(
-                from != null ? OnboardingAuditSpecifications.timestampFrom(from) : null,
-                to != null ? OnboardingAuditSpecifications.timestampTo(to) : null,
-                hasText(correlationId) ? OnboardingAuditSpecifications.hasCorrelationId(correlationId) : null,
-                hasText(subjectId) ? OnboardingAuditSpecifications.hasSubjectId(subjectId) : null,
-                tenantId != null ? OnboardingAuditSpecifications.hasTenantId(tenantId) : null,
-                inviteId != null ? OnboardingAuditSpecifications.hasInviteId(inviteId) : null,
-                cursorTimestamp != null
-                        ? OnboardingAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, false)
-                        : null
-        );
-
-        Page<OnboardingAuditEvent> page = repository.findAll(spec, pageable);
 
         recordSensitiveAccess(tenantId, "AUDIT_READ");
 
-        List<OnboardingAuditEvent> raw = page.getContent();
-        boolean hasMore = raw.size() > safeSize;
-
-        List<OnboardingAuditDTO> items = new ArrayList<>(Math.min(raw.size(), safeSize));
-        for (int i = 0; i < raw.size() && i < safeSize; i++) {
-            items.add(OnboardingAuditDTO.from(raw.get(i)));
-        }
-
-        Instant nextTs = null;
-        UUID nextId = null;
-
-        if (hasMore) {
-            OnboardingAuditEvent last = raw.get(safeSize - 1);
-            nextTs = last.getTimestamp();
-            nextId = last.getId();
-        }
-
-        return new OnboardingAuditCursorPageDTO(items, hasMore, nextTs, nextId);
+        return new OnboardingAuditCursorPageDTO(
+                result.items(),
+                result.hasMore(),
+                result.nextCursorTimestamp(),
+                result.nextCursorId()
+        );
     }
 
     @Transactional(readOnly = true)
@@ -110,70 +103,35 @@ public class OnboardingAuditQueryService {
             Instant to,
             UUID tenantId
     ) {
-        AuditStreamSupport.validateRangeRequired(from, to);
+        AuditVerificationResultDTO result = executeVerification(
+                from,
+                to,
+                null,
+                (effectiveFrom, cursorTimestamp, cursorId, pageable) -> repository.findAll(
+                        Specification.allOf(
+                                OnboardingAuditSpecifications.timestampFrom(effectiveFrom),
+                                OnboardingAuditSpecifications.timestampTo(to),
+                                tenantId != null ? OnboardingAuditSpecifications.hasTenantId(tenantId) : null,
+                                cursorTimestamp != null
+                                        ? OnboardingAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
+                                        : null
+                        ),
+                        pageable
+                ),
+                event -> AuditPartition.tenant(STREAM, event.getTenantId().toString()),
+                event -> canonicalBuilder.buildCanonicalMaterial(
+                        canonicalBuilder.fromEvent(event)
+                ),
+                OnboardingAuditEvent::getId,
+                OnboardingAuditEvent::getTimestamp,
+                OnboardingAuditEvent::getChainVersion,
+                OnboardingAuditEvent::getPrevEventHash,
+                OnboardingAuditEvent::getEventHash,
+                auditChainService
+        );
 
-        Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
-        long verified = 0;
-
-        Instant cursorTimestamp = null;
-        UUID cursorId = null;
-
-        while (true) {
-
-            Specification<OnboardingAuditEvent> spec = Specification.allOf(
-                    OnboardingAuditSpecifications.timestampFrom(from),
-                    OnboardingAuditSpecifications.timestampTo(to),
-                    tenantId != null ? OnboardingAuditSpecifications.hasTenantId(tenantId) : null,
-                    cursorTimestamp != null
-                            ? OnboardingAuditSpecifications.cursorAfter(cursorTimestamp, cursorId, true)
-                            : null
-            );
-
-            Pageable pageable = PageRequest.of(
-                    0,
-                    VERIFY_BATCH_SIZE,
-                    Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
-            );
-
-            Page<OnboardingAuditEvent> batch = repository.findAll(spec, pageable);
-            if (batch.isEmpty()) {
-                recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
-                return AuditVerificationResultDTO.success(verified);
-            }
-
-            for (OnboardingAuditEvent event : batch.getContent()) {
-
-                AuditPartition partition =
-                        AuditPartition.tenant(STREAM, event.getTenantId().toString());
-
-                String canonical =
-                        canonicalBuilder.buildCanonicalMaterial(
-                                canonicalBuilder.fromEvent(event)
-                        );
-
-                AuditVerificationResultDTO failure =
-                        AuditStreamSupport.verifyEvent(
-                                event.getId(),
-                                partition,
-                                event.getChainVersion(),
-                                event.getPrevEventHash(),
-                                event.getEventHash(),
-                                canonical,
-                                auditChainService,
-                                lastHashByPartitionStateKey,
-                                verified
-                        );
-
-                if (failure != null) {
-                    recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
-                    return failure;
-                }
-
-                verified++;
-                cursorTimestamp = event.getTimestamp();
-                cursorId = event.getId();
-            }
-        }
+        recordSensitiveAccess(tenantId, "AUDIT_VERIFY");
+        return result;
     }
 
     @Transactional
@@ -183,34 +141,32 @@ public class OnboardingAuditQueryService {
             Instant to,
             UUID tenantId
     ) {
-        AuditStreamSupport.validateRangeRequired(from, to);
-
-        sealedJsonlAuditExportService.exportSealedJsonl(
+        executeJsonlExport(
                 out,
                 STREAM,
                 from,
                 to,
                 tenantId,
                 EXPORT_MAX_ROWS,
-                (Instant cursorTs, UUID cursorUuid) -> {
-
-                    Pageable pageable = PageRequest.of(
-                            0,
-                            EXPORT_BATCH_SIZE,
-                            Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
-                    );
-
-                    Specification<OnboardingAuditEvent> spec = Specification.allOf(
-                            OnboardingAuditSpecifications.timestampFrom(from),
-                            OnboardingAuditSpecifications.timestampTo(to),
-                            tenantId != null ? OnboardingAuditSpecifications.hasTenantId(tenantId) : null,
-                            cursorTs != null
-                                    ? OnboardingAuditSpecifications.cursorAfter(cursorTs, cursorUuid, true)
-                                    : null
-                    );
-
-                    return repository.findAll(spec, pageable);
-                },
+                sealedJsonlAuditExportService,
+                (cursorTs, cursorUuid) -> repository.findAll(
+                        Specification.allOf(
+                                OnboardingAuditSpecifications.timestampFrom(from),
+                                OnboardingAuditSpecifications.timestampTo(to),
+                                tenantId != null ? OnboardingAuditSpecifications.hasTenantId(tenantId) : null,
+                                cursorTs != null
+                                        ? OnboardingAuditSpecifications.cursorAfter(cursorTs, cursorUuid, true)
+                                        : null
+                        ),
+                        org.springframework.data.domain.PageRequest.of(
+                                0,
+                                EXPORT_BATCH_SIZE,
+                                org.springframework.data.domain.Sort.by(
+                                        org.springframework.data.domain.Sort.Order.asc("timestamp"),
+                                        org.springframework.data.domain.Sort.Order.asc("id")
+                                )
+                        )
+                ),
                 OnboardingAuditForensicExportDTO::from,
                 () -> recordSensitiveAccess(tenantId, "AUDIT_EXPORT")
         );
@@ -223,9 +179,7 @@ public class OnboardingAuditQueryService {
             Instant to,
             UUID tenantId
     ) {
-        AuditStreamSupport.validateRangeRequired(from, to);
-
-        AuditStreamSupport.streamExportCsvAsc(
+        executeCsvExport(
                 response,
                 STREAM,
                 from,
@@ -240,58 +194,65 @@ public class OnboardingAuditQueryService {
                         ),
                         pageable
                 ),
-                (PrintWriter w) -> w.println(String.join(",",
-                        "id","timestamp","actorUserId","subjectId","tenantId",
-                        "inviteId","correlationId","correlationSource","executionContext",
-                        "ip","userAgent","result","outcome","reasonCode","reasonDetail",
-                        "eventFingerprint","chainVersion","prevEventHash","eventHash"
-                )),
-                (PrintWriter w, OnboardingAuditEvent e) -> {
-                    w.println(String.join(",",
-                            AuditStreamSupport.csv(e.getId()),
-                            AuditStreamSupport.csv(e.getTimestamp()),
-                            AuditStreamSupport.csv(e.getActorUserId()),
-                            AuditStreamSupport.csv(e.getSubjectId()),
-                            AuditStreamSupport.csv(e.getTenantId()),
-                            AuditStreamSupport.csv(e.getInviteId()),
-                            AuditStreamSupport.csv(e.getCorrelationId()),
-                            AuditStreamSupport.csv(e.getCorrelationSource()),
-                            AuditStreamSupport.csv(e.getExecutionContext()),
-                            AuditStreamSupport.csv(e.getIp()),
-                            AuditStreamSupport.csv(e.getUserAgent()),
-                            AuditStreamSupport.csv(e.getResult()),
-                            AuditStreamSupport.csv(e.getOutcome()),
-                            AuditStreamSupport.csv(e.getReasonCode()),
-                            AuditStreamSupport.csv(e.getReasonDetail()),
-                            AuditStreamSupport.csv(e.getEventFingerprint()),
-                            AuditStreamSupport.csv(e.getChainVersion()),
-                            AuditStreamSupport.csv(e.getPrevEventHash()),
-                            AuditStreamSupport.csv(e.getEventHash())
-                    ));
-                },
+                this::writeCsvHeader,
+                this::writeCsvLine,
                 () -> recordSensitiveAccess(tenantId, "AUDIT_EXPORT")
         );
     }
 
+    private void writeCsvHeader(PrintWriter w) {
+        w.println(String.join(",",
+                "id",
+                "timestamp",
+                "actorUserId",
+                "subjectId",
+                "tenantId",
+                "inviteId",
+                "correlationId",
+                "correlationSource",
+                "executionContext",
+                "ip",
+                "userAgent",
+                "result",
+                "outcome",
+                "reasonCode",
+                "reasonDetail",
+                "eventFingerprint",
+                "chainVersion",
+                "prevEventHash",
+                "eventHash"
+        ));
+    }
+
+    private void writeCsvLine(PrintWriter w, OnboardingAuditEvent e) {
+        w.println(String.join(",",
+                AuditStreamSupport.csv(e.getId()),
+                AuditStreamSupport.csv(e.getTimestamp()),
+                AuditStreamSupport.csv(e.getActorUserId()),
+                AuditStreamSupport.csv(e.getSubjectId()),
+                AuditStreamSupport.csv(e.getTenantId()),
+                AuditStreamSupport.csv(e.getInviteId()),
+                AuditStreamSupport.csv(e.getCorrelationId()),
+                AuditStreamSupport.csv(e.getCorrelationSource()),
+                AuditStreamSupport.csv(e.getExecutionContext()),
+                AuditStreamSupport.csv(e.getIp()),
+                AuditStreamSupport.csv(e.getUserAgent()),
+                AuditStreamSupport.csv(e.getResult()),
+                AuditStreamSupport.csv(e.getOutcome()),
+                AuditStreamSupport.csv(e.getReasonCode()),
+                AuditStreamSupport.csv(e.getReasonDetail()),
+                AuditStreamSupport.csv(e.getEventFingerprint()),
+                AuditStreamSupport.csv(e.getChainVersion()),
+                AuditStreamSupport.csv(e.getPrevEventHash()),
+                AuditStreamSupport.csv(e.getEventHash())
+        ));
+    }
+
     private void recordSensitiveAccess(UUID requestedTenantId, String action) {
         User actor = userService.getRequiredCurrentUser();
-        AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
-
         UUID storageTenant = tenantService.getRootTenant().getId();
         boolean tenantScoped = requestedTenantId != null;
-
-        String scope = tenantScoped ? "SCOPE_TENANT" : "SCOPE_GLOBAL";
-        UUID effectiveTenant = tenantScoped ? requestedTenantId : storageTenant;
-
-        String fingerprint = EventFingerprint.of(List.of(
-                "SENSITIVE_ACCESS",
-                action,
-                STREAM,
-                scope,
-                actor.getId().toString(),
-                effectiveTenant.toString(),
-                ctx.correlationId()
-        ));
+        String resourcePath = contextExtractor.fromCurrentRequest().resourcePath();
 
         sensitiveAccessAuditService.record(
                 actor.getId(),
@@ -301,16 +262,12 @@ public class OnboardingAuditQueryService {
                 STREAM,
                 "AUDIT",
                 action,
-                null,
-                ctx.correlationId(),
-                ctx.ip(),
-                ctx.userAgent(),
+                resourcePath,
                 action,
                 tenantScoped
                         ? "Onboarding audit operation (tenant-scoped)"
                         : "Onboarding audit operation (global)",
-                SensitiveDataClassification.REGULATED,
-                fingerprint
+                SensitiveDataClassification.REGULATED
         );
     }
 

@@ -3,11 +3,14 @@ package com.brutecx.docflow_backend.audit.lifecycle;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.ChainSegmentAware;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -16,21 +19,8 @@ import java.util.UUID;
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(
-        name = "lifecycle_denied_audit_events",
-        indexes = {
-                @Index(name = "idx_lifecycle_denied_ts_id", columnList = "timestamp,id"),
-                @Index(name = "idx_lifecycle_denied_subject_ts_id", columnList = "subject_id,timestamp,id"),
-                @Index(name = "idx_lifecycle_denied_correlation_id", columnList = "correlation_id")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_lifecycle_denied_event_fingerprint",
-                        columnNames = "event_fingerprint"
-                )
-        }
-)
-public class LifecycleDeniedAuditEvent {
+@Table(name = "lifecycle_denied_audit_events")
+public class LifecycleDeniedAuditEvent implements ChainSegmentAware {
 
     @Id
     @GeneratedValue
@@ -74,7 +64,11 @@ public class LifecycleDeniedAuditEvent {
     @Column(name = "user_agent", nullable = false, updatable = false, length = 512)
     private String userAgent;
 
-    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb", updatable = false)
+    private LifecycleAuditMetadata metadata;
+
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 128)
     private String eventFingerprint;
 
     @Column(name = "chain_version", nullable = false, updatable = false)
@@ -85,6 +79,9 @@ public class LifecycleDeniedAuditEvent {
 
     @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
+
+    @Column(name = "chain_segment_hash", length = 128, updatable = false)
+    private String chainSegmentHash;
 
     public LifecycleDeniedAuditEvent(
             Instant timestamp,
@@ -98,6 +95,7 @@ public class LifecycleDeniedAuditEvent {
             String path,
             String ip,
             String userAgent,
+            LifecycleAuditMetadata metadata,
             String eventFingerprint,
             int chainVersion,
             String prevEventHash,
@@ -118,6 +116,8 @@ public class LifecycleDeniedAuditEvent {
         this.ip = requireNonBlank(ip, "ip");
         this.userAgent = requireNonBlank(userAgent, "userAgent");
 
+        this.metadata = metadata;
+
         this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
         this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
         this.eventHash = requireNonBlank(eventHash, "eventHash");
@@ -129,11 +129,15 @@ public class LifecycleDeniedAuditEvent {
         this.chainVersion = chainVersion;
     }
 
+    @Override
+    public void setChainSegmentHash(String chainSegmentHash) {
+        this.chainSegmentHash = chainSegmentHash;
+    }
+
     private static String requireNonBlank(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must not be blank");
         }
         return value;
     }
-
 }

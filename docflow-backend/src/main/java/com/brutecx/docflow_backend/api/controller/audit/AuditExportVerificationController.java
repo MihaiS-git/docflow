@@ -30,6 +30,23 @@ public class AuditExportVerificationController {
             @PathVariable UUID snapshotId,
             @RequestPart("file") MultipartFile file
     ) {
-        return ResponseEntity.ok(verificationService.verifySnapshotFile(snapshotId, file));
+        return ResponseEntity.ok(
+                verificationService.verifySnapshotFile(snapshotId, file)
+        );
+    }
+
+    /**
+     * Verifies integrity of the database audit chains.
+     * This calls the chain verification logic inside the audit subsystem.
+     */
+    @PostMapping(
+            value = "/verify-chain",
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<String> verifyChains() {
+
+        verificationService.verifyAllChains();
+
+        return ResponseEntity.ok("{\"status\":\"CHAIN_VERIFIED\"}");
     }
 }

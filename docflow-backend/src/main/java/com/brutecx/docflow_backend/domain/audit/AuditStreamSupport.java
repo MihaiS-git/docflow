@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.domain.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainCheckpoint;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import jakarta.servlet.http.HttpServletResponse;
@@ -14,13 +15,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Function;
 
 public final class AuditStreamSupport {
+
+    private static final long MAX_VERIFY_EVENTS = 5_000_000;
 
     private AuditStreamSupport() {
     }
@@ -75,6 +75,56 @@ public final class AuditStreamSupport {
     /* =====================================================
        VERIFY CONTINUITY + HASH
        ===================================================== */
+    public static <E> AuditVerificationResultDTO verifyStream(
+            Iterable<E> events,
+            Function<E, UUID> idExtractor,
+            Function<E, Instant> idTimestampExtractor,
+            Function<E, AuditPartition> partitionResolver,
+            Function<E, Integer> versionExtractor,
+            Function<E, String> prevHashExtractor,
+            Function<E, String> eventHashExtractor,
+            Function<E, String> canonicalMaterialExtractor,
+            AuditChainService auditChainService
+    ) {
+
+        Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
+        long verified = 0;
+
+        for (E e : events) {
+            if (verified >= MAX_VERIFY_EVENTS) {
+                return AuditVerificationResultDTO.truncated(
+                        verified,
+                        idTimestampExtractor.apply(e),
+                        idExtractor.apply(e)
+                );
+            }
+
+            AuditPartition partition = partitionResolver.apply(e);
+
+            AuditVerificationResultDTO failure =
+                    verifyEvent(
+                            idExtractor.apply(e),
+                            partition,
+                            versionExtractor.apply(e),
+                            prevHashExtractor.apply(e),
+                            eventHashExtractor.apply(e),
+                            canonicalMaterialExtractor.apply(e),
+                            auditChainService,
+                            lastHashByPartitionStateKey,
+                            verified
+                    );
+
+            if (failure != null) {
+                lastHashByPartitionStateKey.remove(partition.toStateKey());
+                verified++;
+                continue;
+            }
+
+            verified++;
+        }
+
+        return AuditVerificationResultDTO.success(verified);
+    }
 
     public static AuditVerificationResultDTO verifyEvent(
             java.util.UUID eventId,
@@ -278,5 +328,16 @@ public final class AuditStreamSupport {
     @FunctionalInterface
     public interface ThrowingConsumer<T> {
         void accept(T t) throws Exception;
+    }
+
+    /* =====================================================
+       HELPERS
+       ===================================================== */
+    public static Instant resolveCheckpointStart(
+            Optional<AuditChainCheckpoint> checkpoint
+    ) {
+        return checkpoint
+                .map(AuditChainCheckpoint::getLastEventTimestamp)
+                .orElse(null);
     }
 }

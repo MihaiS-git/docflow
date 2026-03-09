@@ -1,12 +1,11 @@
 package com.brutecx.docflow_backend.domain.user;
 
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
-import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
 import net.logstash.logback.argument.StructuredArgument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -14,10 +13,7 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,23 +24,19 @@ import static net.logstash.logback.argument.StructuredArguments.kv;
 public class UserService {
 
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
-
     private static final String SCHEMA_VERSION = "docflow_siem_v1";
     private static final String STREAM = "USER_SERVICE";
 
-    private static final HexFormat HEX = HexFormat.of();
-
     private final UserRepository userRepository;
+    private final AuditRequestContextExtractor contextExtractor;
 
     public User getRequiredCurrentUser() {
-
         Authentication authentication = SecurityContextHolder
                 .getContext()
                 .getAuthentication();
 
         if (authentication == null || !authentication.isAuthenticated()
                 || authentication instanceof AnonymousAuthenticationToken) {
-
             emitSecurityEvent(
                     false,
                     "user_current_resolve_unauthenticated",
@@ -52,13 +44,12 @@ public class UserService {
                     kv("execution.context", resolveExecutionContext()),
                     kv("principal.type", "none")
             );
-
             throw new IllegalStateException("No authenticated user in security context");
         }
 
         Object principal = authentication.getPrincipal();
-        if (!(principal instanceof OidcUser oidcUser)) {
 
+        if (!(principal instanceof OidcUser oidcUser)) {
             emitSecurityEvent(
                     false,
                     "user_current_principal_unexpected",
@@ -74,8 +65,6 @@ public class UserService {
 
         return userRepository.findByExternalSubjectId(externalSubjectId)
                 .orElseThrow(() -> {
-
-                    // Governance anomaly: authenticated identity not mapped locally (bootstrap/mis-sync)
                     emitSecurityEvent(
                             false,
                             "user_subject_unmapped",
@@ -83,7 +72,6 @@ public class UserService {
                             kv("execution.context", resolveExecutionContext()),
                             kv("subject.id", externalSubjectId)
                     );
-
                     return new IllegalStateException(
                             "Authenticated subject not mapped to local user: " + externalSubjectId
                     );
@@ -95,7 +83,6 @@ public class UserService {
     }
 
     public CurrentUserResult resolveCurrentUser() {
-
         Authentication authentication = SecurityContextHolder
                 .getContext()
                 .getAuthentication();
@@ -105,7 +92,9 @@ public class UserService {
             throw new IllegalStateException("No authenticated user");
         }
 
-        if (!(authentication.getPrincipal() instanceof OidcUser oidcUser)) {
+        Object principal = authentication.getPrincipal();
+
+        if (!(principal instanceof OidcUser oidcUser)) {
             throw new IllegalStateException("Authenticated principal is not OIDC");
         }
 
@@ -120,37 +109,19 @@ public class UserService {
                 .orElseGet(() -> new CurrentUserResult(CurrentUserState.BOOTSTRAP, null));
     }
 
-    /**
-     * Deletes invited users that were never activated.
-     * Safety guarantees:
-     * - only LOCKED users
-     * - only users without externalSubjectId
-     * - caller controls which user IDs are eligible
-     */
     @Transactional
     public int deleteUnactivatedInvitedUsers(List<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) return 0;
 
-        if (userIds == null || userIds.isEmpty()) {
-            return 0;
-        }
-
-        List<User> users =
-                userRepository.findByStatusAndIdIn(
-                        UserStatus.LOCKED,
-                        userIds
-                );
+        List<User> users = userRepository.findByStatusAndIdIn(UserStatus.LOCKED, userIds);
 
         int deleted = 0;
-
         for (User user : users) {
-            if (user.getExternalSubjectId() != null) {
-                continue;
-            }
+            if (user.getExternalSubjectId() != null) continue;
             userRepository.delete(user);
             deleted++;
         }
 
-        // Governance/destructive action: emit ONE aggregated event (no per-row log spam).
         emitSecurityEvent(
                 true,
                 "invited_users_purged",
@@ -166,7 +137,7 @@ public class UserService {
         return deleted;
     }
 
-    private static void emitSecurityEvent(
+    private void emitSecurityEvent(
             boolean ok,
             String eventAction,
             String message,
@@ -174,8 +145,8 @@ public class UserService {
     ) {
         List<Object> args = new ArrayList<>(24);
 
-        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_KEY);
-        String correlationSource = MDC.get(RequestCorrelationIdFilter.MDC_SOURCE_KEY);
+        var ctx = contextExtractor.fromCurrentRequest();
+        String correlationId = ctx.correlationId();
 
         args.add(kv("schema_version", SCHEMA_VERSION));
         args.add(kv("event.category", "security"));
@@ -184,7 +155,6 @@ public class UserService {
         args.add(kv("event.outcome", ok ? "success" : "failure"));
         args.add(kv("audit.stream", STREAM));
         args.add(kv("correlation.id", correlationId));
-        args.add(kv("correlation.source", correlationSource));
         args.add(kv("message", message));
 
         if (extra != null) {
@@ -193,17 +163,13 @@ public class UserService {
             }
         }
 
-        if (ok) {
-            log.info("security_event {}", args.toArray());
-        } else {
-            log.warn("security_event {}", args.toArray());
-        }
+        if (ok) log.info("security_event {}", args.toArray());
+        else log.warn("security_event {}", args.toArray());
     }
 
-    private static String resolveExecutionContext() {
-        // If correlation is present, we are almost certainly in HTTP flow.
-        // Otherwise, treat as SYSTEM.
-        String corr = MDC.get(RequestCorrelationIdFilter.MDC_KEY);
+    private String resolveExecutionContext() {
+        var ctx = contextExtractor.fromCurrentRequest();
+        String corr = ctx.correlationId();
         return (corr != null && !corr.isBlank())
                 ? ExecutionContext.HTTP.name()
                 : ExecutionContext.SYSTEM.name();
@@ -240,16 +206,5 @@ public class UserService {
             });
         }
         return roles;
-    }
-
-    private static String sha256Hex(String value) {
-        if (value == null || value.isBlank()) return "UNKNOWN";
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(value.getBytes(StandardCharsets.UTF_8));
-            return HEX.formatHex(digest);
-        } catch (Exception e) {
-            return "UNKNOWN";
-        }
     }
 }

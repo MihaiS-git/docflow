@@ -2,7 +2,12 @@ package com.brutecx.docflow_backend.application.invite;
 
 import com.brutecx.docflow_backend.api.error.InviteNotFoundException;
 import com.brutecx.docflow_backend.application.mail.IMailService;
-import com.brutecx.docflow_backend.audit.admin.*;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
+import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
+import com.brutecx.docflow_backend.audit.admin.InviteAuditMetadata;
+import com.brutecx.docflow_backend.audit.admin.InviteCleanupAuditMetadata;
+import com.brutecx.docflow_backend.audit.admin.InviteSubjectBindingAuditMetadata;
 import com.brutecx.docflow_backend.audit.metrics.IdentityAnomalyMetrics;
 import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditService;
 import com.brutecx.docflow_backend.domain.invite.Invite;
@@ -21,6 +26,7 @@ import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.session.SessionInformation;
 import org.springframework.security.core.session.SessionRegistry;
@@ -57,6 +63,7 @@ public class InviteApplicationService {
     private final UserTenantMembershipRepository membershipRepository;
     private final IdentityAnomalyMetrics identityAnomalyMetrics;
     private final SessionRegistry sessionRegistry;
+    private final AuditRequestContextExtractor contextExtractor;
 
     @Transactional
     public void createAndSendInvite(
@@ -111,7 +118,6 @@ public class InviteApplicationService {
                             temporaryPassword
                     );
 
-            // Bind subject (strict mismatch enforcement)
             String existingSubject = user.getExternalSubjectId();
             if (existingSubject != null && !existingSubject.equals(keycloakUserId)) {
                 identityAnomalyMetrics.incrementBindFailure(tenant.getId().toString());
@@ -133,7 +139,6 @@ public class InviteApplicationService {
 
             user.bindExternalSubjectId(keycloakUserId);
 
-            // Tamper-evident audit for subject binding
             adminAuditEventService.record(
                     AdminAuditActionType.INVITE_SUBJECT_BOUND,
                     tenant.getId(),
@@ -176,8 +181,6 @@ public class InviteApplicationService {
                     )
             );
 
-            // Best-effort compensation: if Keycloak user was created but local txn fails,
-            // attempt deletion to avoid orphaned Keycloak accounts.
             if (keycloakUserId != null && !keycloakUserId.isBlank()) {
                 try {
                     keycloakAdminClient.deleteUserById(keycloakUserId);
@@ -238,13 +241,11 @@ public class InviteApplicationService {
         UUID inviteTenantId = requireInviteTenant(invite);
 
         if (invite.isExpired()) {
-
             onboardingAuditService.recordFailure(
                     null,
                     inviteTenantId,
                     invite.getId(),
-                    "INVITE_EXPIRED",
-                    null
+                    "INVITE_EXPIRED"
             );
 
             throw new InviteNotFoundException("Invite link invalid or expired");
@@ -255,8 +256,7 @@ public class InviteApplicationService {
                     null,
                     inviteTenantId,
                     invite.getId(),
-                    "INVITE_REPLAY",
-                    null
+                    "INVITE_REPLAY"
             );
             throw new InviteNotFoundException("Invite link invalid or expired");
         }
@@ -270,13 +270,11 @@ public class InviteApplicationService {
         var currentUser = userService.getRequiredCurrentUser();
 
         if (invite.getStatus() == InviteStatus.ACCEPTED) {
-
             onboardingAuditService.recordFailure(
                     currentUser.getId(),
                     inviteTenantId,
                     invite.getId(),
-                    "INVITE_REPLAY",
-                    null
+                    "INVITE_REPLAY"
             );
 
             throw new IllegalArgumentException("Invite link invalid or expired");
@@ -286,18 +284,13 @@ public class InviteApplicationService {
                 currentUser.getId(),
                 currentUser.getExternalSubjectId(),
                 inviteTenantId,
-                invite.getId(),
-                null
+                invite.getId()
         );
 
         invite.markAccepted();
         inviteRepository.save(invite);
     }
 
-    /**
-     * Tenant-scoped revoke with hard boundary enforcement.
-     * Intended for /api/tenants/{tenantId}/invites/{inviteId}/revoke.
-     */
     @Transactional
     public void revokeInviteInTenant(UUID inviteId, UUID tenantId) {
         Objects.requireNonNull(inviteId, "inviteId");
@@ -329,9 +322,8 @@ public class InviteApplicationService {
                 keycloakAdminClient.deleteUserById(user.getExternalSubjectId());
             } catch (Exception ex) {
                 var actor = userService.getRequiredCurrentUser();
-                String correlationId = org.slf4j.MDC.get(
-                        RequestCorrelationIdFilter.MDC_KEY
-                );
+                String correlationId =
+                        contextExtractor.fromCurrentRequest().correlationId();
 
                 log.warn("application_error",
                         kv("schema_version", "docflow_siem_v1"),
@@ -348,8 +340,6 @@ public class InviteApplicationService {
             }
         }
 
-        // Edge case: invite revoked while the user still has an active session.
-        // Expire sessions for the subject so subsequent requests fail fast.
         if (user != null && user.getExternalSubjectId() != null) {
             expireSessionsForSubject(user.getExternalSubjectId());
         }
@@ -376,7 +366,6 @@ public class InviteApplicationService {
         var actor = userService.getRequiredCurrentUser();
 
         try {
-
             List<Invite> expiredInvites =
                     inviteRepository.findByTenantIdAndStatusAndExpiresAtBefore(
                             targetTenantId,

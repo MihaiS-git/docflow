@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.rbac;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.ChainSegmentAware;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -16,21 +17,8 @@ import java.util.UUID;
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(
-        name = "rbac_denied_audit_events",
-        indexes = {
-                @Index(name = "idx_rbac_denied_timestamp", columnList = "timestamp,id"),
-                @Index(name = "idx_rbac_denied_subject_id", columnList = "subject_id,timestamp,id"),
-                @Index(name = "idx_rbac_denied_correlation_id", columnList = "correlation_id")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_rbac_denied_event_fingerprint",
-                        columnNames = "event_fingerprint"
-                )
-        }
-)
-public class RbacDeniedAuditEvent {
+@Table(name = "rbac_denied_audit_events")
+public class RbacDeniedAuditEvent implements ChainSegmentAware {
 
     @Id
     @GeneratedValue
@@ -71,7 +59,7 @@ public class RbacDeniedAuditEvent {
     @Column(name = "user_agent", nullable = false, updatable = false, length = 512)
     private String userAgent;
 
-    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 128)
     private String eventFingerprint;
 
     @Column(name = "chain_version", nullable = false, updatable = false)
@@ -82,6 +70,9 @@ public class RbacDeniedAuditEvent {
 
     @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
+
+    @Column(name = "chain_segment_hash", length = 128, updatable = false)
+    private String chainSegmentHash;
 
     public RbacDeniedAuditEvent(
             Instant timestamp,
@@ -118,6 +109,11 @@ public class RbacDeniedAuditEvent {
         }
 
         this.chainVersion = chainVersion;
+    }
+
+    @Override
+    public void setChainSegmentHash(String chainSegmentHash) {
+        this.chainSegmentHash = chainSegmentHash;
     }
 
     private static String requireNonBlank(String value, String field) {

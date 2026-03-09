@@ -2,6 +2,8 @@ package com.brutecx.docflow_backend.audit.lifecycle;
 
 import com.brutecx.docflow_backend.audit.canonical.AuditCanonicalMaterialBuilder;
 import com.brutecx.docflow_backend.audit.canonical.AuditCanonicalVersionProvider;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -22,11 +24,14 @@ public final class LifecycleDeniedCanonicalMaterialBuilder
     private static final String NULL_TOKEN = "-";
 
     private final AuditCanonicalVersionProvider versionProvider;
+    private final ObjectMapper objectMapper;
 
     public LifecycleDeniedCanonicalMaterialBuilder(
-            AuditCanonicalVersionProvider versionProvider
+            AuditCanonicalVersionProvider versionProvider,
+            ObjectMapper objectMapper
     ) {
         this.versionProvider = versionProvider;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -46,7 +51,8 @@ public final class LifecycleDeniedCanonicalMaterialBuilder
             String path,
             String ip,
             String userAgent,
-            String fingerprint
+            String fingerprint,
+            LifecycleAuditMetadata metadata
     ) {
     }
 
@@ -65,7 +71,8 @@ public final class LifecycleDeniedCanonicalMaterialBuilder
                 e.getPath(),
                 e.getIp(),
                 e.getUserAgent(),
-                e.getEventFingerprint()
+                e.getEventFingerprint(),
+                e.getMetadata()
         );
     }
 
@@ -92,6 +99,9 @@ public final class LifecycleDeniedCanonicalMaterialBuilder
                 "path=" + normalize(in.path()),
                 "ip=" + normalize(in.ip()),
                 "userAgent=" + normalize(in.userAgent()),
+
+                "metadata=" + normalizeMetadata(in.metadata()),
+
                 "fingerprint=" + normalize(in.fingerprint())
         );
     }
@@ -102,5 +112,17 @@ public final class LifecycleDeniedCanonicalMaterialBuilder
 
     private String normalizeEpoch(Instant ts) {
         return ts == null ? NULL_TOKEN : String.valueOf(ts.toEpochMilli());
+    }
+
+    private String normalizeMetadata(LifecycleAuditMetadata metadata) {
+        if (metadata == null) {
+            return NULL_TOKEN;
+        }
+
+        try {
+            return objectMapper.writeValueAsString(metadata);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to canonicalize lifecycle metadata", e);
+        }
     }
 }

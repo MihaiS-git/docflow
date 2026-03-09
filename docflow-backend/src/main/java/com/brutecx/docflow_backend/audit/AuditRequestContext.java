@@ -4,6 +4,7 @@ public record AuditRequestContext(
         String correlationId,
         String subjectId,
         String ip,
-        String userAgent
+        String userAgent,
+        String resourcePath
 ) {
 }

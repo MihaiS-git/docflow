@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.onboarding;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.ChainSegmentAware;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -14,25 +15,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Entity
-@Table(
-        name = "onboarding_audit_events",
-        indexes = {
-                @Index(name = "idx_onboarding_invite_id", columnList = "invite_id"),
-                @Index(name = "idx_onboarding_subject_id", columnList = "subject_id"),
-                @Index(name = "idx_onboarding_tenant_id", columnList = "tenant_id"),
-                @Index(name = "idx_onboarding_timestamp", columnList = "timestamp,id"),
-                @Index(name = "idx_onboarding_correlation_id", columnList = "correlation_id")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_onboarding_event_fingerprint",
-                        columnNames = "event_fingerprint"
-                )
-        }
-)
+@Table(name = "onboarding_audit_events")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class OnboardingAuditEvent {
+public class OnboardingAuditEvent implements ChainSegmentAware {
 
     @Id
     @GeneratedValue
@@ -86,17 +72,20 @@ public class OnboardingAuditEvent {
     @Column(name = "reason_detail", updatable = false, length = 512)
     private String reasonDetail;
 
-    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 64)
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, unique = true, length = 128)
     private String eventFingerprint;
 
     @Column(name = "chain_version", nullable = false, updatable = false)
     private int chainVersion;
 
-    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 64)
+    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 128)
     private String prevEventHash;
 
-    @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
+
+    @Column(name = "chain_segment_hash", length = 128, updatable = false)
+    private String chainSegmentHash;
 
     public OnboardingAuditEvent(
             Instant timestamp,
@@ -131,7 +120,7 @@ public class OnboardingAuditEvent {
         this.result = Objects.requireNonNull(result, "result must not be null");
         this.outcome = Objects.requireNonNull(outcome, "outcome must not be null");
         this.reasonCode = requireNonBlank(reasonCode, "reasonCode");
-        this.reasonDetail = reasonDetail; // optional
+        this.reasonDetail = reasonDetail;
         this.eventFingerprint = requireNonBlank(eventFingerprint, "eventFingerprint");
         this.prevEventHash = requireNonBlank(prevEventHash, "prevEventHash");
         this.eventHash = requireNonBlank(eventHash, "eventHash");
@@ -141,6 +130,11 @@ public class OnboardingAuditEvent {
         }
 
         this.chainVersion = chainVersion;
+    }
+
+    @Override
+    public void setChainSegmentHash(String chainSegmentHash) {
+        this.chainSegmentHash = chainSegmentHash;
     }
 
     private static String requireNonBlank(String value, String field) {

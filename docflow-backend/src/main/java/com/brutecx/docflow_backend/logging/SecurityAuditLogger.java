@@ -1,9 +1,7 @@
 package com.brutecx.docflow_backend.logging;
 
-import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -29,32 +27,44 @@ public final class SecurityAuditLogger {
             String auditStream,
             String auditPartition,
             UUID tenantId,
-            Exception ex
+            Exception ex,
+            String correlationId
     ) {
+
         Actor actor = resolveActor();
-        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_KEY);
 
         List<Object> args = new ArrayList<>(16);
+
         args.add(kv("schema_version", SCHEMA_VERSION));
         args.add(kv("event.category", "security"));
         args.add(kv("event.type", "audit"));
         args.add(kv("event.action", eventAction));
         args.add(kv("event.outcome", "failure"));
-        args.add(kv("correlation.id", correlationId));
+
+        if (correlationId != null && !correlationId.isBlank()) {
+            args.add(kv("correlation.id", correlationId));
+        }
+
         args.add(kv("audit.stream", auditStream));
         args.add(kv("audit.partition", auditPartition));
+
         if (tenantId != null) {
             args.add(kv("tenant.id", tenantId));
         }
+
         args.add(kv("actor.type", actor.type()));
         args.add(kv("actor.name", actor.name()));
         args.add(kv("actor.roles", actor.roles()));
-        args.add(kv("exception.class", ex.getClass().getSimpleName()));
+
+        if (ex != null) {
+            args.add(kv("exception.class", ex.getClass().getSimpleName()));
+        }
 
         log.error("security_event {}", args.toArray(), ex);
     }
 
     private static Actor resolveActor() {
+
         Authentication auth = SecurityContextHolder.getContext() != null
                 ? SecurityContextHolder.getContext().getAuthentication()
                 : null;
@@ -66,6 +76,7 @@ public final class SecurityAuditLogger {
         String name = auth.getName() != null ? auth.getName() : "unknown";
 
         List<String> roles = new ArrayList<>();
+
         if (auth.getAuthorities() != null) {
             auth.getAuthorities().forEach(a -> {
                 if (a != null && a.getAuthority() != null && !a.getAuthority().isBlank()) {

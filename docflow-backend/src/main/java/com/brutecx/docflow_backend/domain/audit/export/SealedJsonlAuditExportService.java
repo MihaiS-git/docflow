@@ -2,21 +2,21 @@ package com.brutecx.docflow_backend.domain.audit.export;
 
 import com.brutecx.docflow_backend.api.dto.audit.AuditExportMetadataDTO;
 import com.brutecx.docflow_backend.api.dto.audit.BaseAuditForensicExportDTO;
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
 import com.brutecx.docflow_backend.domain.audit.forensic.DigestingForensicExportService;
-import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKey;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.rotation.AuditSigningKeyRotationService;
+import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.AuditSigningKey;
 import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.ExportSigningService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
-import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
 import net.logstash.logback.argument.StructuredArgument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,7 +24,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.OutputStream;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Function;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
@@ -50,6 +54,7 @@ public class SealedJsonlAuditExportService {
     private final AuditExportSnapshotRepository auditExportSnapshotRepository;
     private final UserService userService;
     private final AuditWriteFailureMetrics metrics;
+    private final AuditRequestContextExtractor contextExtractor;
 
     @Transactional
     public <E, T extends BaseAuditForensicExportDTO> void exportSealedJsonl(
@@ -64,8 +69,7 @@ public class SealedJsonlAuditExportService {
             Runnable afterSuccess
     ) {
         final long startNs = System.nanoTime();
-        final String correlationId = resolveCorrelationId();
-        final CorrelationSource correlationSource = resolveCorrelationSource();
+        final ExportCorrelationContext correlation = resolveCorrelationContext();
 
         AuditExportSnapshot snapshot = null;
         long exported = 0L;
@@ -94,10 +98,11 @@ public class SealedJsonlAuditExportService {
 
             while (true) {
                 Page<E> batch = fetcher.fetch(cursorTimestamp, cursorId);
-                if (batch == null || batch.isEmpty()) break;
+                if (batch == null || batch.isEmpty()) {
+                    break;
+                }
 
                 for (E entity : batch.getContent()) {
-
                     if (exported >= exportMaxRows) {
                         throw new IllegalStateException("Export row limit exceeded");
                     }
@@ -155,26 +160,24 @@ public class SealedJsonlAuditExportService {
                     sig.algorithm(),
                     sig.keyId(),
                     activeKey.getFingerprintSha256Hex(),
-                    activeKey.getPublicKeyPem(),
                     AuditExportMetadataDTO.DIGEST_ALG_SHA256,
-                    AuditExportMetadataDTO.SIGNATURE_INPUT_PAYLOAD_JSONL_BYTES,
+                    AuditExportMetadataDTO.SIGNATURE_INPUT_PAYLOAD_BYTES,
                     snapshot.getId(),
                     now
             );
 
             digestingExportService.writeMetaJsonl(
-                    Map.of("_export_meta", meta),
+                    java.util.Map.of("_export_meta", meta),
                     ctx
             );
 
             ctx.flush();
-            // Prevents afterSuccess.run() if the user disconnected and the export is never delivered
-            out.flush(); // ensure servlet container pushes bytes
+            out.flush();
 
             emitExportLog(
                     true,
-                    correlationId,
-                    correlationSource,
+                    correlation.correlationId(),
+                    correlation.correlationSource(),
                     snapshot.getId(),
                     stream,
                     tenantId,
@@ -192,8 +195,8 @@ public class SealedJsonlAuditExportService {
         } catch (Exception e) {
             emitExportLog(
                     false,
-                    correlationId,
-                    correlationSource,
+                    correlation.correlationId(),
+                    correlation.correlationSource(),
                     snapshot != null ? snapshot.getId() : null,
                     stream,
                     tenantId,
@@ -207,22 +210,29 @@ public class SealedJsonlAuditExportService {
             metrics.incrementFailure(STREAM, EXEC_CTX, e);
             throw new IllegalStateException("Sealed export failed", e);
         } finally {
-            metrics.recordLatency(STREAM, EXEC_CTX,
-                    Duration.ofNanos(System.nanoTime() - startNs));
+            metrics.recordLatency(
+                    STREAM,
+                    EXEC_CTX,
+                    Duration.ofNanos(System.nanoTime() - startNs)
+            );
         }
     }
 
-    private static String resolveCorrelationId() {
-        String corr = MDC.get("correlationId");
-        return (corr != null && !corr.isBlank())
-                ? corr
-                : "export-" + UUID.randomUUID();
-    }
+    private ExportCorrelationContext resolveCorrelationContext() {
+        AuditRequestContext requestContext = contextExtractor.fromCurrentRequest();
 
-    private static CorrelationSource resolveCorrelationSource() {
-        return "GENERATED".equalsIgnoreCase(MDC.get(RequestCorrelationIdFilter.MDC_SOURCE_KEY))
-                ? CorrelationSource.GENERATED
-                : CorrelationSource.REQUEST_ID;
+        String correlationId = requestContext.correlationId();
+        if (correlationId == null || correlationId.isBlank()) {
+            return new ExportCorrelationContext(
+                    "export-" + UUID.randomUUID(),
+                    CorrelationSource.GENERATED
+            );
+        }
+
+        return new ExportCorrelationContext(
+                correlationId,
+                CorrelationSource.REQUEST_ID
+        );
     }
 
     private static void emitExportLog(
@@ -265,5 +275,11 @@ public class SealedJsonlAuditExportService {
         } else {
             log.error("security_event {}", args.toArray());
         }
+    }
+
+    private record ExportCorrelationContext(
+            String correlationId,
+            CorrelationSource correlationSource
+    ) {
     }
 }

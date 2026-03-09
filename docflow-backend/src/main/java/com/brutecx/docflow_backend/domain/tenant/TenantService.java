@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.domain.tenant;
 import com.brutecx.docflow_backend.api.dto.tenant.TenantUserResponseDTO;
 import com.brutecx.docflow_backend.api.error.LastManagerViolationException;
 import com.brutecx.docflow_backend.api.error.SelfActionForbiddenException;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
 import com.brutecx.docflow_backend.audit.admin.TenantAuditMetadata;
@@ -15,11 +16,9 @@ import com.brutecx.docflow_backend.domain.user.UserService;
 import com.brutecx.docflow_backend.logging.InfraEventActions;
 import com.brutecx.docflow_backend.logging.InfraEventLogger;
 import com.brutecx.docflow_backend.logging.InfraEventType;
-import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.data.domain.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
@@ -56,6 +55,7 @@ public class TenantService {
     private final IAdminAuditEventService adminAuditEventService;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
     private final UserService userService;
+    private final AuditRequestContextExtractor contextExtractor;
 
     public Page<TenantUserResponseDTO> listUsersByTenant(
             UUID tenantId,
@@ -96,6 +96,7 @@ public class TenantService {
                 );
 
         User actor = userService.getRequiredCurrentUser();
+        String resourcePath = contextExtractor.fromCurrentRequest().resourcePath();
 
         sensitiveAccessAuditService.record(
                 actor.getId(),
@@ -105,14 +106,10 @@ public class TenantService {
                 tenantId.toString(),
                 "TENANT_USERS",
                 "LIST",
-                "/api/tenants/" + tenantId + "/users",
-                null,
-                null,
-                null,
+                resourcePath,
                 "TENANT_LIST_USERS",
                 null,
-                SensitiveDataClassification.CONFIDENTIAL,
-                null
+                SensitiveDataClassification.CONFIDENTIAL
         );
 
         return memberships.map(TenantUserResponseDTO::from);
@@ -513,9 +510,11 @@ public class TenantService {
                     metadata
             );
 
+            String correlationId = contextExtractor.fromCurrentRequest().correlationId();
+
             Map<String, Object> fields = new HashMap<>();
             fields.put("schema_version", "docflow_siem_v1");
-            fields.put("correlation.id", MDC.get(RequestCorrelationIdFilter.MDC_KEY));
+            fields.put("correlation.id", correlationId);
             fields.put("event.category", "security");
             fields.put("event.type", "tenant_membership");
             fields.put("event.action", "TENANT_MEMBERSHIP_ROLE_CHANGED");
@@ -600,9 +599,11 @@ public class TenantService {
                     metadata
             );
 
+            String correlationId = contextExtractor.fromCurrentRequest().correlationId();
+
             Map<String, Object> fields = new HashMap<>();
             fields.put("schema_version", "docflow_siem_v1");
-            fields.put("correlation.id", MDC.get(RequestCorrelationIdFilter.MDC_KEY));
+            fields.put("correlation.id", correlationId);
             fields.put("event.category", "security");
             fields.put("event.type", "tenant_membership");
             fields.put("event.action", "TENANT_MEMBERSHIP_STATUS_CHANGED");
@@ -619,16 +620,18 @@ public class TenantService {
         }
     }
 
-    private static void securityWarnDenied(
+    private void securityWarnDenied(
             String eventAction,
             UUID tenantId,
             User actor,
             UUID targetUserId,
             String errorCode
     ) {
+        String correlationId = contextExtractor.fromCurrentRequest().correlationId();
+
         Map<String, Object> fields = new HashMap<>();
         fields.put("schema_version", "docflow_siem_v1");
-        fields.put("correlation.id", MDC.get(RequestCorrelationIdFilter.MDC_KEY)); // ADDED
+        fields.put("correlation.id", correlationId);
         fields.put("event.category", "security");
         fields.put("event.type", "tenant_membership");
         fields.put("event.action", eventAction);

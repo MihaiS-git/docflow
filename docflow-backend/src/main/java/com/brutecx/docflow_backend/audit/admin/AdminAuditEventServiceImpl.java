@@ -2,48 +2,51 @@ package com.brutecx.docflow_backend.audit.admin;
 
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.AuditStreamExecutor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.canonical.AuditCanonicalVersionProvider;
 import com.brutecx.docflow_backend.audit.canonical.CanonicalJsonService;
-import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
-import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import com.brutecx.docflow_backend.logging.SecurityAuditLogger;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 @Service
 @RequiredArgsConstructor
 public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
+
+    private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     private static final String STREAM = AdminAuditCanonicalMaterialBuilder.STREAM;
     private static final String EXEC_CTX = ExecutionContext.HTTP.name();
 
     private final AdminAuditEventRepository repository;
-    private final AuditChainService auditChainService;
     private final AuditRequestContextExtractor contextExtractor;
     private final UserService userService;
     private final AdminAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final AuditCanonicalVersionProvider canonicalVersionProvider;
     private final CanonicalJsonService canonicalJsonService;
-    private final AuditWriteFailureMetrics metrics;
     private final AuditPartitionResolver partitionResolver;
+    private final AuditStreamExecutor executor;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -54,20 +57,25 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
             UUID targetUserId,
             AdminAuditMetadata metadata
     ) {
-
         ensureHttpContext();
 
-        if (actionType == null) throw new IllegalArgumentException("actionType is required");
-        if (tenantId == null) throw new IllegalArgumentException("tenantId is required");
-        if (subjectId == null || subjectId.isBlank()) throw new IllegalArgumentException("subjectId is required");
+        if (actionType == null) {
+            throw new IllegalArgumentException("actionType is required");
+        }
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required");
+        }
+        if (subjectId == null || subjectId.isBlank()) {
+            throw new IllegalArgumentException("subjectId is required");
+        }
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
-        requireCorrelation(ctx);
+        String correlationId = requireCorrelation(ctx);
 
         UUID actorUserId = resolveActor(actionType, targetUserId);
-
         CorrelationSource correlationSource = resolveCorrelationSource();
         AuditResult result = resolveResult(actionType);
+        Instant eventTimestamp = Instant.now();
 
         String fingerprint = buildFingerprint(
                 actionType,
@@ -77,75 +85,77 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
                 subjectId,
                 targetUserId,
                 metadata,
-                ctx.correlationId()
+                correlationId
         );
 
-        Instant eventTimestamp = Instant.now();
+        String canonicalMaterial =
+                canonicalMaterialBuilder.buildCanonicalMaterial(
+                        new AdminAuditCanonicalMaterialBuilder.Input(
+                                eventTimestamp,
+                                actorUserId,
+                                subjectId,
+                                tenantId,
+                                actionType,
+                                result,
+                                correlationId,
+                                targetUserId,
+                                metadata,
+                                fingerprint
+                        )
+                );
 
-        String canonicalMaterial = canonicalMaterialBuilder.buildCanonicalMaterial(
-                new AdminAuditCanonicalMaterialBuilder.Input(
-                        eventTimestamp,
-                        actorUserId,
-                        subjectId,
-                        tenantId,
-                        actionType,
-                        result,
-                        ctx.correlationId(),
-                        targetUserId,
-                        metadata,
-                        fingerprint
-                )
-        );
+        AuditPartition partition = partitionResolver.admin(tenantId.toString());
 
-        /*
-         * Partition rules:
-         * AdminAudit → TENANT
-         */
-        AuditPartition partition =
-                partitionResolver.admin(tenantId.toString());
-
-        final long startNs = System.nanoTime();
         try {
-
-            AuditChainService.ChainHash chain =
-                    auditChainService.nextHash(
+            AuditStreamExecutor.WriteOutcome outcome =
+                    executor.execute(
+                            STREAM,
+                            EXEC_CTX,
                             partition,
-                            canonicalMaterial
+                            canonicalMaterial,
+                            repository,
+                            prepared -> new AdminAuditEvent(
+                                    eventTimestamp,
+                                    actorUserId,
+                                    ctx.ip(),
+                                    ctx.userAgent(),
+                                    correlationId,
+                                    correlationSource,
+                                    ExecutionContext.HTTP,
+                                    result,
+                                    subjectId,
+                                    tenantId,
+                                    actionType,
+                                    targetUserId,
+                                    metadata,
+                                    fingerprint,
+                                    prepared.chainVersion(),
+                                    prepared.prevHash(),
+                                    prepared.eventHash()
+                            )
                     );
 
-            repository.save(new AdminAuditEvent(
-                    eventTimestamp,
-                    actorUserId,
-                    ctx.ip(),
-                    ctx.userAgent(),
-                    ctx.correlationId(),
-                    correlationSource,
-                    ExecutionContext.HTTP,
-                    result,
-                    subjectId,
-                    tenantId,
-                    actionType,
-                    targetUserId,
-                    metadata,
-                    fingerprint,
-                    chain.chainVersion(),
-                    chain.prevHash(),
-                    chain.eventHash()
-            ));
-
-            metrics.incrementSuccess(STREAM, EXEC_CTX);
-            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
-
+            if (outcome == AuditStreamExecutor.WriteOutcome.DEDUP) {
+                log.debug(
+                        "security_event",
+                        kv("event.category", "audit"),
+                        kv("event.action", "admin_audit_deduplicated"),
+                        kv("audit.stream", STREAM),
+                        kv("tenant.id", tenantId),
+                        kv("subject.id", subjectId),
+                        kv("action.type", actionType.name()),
+                        kv("audit.result", result.name()),
+                        kv("correlation.id", correlationId)
+                );
+            }
         } catch (Exception ex) {
-            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
-            metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
-
             SecurityAuditLogger.auditFailure(
                     "admin_audit_record_failed",
                     STREAM,
                     "TENANT",
                     tenantId,
-                    ex
+                    ex,
+                    correlationId
             );
             throw ex;
         }
@@ -186,12 +196,7 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
         fp.add(correlationId);
         fp.add(targetUserId != null ? targetUserId.toString() : "-");
         fp.add(metadata != null ? metadata.getClass().getSimpleName() : "-");
-
-        if (metadata != null) {
-            fp.add(canonicalJsonService.toCanonicalJson(metadata));
-        } else {
-            fp.add("-");
-        }
+        fp.add(metadata != null ? canonicalJsonService.toCanonicalJson(metadata) : "-");
 
         return EventFingerprint.of(fp);
     }
@@ -202,11 +207,12 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
         }
     }
 
-    private static void requireCorrelation(AuditRequestContext ctx) {
+    private static String requireCorrelation(AuditRequestContext ctx) {
         String corr = ctx.correlationId();
         if (corr == null || corr.isBlank()) {
             throw new IllegalStateException("Missing correlationId for admin audit event");
         }
+        return corr;
     }
 
     private static CorrelationSource resolveCorrelationSource() {
@@ -217,11 +223,7 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
 
     private AuditResult resolveResult(AdminAuditActionType actionType) {
         return switch (actionType) {
-
-            // ---- DENIED ----
             case TENANT_MUTATION_DENIED -> AuditResult.DENIED;
-
-            // ---- FAILED ----
             case TENANT_CREATE_FAILED, RETENTION_POLICY_UPSERT_FAILED, INVITE_FAILED, USER_LOCK_FAILED,
                  USER_DISABLE_FAILED, USER_ACTIVATE_FAILED, ROLE_ASSIGN_FAILED, ROLE_REVOKE_FAILED,
                  INVITE_SUBJECT_BIND_FAILED, INVITE_PURGE_FAILED -> AuditResult.FAILED;

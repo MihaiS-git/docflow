@@ -2,6 +2,7 @@ package com.brutecx.docflow_backend.domain.admin;
 
 import com.brutecx.docflow_backend.api.dto.admin.AdminUserResponseDTO;
 import com.brutecx.docflow_backend.api.error.SelfActionForbiddenException;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
 import com.brutecx.docflow_backend.audit.admin.UserStateChangeMetadata;
@@ -38,6 +39,7 @@ public class AdminUserService {
     private final AuthRoleExtractor authRoleExtractor;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
     private final TenantService tenantService;
+    private final AuditRequestContextExtractor contextExtractor;
 
     /**
      * Platform admin user listing.
@@ -69,6 +71,7 @@ public class AdminUserService {
 
         Map<String, List<String>> rolesBySubject =
                 keycloakAdminClient.fetchRealmRolesForUsers(subjectIds);
+        String resourcePath = contextExtractor.fromCurrentRequest().resourcePath();
 
         // ---- SensitiveAccess Audit ----
         sensitiveAccessAuditService.record(
@@ -79,18 +82,13 @@ public class AdminUserService {
                 rootTenantId.toString(),
                 "USER_LIST",
                 "READ",
-                "/api/admin/users",
-                null,
-                null,
-                null,
+                resourcePath,
                 "ADMIN_USER_LIST",
                 "status=" + status + ",emailSearch=" + emailSearch,
-                SensitiveDataClassification.CONFIDENTIAL,
-                null
+                SensitiveDataClassification.CONFIDENTIAL
         );
 
         return page.map(user -> {
-
             List<String> roles =
                     authRoleExtractor.filterRealmRoles(
                             rolesBySubject.getOrDefault(

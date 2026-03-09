@@ -1,6 +1,8 @@
 package com.brutecx.docflow_backend.security.enforcement;
 
 import com.brutecx.docflow_backend.audit.lifecycle.ILifecycleDeniedAuditService;
+import com.brutecx.docflow_backend.audit.lifecycle.LifecycleAuditMetadata;
+import com.brutecx.docflow_backend.audit.lifecycle.TenantAuthorizationMetadata;
 import com.brutecx.docflow_backend.domain.tenant.MembershipStatus;
 import com.brutecx.docflow_backend.domain.tenant.TenantRole;
 import com.brutecx.docflow_backend.domain.tenant.UserTenantMembership;
@@ -42,13 +44,11 @@ public class TenantAuthorizationManager implements AuthorizationManager<RequestA
             Supplier<Authentication> authenticationSupplier,
             RequestAuthorizationContext context
     ) {
-
         HttpServletRequest request = context.getRequest();
         String uri = request.getRequestURI();
         String method = request.getMethod();
 
         Optional<UUID> tenantIdOpt = extractTenantId(uri);
-
         if (tenantIdOpt.isEmpty()) {
             return new AuthorizationDecision(true);
         }
@@ -57,24 +57,48 @@ public class TenantAuthorizationManager implements AuthorizationManager<RequestA
         Authentication auth = authenticationSupplier.get();
 
         if (auth == null || !auth.isAuthenticated()) {
-            audit(null, enrich("AUTH_NOT_AUTHENTICATED", tenantId), method, uri, null);
+            audit(
+                    null,
+                    "AUTH_NOT_AUTHENTICATED",
+                    method,
+                    uri,
+                    tenantAuthMetadata(tenantId, requiredRole, null, null)
+            );
             return new AuthorizationDecision(false);
         }
 
         if (!(auth.getPrincipal() instanceof OidcUser oidcUser)) {
-            audit(null, enrich("AUTH_PRINCIPAL_NOT_OIDC", tenantId), method, uri, null);
+            audit(
+                    null,
+                    "AUTH_PRINCIPAL_NOT_OIDC",
+                    method,
+                    uri,
+                    tenantAuthMetadata(tenantId, requiredRole, null, null)
+            );
             return new AuthorizationDecision(false);
         }
 
         String subject = oidcUser.getSubject();
         if (subject == null || subject.isBlank()) {
-            audit(null, enrich("AUTH_SUBJECT_MISSING", tenantId), method, uri, null);
+            audit(
+                    null,
+                    "AUTH_SUBJECT_MISSING",
+                    method,
+                    uri,
+                    tenantAuthMetadata(tenantId, requiredRole, null, null)
+            );
             return new AuthorizationDecision(false);
         }
 
         User user = userRepository.findByExternalSubjectId(subject).orElse(null);
         if (user == null) {
-            audit(subject, enrich("AUTH_LOCAL_USER_NOT_FOUND", tenantId), method, uri, null);
+            audit(
+                    subject,
+                    "AUTH_LOCAL_USER_NOT_FOUND",
+                    method,
+                    uri,
+                    tenantAuthMetadata(tenantId, requiredRole, null, null)
+            );
             return new AuthorizationDecision(false);
         }
 
@@ -83,36 +107,66 @@ public class TenantAuthorizationManager implements AuthorizationManager<RequestA
                         .orElse(null);
 
         if (membership == null) {
-            audit(subject, enrich("TENANT_MEMBERSHIP_MISSING", tenantId), method, uri,
-                    "requiredRole=" + requiredRole);
+            audit(
+                    subject,
+                    "TENANT_MEMBERSHIP_MISSING",
+                    method,
+                    uri,
+                    tenantAuthMetadata(tenantId, requiredRole, null, null)
+            );
             return new AuthorizationDecision(false);
         }
 
         if (membership.getStatus() != MembershipStatus.ACTIVE) {
-            audit(subject, enrich("TENANT_MEMBERSHIP_NOT_ACTIVE", tenantId), method, uri,
-                    "status=" + membership.getStatus() + ";requiredRole=" + requiredRole);
+            audit(
+                    subject,
+                    "TENANT_MEMBERSHIP_NOT_ACTIVE",
+                    method,
+                    uri,
+                    tenantAuthMetadata(
+                            tenantId,
+                            requiredRole,
+                            membership.getRole(),
+                            membership.getStatus()
+                    )
+            );
             return new AuthorizationDecision(false);
         }
 
         TenantRole actualRole = membership.getRole();
         if (actualRole == null || !actualRole.isAtLeast(requiredRole)) {
-            audit(subject, enrich("TENANT_ROLE_INSUFFICIENT", tenantId), method, uri,
-                    "actualRole=" + actualRole + ";requiredRole=" + requiredRole);
+            audit(
+                    subject,
+                    "TENANT_ROLE_INSUFFICIENT",
+                    method,
+                    uri,
+                    tenantAuthMetadata(
+                            tenantId,
+                            requiredRole,
+                            actualRole,
+                            membership.getStatus()
+                    )
+            );
             return new AuthorizationDecision(false);
         }
 
         return new AuthorizationDecision(true);
     }
 
-    private void audit(String subjectId, String reasonCode, String method, String uri, String detail) {
-
+    private void audit(
+            String subjectId,
+            String reasonCode,
+            String method,
+            String uri,
+            LifecycleAuditMetadata metadata
+    ) {
         try {
             lifecycleDeniedAuditService.record(
                     subjectId,
                     reasonCode,
                     method,
                     uri,
-                    detail
+                    metadata
             );
 
             InfraEventLogger.log(
@@ -123,7 +177,8 @@ public class TenantAuthorizationManager implements AuthorizationManager<RequestA
                     null,
                     StructuredArguments.kv("actor.subject_id", subjectId),
                     StructuredArguments.kv("http.method", method),
-                    StructuredArguments.kv("http.path", uri)
+                    StructuredArguments.kv("http.path", uri),
+                    StructuredArguments.kv("lifecycle.reason_code", reasonCode)
             );
 
         } catch (Exception ex) {
@@ -132,19 +187,39 @@ public class TenantAuthorizationManager implements AuthorizationManager<RequestA
                     InfraEventActions.AUTHZ_LIFECYCLE_DENIED_AUDIT_WRITE,
                     InfraEventOutcome.FAILURE,
                     "LifecycleDenied audit write failed",
-                    ex
+                    ex,
+                    StructuredArguments.kv("actor.subject_id", subjectId),
+                    StructuredArguments.kv("http.method", method),
+                    StructuredArguments.kv("http.path", uri),
+                    StructuredArguments.kv("lifecycle.reason_code", reasonCode)
             );
         }
     }
 
-    private static String enrich(String baseReason, UUID tenantId) {
-        return baseReason + ":" + tenantId;
+    private static TenantAuthorizationMetadata tenantAuthMetadata(
+            UUID tenantId,
+            TenantRole requiredRole,
+            TenantRole actualRole,
+            MembershipStatus membershipStatus
+    ) {
+        return new TenantAuthorizationMetadata(
+                tenantId.toString(),
+                requiredRole != null ? requiredRole.name() : null,
+                actualRole != null ? actualRole.name() : null,
+                membershipStatus != null ? membershipStatus.name() : null
+        );
     }
 
     private static Optional<UUID> extractTenantId(String uri) {
-        if (uri == null || uri.isBlank()) return Optional.empty();
+        if (uri == null || uri.isBlank()) {
+            return Optional.empty();
+        }
+
         Matcher m = TENANT_PATH.matcher(uri);
-        if (!m.find()) return Optional.empty();
+        if (!m.find()) {
+            return Optional.empty();
+        }
+
         try {
             return Optional.of(UUID.fromString(m.group(1)));
         } catch (Exception ignored) {

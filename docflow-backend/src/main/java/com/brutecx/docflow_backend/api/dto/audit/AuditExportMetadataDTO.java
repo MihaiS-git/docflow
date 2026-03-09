@@ -15,18 +15,17 @@ public record AuditExportMetadataDTO(
         String signatureAlgorithm,
         String keyId,
         String publicKeyFingerprint,
-        String publicKeyPem,
         String digestAlgorithm,
         String signatureInput,
         UUID snapshotId,
         Instant createdAt
 ) {
+
     public static final String DIGEST_ALG_SHA256 = "SHA-256";
 
     /**
-     * Industry standard:
-     * - signatureAlgorithm = SHA256withRSA
-     * - signatureInput = raw payload JSONL bytes (payload only, excluding meta line)
+     * Defines what the signature covers.
+     * For DocFlow exports the signature is calculated over the raw JSONL payload bytes.
      */
-    public static final String SIGNATURE_INPUT_PAYLOAD_JSONL_BYTES = "payload_jsonl_bytes";
+    public static final String SIGNATURE_INPUT_PAYLOAD_BYTES = "payload_jsonl_bytes";
 }

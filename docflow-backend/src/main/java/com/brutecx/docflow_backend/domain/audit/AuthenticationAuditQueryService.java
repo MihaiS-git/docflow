@@ -4,13 +4,13 @@ import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditCursorPageDT
 import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuthenticationAuditForensicExportDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
-import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
-import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.auth.*;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainCheckpoint;
+import com.brutecx.docflow_backend.audit.tamper.AuditChainCheckpointRepository;
 import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.domain.audit.export.SealedJsonlAuditExportService;
@@ -19,7 +19,6 @@ import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,14 +26,16 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.time.Instant;
-import java.util.*;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class AuthenticationAuditQueryService {
+public class AuthenticationAuditQueryService extends AbstractAuditStreamQueryService {
 
     private static final int MAX_PAGE_SIZE = 100;
-    private static final int VERIFY_BATCH_SIZE = 1_000;
+
     private static final int EXPORT_BATCH_SIZE = 1_000;
     private static final int EXPORT_MAX_ROWS = 200_000;
 
@@ -45,12 +46,13 @@ public class AuthenticationAuditQueryService {
 
     private final AuthenticationEventRepository repository;
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
-    private final AuditRequestContextExtractor ctxExtractor;
     private final UserService userService;
     private final TenantService tenantService;
     private final AuditChainService auditChainService;
     private final AuthenticationAuditCanonicalMaterialBuilder canonicalMaterialBuilder;
     private final SealedJsonlAuditExportService sealedJsonlAuditExportService;
+    private final AuditChainCheckpointRepository checkpointRepository;
+    private final AuditRequestContextExtractor contextExtractor;
 
     @Transactional(readOnly = true)
     public AuthenticationAuditCursorPageDTO query(
@@ -64,117 +66,77 @@ public class AuthenticationAuditQueryService {
             UUID cursorId,
             int size
     ) {
-        AuditStreamSupport.validateRange(from, to);
-        AuditStreamSupport.validateCursorPair(cursorTimestamp, cursorId);
-
-        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-
-        Pageable pageable = PageRequest.of(
-                0,
-                safeSize + 1,
-                Sort.by(Sort.Order.desc("timestamp"), Sort.Order.desc("id"))
+        CursorQueryResult<AuthenticationAuditDTO> resultPage = executeCursorQuery(
+                from,
+                to,
+                cursorTimestamp,
+                cursorId,
+                size,
+                MAX_PAGE_SIZE,
+                true,
+                pageable -> repository.findAll(
+                        Specification.allOf(
+                                from != null ? AuthenticationAuditSpecifications.timestampFrom(from) : null,
+                                to != null ? AuthenticationAuditSpecifications.timestampTo(to) : null,
+                                hasText(correlationId) ? AuthenticationAuditSpecifications.hasCorrelationId(correlationId) : null,
+                                hasText(username) ? AuthenticationAuditSpecifications.hasUsername(username) : null,
+                                hasText(subjectId) ? AuthenticationAuditSpecifications.hasSubjectId(subjectId) : null,
+                                result != null ? AuthenticationAuditSpecifications.hasResult(result) : null,
+                                cursorTimestamp != null
+                                        ? AuthenticationAuditSpecifications.afterCursor(cursorTimestamp, cursorId, false)
+                                        : null
+                        ),
+                        pageable
+                ),
+                AuthenticationAuditDTO::from,
+                AuthenticationEvent::getTimestamp,
+                AuthenticationEvent::getId
         );
-
-        Specification<AuthenticationEvent> spec = Specification.allOf(
-                from != null ? AuthenticationAuditSpecifications.timestampFrom(from) : null,
-                to != null ? AuthenticationAuditSpecifications.timestampTo(to) : null,
-                hasText(correlationId) ? AuthenticationAuditSpecifications.hasCorrelationId(correlationId) : null,
-                hasText(username) ? AuthenticationAuditSpecifications.hasUsername(username) : null,
-                hasText(subjectId) ? AuthenticationAuditSpecifications.hasSubjectId(subjectId) : null,
-                result != null ? AuthenticationAuditSpecifications.hasResult(result) : null,
-                cursorTimestamp != null
-                        ? AuthenticationAuditSpecifications.afterCursor(cursorTimestamp, cursorId, false)
-                        : null
-        );
-
-        Page<AuthenticationEvent> page = repository.findAll(spec, pageable);
-
-        List<AuthenticationEvent> raw = page.getContent();
-        boolean hasMore = raw.size() > safeSize;
-
-        List<AuthenticationAuditDTO> items = new ArrayList<>(Math.min(raw.size(), safeSize));
-        for (int i = 0; i < raw.size() && i < safeSize; i++) {
-            items.add(AuthenticationAuditDTO.from(raw.get(i)));
-        }
-
-        Instant nextTs = null;
-        UUID nextId = null;
-
-        if (hasMore) {
-            AuthenticationEvent last = raw.get(safeSize - 1);
-            nextTs = last.getTimestamp();
-            nextId = last.getId();
-        }
 
         recordMeta("AUDIT_READ");
 
-        return new AuthenticationAuditCursorPageDTO(items, hasMore, nextTs, nextId);
+        return new AuthenticationAuditCursorPageDTO(
+                resultPage.items(),
+                resultPage.hasMore(),
+                resultPage.nextCursorTimestamp(),
+                resultPage.nextCursorId()
+        );
     }
 
     @Transactional(readOnly = true)
     public AuditVerificationResultDTO verify(Instant from, Instant to) {
-        AuditStreamSupport.validateRangeRequired(from, to);
+        Optional<AuditChainCheckpoint> checkpoint =
+                checkpointRepository.findByStream(STREAM);
+        Instant checkpointStart =
+                AuditStreamSupport.resolveCheckpointStart(checkpoint);
+        AuditVerificationResultDTO result = executeVerification(
+                from,
+                to,
+                checkpointStart,
+                (effectiveFrom, cursorTimestamp, cursorId, pageable) -> repository.findAll(
+                        Specification.allOf(
+                                AuthenticationAuditSpecifications.timestampFrom(effectiveFrom),
+                                AuthenticationAuditSpecifications.timestampTo(to),
+                                cursorTimestamp != null
+                                        ? AuthenticationAuditSpecifications.afterCursor(cursorTimestamp, cursorId, true)
+                                        : null
+                        ),
+                        pageable
+                ),
+                this::resolvePartition,
+                e -> canonicalMaterialBuilder.buildCanonicalMaterial(
+                        canonicalMaterialBuilder.fromEvent(e)
+                ),
+                AuthenticationEvent::getId,
+                AuthenticationEvent::getTimestamp,
+                AuthenticationEvent::getChainVersion,
+                AuthenticationEvent::getPrevEventHash,
+                AuthenticationEvent::getEventHash,
+                auditChainService
+        );
+        recordMeta("AUDIT_VERIFY");
 
-        Map<String, String> lastHashByPartitionStateKey = new HashMap<>();
-        long verified = 0;
-
-        Instant cursorTimestamp = null;
-        UUID cursorId = null;
-
-        while (true) {
-
-            Specification<AuthenticationEvent> spec = Specification.allOf(
-                    AuthenticationAuditSpecifications.timestampFrom(from),
-                    AuthenticationAuditSpecifications.timestampTo(to),
-                    cursorTimestamp != null
-                            ? AuthenticationAuditSpecifications.afterCursor(cursorTimestamp, cursorId, true)
-                            : null
-            );
-
-            Pageable pageable = PageRequest.of(
-                    0,
-                    VERIFY_BATCH_SIZE,
-                    Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
-            );
-
-            Page<AuthenticationEvent> batch = repository.findAll(spec, pageable);
-            if (batch.isEmpty()) {
-                recordMeta("AUDIT_VERIFY");
-                return AuditVerificationResultDTO.success(verified);
-            }
-
-            for (AuthenticationEvent e : batch.getContent()) {
-
-                AuditPartition partition = resolvePartition(e);
-
-                String canonicalMaterial =
-                        canonicalMaterialBuilder.buildCanonicalMaterial(
-                                canonicalMaterialBuilder.fromEvent(e)
-                        );
-
-                AuditVerificationResultDTO failure =
-                        AuditStreamSupport.verifyEvent(
-                                e.getId(),
-                                partition,
-                                e.getChainVersion(),
-                                e.getPrevEventHash(),
-                                e.getEventHash(),
-                                canonicalMaterial,
-                                auditChainService,
-                                lastHashByPartitionStateKey,
-                                verified
-                        );
-
-                if (failure != null) {
-                    recordMeta("AUDIT_VERIFY");
-                    return failure;
-                }
-
-                verified++;
-                cursorTimestamp = e.getTimestamp();
-                cursorId = e.getId();
-            }
-        }
+        return result;
     }
 
     @Transactional
@@ -183,33 +145,31 @@ public class AuthenticationAuditQueryService {
             Instant from,
             Instant to
     ) {
-        AuditStreamSupport.validateRangeRequired(from, to);
-
-        sealedJsonlAuditExportService.exportSealedJsonl(
+        executeJsonlExport(
                 out,
                 STREAM,
                 from,
                 to,
                 null,
                 EXPORT_MAX_ROWS,
-                (Instant cursorTs, UUID cursorId) -> {
-
-                    Pageable pageable = PageRequest.of(
-                            0,
-                            EXPORT_BATCH_SIZE,
-                            Sort.by(Sort.Order.asc("timestamp"), Sort.Order.asc("id"))
-                    );
-
-                    Specification<AuthenticationEvent> spec = Specification.allOf(
-                            AuthenticationAuditSpecifications.timestampFrom(from),
-                            AuthenticationAuditSpecifications.timestampTo(to),
-                            cursorTs != null
-                                    ? AuthenticationAuditSpecifications.afterCursor(cursorTs, cursorId, true)
-                                    : null
-                    );
-
-                    return repository.findAll(spec, pageable);
-                },
+                sealedJsonlAuditExportService,
+                (cursorTs, cursorId) -> repository.findAll(
+                        Specification.allOf(
+                                AuthenticationAuditSpecifications.timestampFrom(from),
+                                AuthenticationAuditSpecifications.timestampTo(to),
+                                cursorTs != null
+                                        ? AuthenticationAuditSpecifications.afterCursor(cursorTs, cursorId, true)
+                                        : null
+                        ),
+                        org.springframework.data.domain.PageRequest.of(
+                                0,
+                                EXPORT_BATCH_SIZE,
+                                org.springframework.data.domain.Sort.by(
+                                        org.springframework.data.domain.Sort.Order.asc("timestamp"),
+                                        org.springframework.data.domain.Sort.Order.asc("id")
+                                )
+                        )
+                ),
                 AuthenticationAuditForensicExportDTO::from,
                 () -> recordMeta("AUDIT_EXPORT")
         );
@@ -221,9 +181,7 @@ public class AuthenticationAuditQueryService {
             Instant from,
             Instant to
     ) {
-        AuditStreamSupport.validateRangeRequired(from, to);
-
-        AuditStreamSupport.streamExportCsvAsc(
+        executeCsvExport(
                 response,
                 STREAM,
                 from,
@@ -237,17 +195,19 @@ public class AuthenticationAuditQueryService {
                         ),
                         pageable
                 ),
-                (PrintWriter w) -> {
-                    w.println(String.join(",",
-                            "id", "timestamp", "source", "username", "subjectId", "result",
-                            "idp", "ip", "userAgent", "correlationId", "correlationSource",
-                            "executionContext", "eventFingerprint", "chainVersion",
-                            "prevEventHash", "eventHash"
-                    ));
-                },
+                this::writeCsvHeader,
                 this::writeCsvLine,
                 () -> recordMeta("AUDIT_EXPORT")
         );
+    }
+
+    private void writeCsvHeader(PrintWriter w) {
+        w.println(String.join(",",
+                "id","timestamp","source","username","subjectId","result",
+                "idp","ip","userAgent","correlationId","correlationSource",
+                "executionContext","eventFingerprint","chainVersion",
+                "prevEventHash","eventHash"
+        ));
     }
 
     private void writeCsvLine(PrintWriter w, AuthenticationEvent e) {
@@ -271,20 +231,29 @@ public class AuthenticationAuditQueryService {
         ));
     }
 
+    private AuditPartition resolvePartition(AuthenticationEvent e) {
+        if (hasText(e.getSubjectId())) {
+            return AuditPartition.subject(STREAM, e.getSubjectId().trim());
+        }
+
+        if (hasText(e.getUsername())) {
+            return AuditPartition.subject(
+                    STREAM,
+                    e.getUsername().trim().toLowerCase(Locale.ROOT)
+            );
+        }
+
+        return AuditPartition.subject(STREAM, PARTITION_ANON);
+    }
+
+    private boolean hasText(String s) {
+        return s != null && !s.isBlank();
+    }
+
     private void recordMeta(String action) {
         User actor = userService.getRequiredCurrentUser();
-        AuditRequestContext ctx = ctxExtractor.fromCurrentRequest();
         UUID rootTenantId = tenantService.getRootTenant().getId();
-
-        String fingerprint = EventFingerprint.of(List.of(
-                "SENSITIVE_ACCESS",
-                action,
-                STREAM,
-                "SCOPE_GLOBAL",
-                actor.getId().toString(),
-                rootTenantId.toString(),
-                ctx.correlationId()
-        ));
+        String resourcePath = contextExtractor.fromCurrentRequest().resourcePath();
 
         sensitiveAccessAuditService.record(
                 actor.getId(),
@@ -294,31 +263,10 @@ public class AuthenticationAuditQueryService {
                 STREAM,
                 "AUDIT",
                 action,
-                null,
-                ctx.correlationId(),
-                ctx.ip(),
-                ctx.userAgent(),
+                resourcePath,
                 action,
                 "Authentication audit stream operation",
-                SensitiveDataClassification.REGULATED,
-                fingerprint
+                SensitiveDataClassification.REGULATED
         );
-    }
-
-    private AuditPartition resolvePartition(AuthenticationEvent e) {
-        if (hasText(e.getSubjectId())) {
-            return AuditPartition.subject(STREAM, e.getSubjectId().trim());
-        }
-        if (hasText(e.getUsername())) {
-            return AuditPartition.subject(
-                    STREAM,
-                    e.getUsername().trim().toLowerCase(Locale.ROOT)
-            );
-        }
-        return AuditPartition.subject(STREAM, PARTITION_ANON);
-    }
-
-    private boolean hasText(String s) {
-        return s != null && !s.isBlank();
     }
 }

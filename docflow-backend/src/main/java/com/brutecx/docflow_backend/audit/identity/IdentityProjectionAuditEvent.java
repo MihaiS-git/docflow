@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.identity;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.ChainSegmentAware;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -16,21 +17,8 @@ import java.util.UUID;
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(
-        name = "identity_projection_audit_events",
-        indexes = {
-                @Index(name = "idx_identity_proj_subject", columnList = "subject_id,timestamp,id"),
-                @Index(name = "idx_identity_proj_ts_id", columnList = "timestamp,id"),
-                @Index(name = "idx_identity_proj_corr", columnList = "correlation_id")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_identity_projection_event_fingerprint",
-                        columnNames = "event_fingerprint"
-                )
-        }
-)
-public class IdentityProjectionAuditEvent {
+@Table(name = "identity_projection_audit_events")
+public class IdentityProjectionAuditEvent implements ChainSegmentAware {
 
     @Id
     @GeneratedValue
@@ -74,6 +62,9 @@ public class IdentityProjectionAuditEvent {
     @Column(nullable = false, updatable = false, name = "event_hash", length = 128)
     private String eventHash;
 
+    @Column(name = "chain_segment_hash", length = 128, updatable = false)
+    private String chainSegmentHash;
+
     public IdentityProjectionAuditEvent(
             Instant timestamp,
             String subjectId,
@@ -103,6 +94,11 @@ public class IdentityProjectionAuditEvent {
         }
 
         this.chainVersion = chainVersion;
+    }
+
+    @Override
+    public void setChainSegmentHash(String chainSegmentHash) {
+        this.chainSegmentHash = chainSegmentHash;
     }
 
     private static String requireNonBlank(String value, String field) {

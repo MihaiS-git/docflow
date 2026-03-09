@@ -1,9 +1,7 @@
 package com.brutecx.docflow_backend.logging;
 
-import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,7 +29,7 @@ public final class InfraEventLogger {
             String reason,
             Exception ex
     ) {
-        log(type, action, outcome, reason, ex, (Object[]) null);
+        log(type, action, outcome, reason, ex, null, (Object[]) null);
     }
 
     /* =====================================================
@@ -46,8 +44,22 @@ public final class InfraEventLogger {
             Exception ex,
             Object... additionalKv
     ) {
+        log(type, action, outcome, reason, ex, null, additionalKv);
+    }
 
-        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_KEY);
+    /* =====================================================
+       FULL METHOD (explicit correlation support)
+       ===================================================== */
+
+    public static void log(
+            InfraEventType type,
+            String action,
+            InfraEventOutcome outcome,
+            String reason,
+            Exception ex,
+            String correlationId,
+            Object... additionalKv
+    ) {
 
         List<Object> args = new ArrayList<>(20);
 
@@ -61,7 +73,7 @@ public final class InfraEventLogger {
         args.add(kv("event.severity", effectiveSeverity.name().toLowerCase()));
         args.add(kv("compliance.class", type.complianceClass().name().toLowerCase()));
 
-        if (correlationId != null) {
+        if (correlationId != null && !correlationId.isBlank()) {
             args.add(kv("correlation.id", correlationId));
         }
 

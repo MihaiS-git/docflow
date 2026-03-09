@@ -146,9 +146,8 @@ public class SealedJsonlAuditExportFileService {
                         sigResult.algorithm(),
                         sigResult.keyId(),
                         activeKey.getFingerprintSha256Hex(),
-                        activeKey.getPublicKeyPem(),
                         AuditExportMetadataDTO.DIGEST_ALG_SHA256,
-                        AuditExportMetadataDTO.SIGNATURE_INPUT_PAYLOAD_JSONL_BYTES,
+                        AuditExportMetadataDTO.SIGNATURE_INPUT_PAYLOAD_BYTES,
                         snapshot.getId(),
                         now
                 );

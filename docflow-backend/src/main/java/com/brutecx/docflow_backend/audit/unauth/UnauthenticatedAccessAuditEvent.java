@@ -3,6 +3,7 @@ package com.brutecx.docflow_backend.audit.unauth;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.audit.tamper.ChainSegmentAware;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
@@ -17,15 +18,8 @@ import java.util.UUID;
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(
-        name = "unauthenticated_access_audit_events",
-        indexes = {
-                @Index(name = "idx_unauth_access_timestamp", columnList = "timestamp,id"),
-                @Index(name = "idx_unauth_access_correlation_id", columnList = "correlation_id"),
-                @Index(name = "idx_unauth_access_path", columnList = "path")
-        }
-)
-public class UnauthenticatedAccessAuditEvent {
+@Table(name = "unauthenticated_access_audit_events")
+public class UnauthenticatedAccessAuditEvent implements ChainSegmentAware {
 
     @Id
     @GeneratedValue
@@ -70,7 +64,7 @@ public class UnauthenticatedAccessAuditEvent {
     private String userAgent;
 
     @NotNull
-    @Column(name = "event_fingerprint", nullable = false, updatable = false, length = 64)
+    @Column(name = "event_fingerprint", nullable = false, updatable = false, length = 128)
     private String eventFingerprint;
 
     @NotNull
@@ -78,12 +72,15 @@ public class UnauthenticatedAccessAuditEvent {
     private int chainVersion;
 
     @NotNull
-    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 64)
+    @Column(name = "prev_event_hash", nullable = false, updatable = false, length = 128)
     private String prevEventHash;
 
     @NotNull
-    @Column(name = "event_hash", nullable = false, updatable = false, length = 64)
+    @Column(name = "event_hash", nullable = false, updatable = false, length = 128)
     private String eventHash;
+
+    @Column(name = "chain_segment_hash", length = 128, updatable = false)
+    private String chainSegmentHash;
 
     public UnauthenticatedAccessAuditEvent(
             Instant timestamp,
@@ -100,7 +97,6 @@ public class UnauthenticatedAccessAuditEvent {
             String prevEventHash,
             String eventHash
     ) {
-
         this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null");
         this.correlationId = correlationId;
         this.correlationSource = Objects.requireNonNull(correlationSource, "correlationSource must not be null");
@@ -119,6 +115,11 @@ public class UnauthenticatedAccessAuditEvent {
         }
 
         this.chainVersion = chainVersion;
+    }
+
+    @Override
+    public void setChainSegmentHash(String chainSegmentHash) {
+        this.chainSegmentHash = chainSegmentHash;
     }
 
     private static String requireNonBlank(String value, String field) {

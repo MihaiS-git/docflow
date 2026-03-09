@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.domain.audit.retention;
 
+import com.brutecx.docflow_backend.audit.tamper.AuditChainStateRepository;
 import com.brutecx.docflow_backend.domain.audit.export.SealedJsonlAuditExportFileService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -14,12 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -35,6 +31,8 @@ public class AuditRetentionEnforcementService {
     private final MeterRegistry meterRegistry;
     private final SealedJsonlAuditExportFileService exportFileService;
     private final TransactionTemplate txTemplate;
+    private final RetentionCheckpointGuard checkpointGuard;
+    private final AuditChainStateRepository chainStateRepository;
     private final int batchSize;
 
     private final Map<String, Counter> deletedRowsCounters = new ConcurrentHashMap<>();
@@ -48,6 +46,8 @@ public class AuditRetentionEnforcementService {
             MeterRegistry meterRegistry,
             PlatformTransactionManager txManager,
             SealedJsonlAuditExportFileService exportFileService,
+            RetentionCheckpointGuard checkpointGuard,
+            AuditChainStateRepository chainStateRepository,
             @Value("${docflow.audit.retention.batch-size:2000}") int batchSize
     ) {
         this.policyRepository = Objects.requireNonNull(policyRepository);
@@ -56,16 +56,21 @@ public class AuditRetentionEnforcementService {
         this.meterRegistry = Objects.requireNonNull(meterRegistry);
         this.txTemplate = new TransactionTemplate(Objects.requireNonNull(txManager));
         this.exportFileService = Objects.requireNonNull(exportFileService);
+        this.checkpointGuard = Objects.requireNonNull(checkpointGuard);
+        this.chainStateRepository = chainStateRepository;
         this.batchSize = Math.max(batchSize, 100);
     }
 
     public void enforceAllStreams() {
-        // DB rows are overrides; defaults apply when DB has no row.
         Map<String, AuditRetentionPolicy> overrides = new HashMap<>();
+
         for (AuditRetentionPolicy p : policyRepository.findAll()) {
             if (p == null) continue;
+
             String s = p.getStreamName();
+
             if (s == null || s.isBlank()) continue;
+
             overrides.put(s.trim().toUpperCase(Locale.ROOT), p);
         }
 
@@ -85,10 +90,10 @@ public class AuditRetentionEnforcementService {
     }
 
     private void enforceEffectivePolicy(String streamName, AuditRetentionPolicy override) {
+
         if (streamName == null || streamName.isBlank()) return;
 
         String streamKey = streamName.trim().toUpperCase(Locale.ROOT);
-
         AuditRetentionStreamRegistry.StreamTable t =
                 AuditRetentionStreamRegistry.STREAMS.get(streamKey);
 
@@ -106,8 +111,6 @@ public class AuditRetentionEnforcementService {
 
         if (days <= 0) return;
 
-        // IMPORTANT: Preserve existing semantics:
-        // archiveEnabled=false => do nothing (no archive, no delete).
         if (!archiveEnabled) {
             return;
         }
@@ -115,6 +118,7 @@ public class AuditRetentionEnforcementService {
         Instant cutoff = Instant.now().minus(days, ChronoUnit.DAYS);
 
         long total = 0L;
+
         while (true) {
             Integer updated = txTemplate.execute(status -> exportAndDeleteBatch(t, cutoff));
 
@@ -127,6 +131,14 @@ public class AuditRetentionEnforcementService {
         }
 
         if (total > 0) {
+            // Clear chain checkpoints that now point to deleted rows
+            txTemplate.executeWithoutResult(status ->
+                    chainStateRepository.clearCheckpointsOlderThan(
+                            t.streamName(),
+                            cutoff,
+                            Instant.now()
+                    )
+            );
             log.info("audit_retention export_and_delete stream={} table={} deleted_count={} cutoff={}",
                     t.streamName(), t.tableName(), total, cutoff);
         }
@@ -136,11 +148,25 @@ public class AuditRetentionEnforcementService {
             AuditRetentionStreamRegistry.StreamTable t,
             Instant cutoff
     ) {
-        // One DB round-trip:
-        // - select victim ids (ordered, limited)
-        // - delete them
-        // - return deleted rows for export
-        // NOTE: table/column names are registry-controlled (not user input).
+
+        boolean safe =
+                checkpointGuard.isDeletionSafe(
+                        t.tableName(),
+                        t.timestampColumn(),
+                        cutoff
+                );
+
+        if (!safe) {
+
+            log.warn("audit_retention checkpoint_protection_blocked stream={} table={} cutoff={}",
+                    t.streamName(),
+                    t.tableName(),
+                    cutoff
+            );
+
+            return 0;
+        }
+
         final String sql =
                 "WITH victim AS ( " +
                         " SELECT e." + t.idColumn() +
@@ -190,27 +216,34 @@ public class AuditRetentionEnforcementService {
     }
 
     private boolean tryAcquireLock() {
+
         Boolean ok = jdbcTemplate.queryForObject(
                 "SELECT pg_try_advisory_lock(?)",
                 Boolean.class,
                 ADVISORY_LOCK_KEY
         );
+
         return Boolean.TRUE.equals(ok);
     }
 
     private void releaseLock() {
+
         try {
+
             jdbcTemplate.queryForObject(
                     "SELECT pg_advisory_unlock(?)",
                     Boolean.class,
                     ADVISORY_LOCK_KEY
             );
+
         } catch (Exception ex) {
+
             log.warn("audit_retention advisory_unlock_failed: {}", ex.getMessage(), ex);
         }
     }
 
     private Counter deletedRowsCounter(String stream) {
+
         return deletedRowsCounters.computeIfAbsent(stream, s ->
                 Counter.builder("docflow.audit.retention.deleted_rows")
                         .tag("stream", s)
@@ -219,6 +252,7 @@ public class AuditRetentionEnforcementService {
     }
 
     private Counter exportedRowsCounter(String stream) {
+
         return exportedRowsCounters.computeIfAbsent(stream, s ->
                 Counter.builder("docflow.audit.retention.exported_rows")
                         .tag("stream", s)
@@ -227,6 +261,7 @@ public class AuditRetentionEnforcementService {
     }
 
     private Counter batchesCounter(String stream) {
+
         return batchesCounters.computeIfAbsent(stream, s ->
                 Counter.builder("docflow.audit.retention.batches")
                         .tag("stream", s)

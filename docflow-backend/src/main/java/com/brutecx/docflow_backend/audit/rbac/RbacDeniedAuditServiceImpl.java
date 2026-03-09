@@ -2,26 +2,22 @@ package com.brutecx.docflow_backend.audit.rbac;
 
 import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
+import com.brutecx.docflow_backend.audit.AuditStreamExecutor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
-import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
-import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
-import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
+import com.brutecx.docflow_backend.logging.SecurityAuditLogger;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -34,43 +30,43 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
     private static final Logger log = LoggerFactory.getLogger("SECURITY_AUDIT");
     private static final String STREAM = RbacDeniedCanonicalMaterialBuilder.STREAM;
     private static final String EXEC_CTX = ExecutionContext.HTTP.name();
+    private static final String UNKNOWN = "UNKNOWN";
 
     private final RbacDeniedAuditEventRepository repository;
     private final AuditRequestContextExtractor contextExtractor;
     private final RbacDeniedCanonicalMaterialBuilder canonicalBuilder;
-    private final AuditChainService auditChainService;
-    private final AuditWriteFailureMetrics metrics;
     private final AuditPartitionResolver partitionResolver;
+    private final AuditStreamExecutor executor;
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(
             String subjectId,
             String httpMethod,
-            String path,
-            String eventFingerprint
+            String path
     ) {
         ensureHttpContext();
 
         AuditRequestContext ctx = contextExtractor.fromCurrentRequest();
         String correlationId = requireCorrelation(ctx);
 
-        String resolvedSubject = normalizeOr(subjectId, "UNKNOWN");
-        String resolvedMethod = normalizeOr(httpMethod, "UNKNOWN");
-        String resolvedPath = normalizeOr(path, "UNKNOWN");
+        String resolvedSubject = normalize(subjectId);
+        String resolvedMethod = normalize(httpMethod);
+        String resolvedPath = normalize(stripQuery(path));
 
-        String fingerprint =
-                (eventFingerprint != null && !eventFingerprint.isBlank())
-                        ? eventFingerprint
-                        : EventFingerprint.of(List.of(
-                        STREAM,
-                        resolvedSubject,
-                        resolvedMethod,
-                        resolvedPath,
-                        correlationId
-                ));
+        String fingerprint = EventFingerprint.of(List.of(
+                STREAM,
+                resolvedSubject,
+                resolvedMethod,
+                resolvedPath,
+                correlationId
+        ));
 
-        CorrelationSource correlationSource = resolveCorrelationSource();
+        CorrelationSource correlationSource =
+                resolvedSubject.equals(UNKNOWN)
+                        ? CorrelationSource.GENERATED
+                        : CorrelationSource.REQUEST_ID;
+
         Instant eventTimestamp = Instant.now();
 
         RbacDeniedCanonicalMaterialBuilder.Input input =
@@ -88,77 +84,60 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
                         fingerprint
                 );
 
-        String canonicalMaterial =
-                canonicalBuilder.buildCanonicalMaterial(input);
+        String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
 
         AuditPartition partition =
-                (!"UNKNOWN".equals(resolvedSubject) && !resolvedSubject.isBlank())
-                        ? partitionResolver.rbacDenied(resolvedSubject.trim())
+                !UNKNOWN.equals(resolvedSubject)
+                        ? partitionResolver.rbacDenied(resolvedSubject)
                         : partitionResolver.unauthenticatedAccess();
 
-        final long startNs = System.nanoTime();
-
         try {
-
-            AuditChainService.ChainHash chain =
-                    auditChainService.nextHash(
-                            partition,
-                            canonicalMaterial
-                    );
-
-            repository.save(new RbacDeniedAuditEvent(
-                    eventTimestamp,
-                    correlationId,
-                    correlationSource,
-                    ExecutionContext.HTTP,
-                    AuditResult.DENIED,
-                    resolvedSubject,
-                    resolvedMethod,
-                    resolvedPath,
-                    ctx.ip(),
-                    ctx.userAgent(),
-                    fingerprint,
-                    chain.chainVersion(),
-                    chain.prevHash(),
-                    chain.eventHash()
-            ));
-
-            metrics.incrementSuccess(STREAM, EXEC_CTX);
-            metrics.recordLatency(STREAM, EXEC_CTX,
-                    Duration.ofNanos(System.nanoTime() - startNs));
-
-        } catch (DataIntegrityViolationException ignored) {
-
-            metrics.incrementDedup(STREAM, EXEC_CTX);
-            metrics.recordLatency(STREAM, EXEC_CTX,
-                    Duration.ofNanos(System.nanoTime() - startNs));
-
-        } catch (Exception ex) {
-
-            metrics.incrementFailure(STREAM, EXEC_CTX, ex);
-            metrics.recordLatency(STREAM, EXEC_CTX,
-                    Duration.ofNanos(System.nanoTime() - startNs));
-
-            log.error("security_event",
-                    kv("schema_version", "docflow_siem_v1"),
-                    kv("event.category", "audit"),
-                    kv("event.action", "rbac_denied_audit_record_failed"),
-                    kv("event.outcome", "failure"),
-                    kv("audit.stream", STREAM),
-                    kv("audit.partition",
-                            !"UNKNOWN".equals(resolvedSubject) ? "SUBJECT" : "GLOBAL"),
-                    kv("audit.result", AuditResult.DENIED.name()),
-                    kv("execution.context", EXEC_CTX),
-                    kv("correlation.id", correlationId),
-                    kv("correlation.source", correlationSource.name()),
-                    kv("subject.id", resolvedSubject),
-                    kv("http.method", resolvedMethod),
-                    kv("http.path", resolvedPath),
-                    kv("exception.class", ex.getClass().getSimpleName()),
-                    ex
+            AuditStreamExecutor.WriteOutcome outcome = executor.execute(
+                    STREAM,
+                    EXEC_CTX,
+                    partition,
+                    canonicalMaterial,
+                    repository,
+                    prepared -> new RbacDeniedAuditEvent(
+                            eventTimestamp,
+                            correlationId,
+                            correlationSource,
+                            ExecutionContext.HTTP,
+                            AuditResult.DENIED,
+                            resolvedSubject,
+                            resolvedMethod,
+                            resolvedPath,
+                            ctx.ip(),
+                            ctx.userAgent(),
+                            fingerprint,
+                            prepared.chainVersion(),
+                            prepared.prevHash(),
+                            prepared.eventHash()
+                    )
             );
 
-            // NON-BLOCKING MODE
+            if (outcome == AuditStreamExecutor.WriteOutcome.DEDUP) {
+                log.debug(
+                        "security_event",
+                        kv("event.category", "audit"),
+                        kv("event.action", "rbac_denied_audit_deduplicated"),
+                        kv("audit.stream", STREAM),
+                        kv("correlation.id", correlationId),
+                        kv("subject.id", resolvedSubject),
+                        kv("http.method", resolvedMethod),
+                        kv("http.path", resolvedPath)
+                );
+            }
+
+        } catch (Exception ex) {
+            SecurityAuditLogger.auditFailure(
+                    "rbac_denied_audit_record_failed",
+                    STREAM,
+                    !"UNKNOWN".equals(resolvedSubject) ? "SUBJECT" : "GLOBAL",
+                    null,
+                    ex,
+                    correlationId
+            );
         }
     }
 
@@ -176,14 +155,15 @@ public class RbacDeniedAuditServiceImpl implements IRbacDeniedAuditService {
         return corr;
     }
 
-    private static CorrelationSource resolveCorrelationSource() {
-        return "GENERATED".equalsIgnoreCase(
-                MDC.get(RequestCorrelationIdFilter.MDC_SOURCE_KEY))
-                ? CorrelationSource.GENERATED
-                : CorrelationSource.REQUEST_ID;
+    private static String normalize(String value) {
+        return (value != null && !value.isBlank()) ? value.trim() : UNKNOWN;
     }
 
-    private static String normalizeOr(String v, String fallback) {
-        return (v != null && !v.isBlank()) ? v.trim() : fallback;
+    private static String stripQuery(String path) {
+        if (path == null) {
+            return null;
+        }
+        int queryIndex = path.indexOf('?');
+        return queryIndex >= 0 ? path.substring(0, queryIndex) : path;
     }
 }

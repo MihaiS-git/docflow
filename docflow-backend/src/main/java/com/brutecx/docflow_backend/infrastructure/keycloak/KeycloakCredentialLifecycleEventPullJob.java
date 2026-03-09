@@ -1,25 +1,22 @@
 package com.brutecx.docflow_backend.infrastructure.keycloak;
 
+import com.brutecx.docflow_backend.audit.AuditStreamExecutor;
 import com.brutecx.docflow_backend.audit.EventFingerprint;
 import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEvent;
 import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleAuditEventRepository;
 import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleCanonicalMaterialBuilder;
 import com.brutecx.docflow_backend.audit.credential.CredentialLifecycleEventType;
-import com.brutecx.docflow_backend.audit.metrics.AuditWriteFailureMetrics;
 import com.brutecx.docflow_backend.audit.provenance.AuditResult;
 import com.brutecx.docflow_backend.audit.provenance.CorrelationSource;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
-import com.brutecx.docflow_backend.audit.tamper.AuditChainService;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartition;
 import com.brutecx.docflow_backend.audit.tamper.AuditPartitionResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -42,17 +39,15 @@ public class KeycloakCredentialLifecycleEventPullJob {
     private final KeycloakAdminClient keycloak;
     private final KeycloakEventCheckpointRepository checkpointRepo;
     private final CredentialLifecycleAuditEventRepository repository;
-    private final AuditChainService auditChainService;
     private final CredentialLifecycleCanonicalMaterialBuilder canonicalBuilder;
-    private final AuditWriteFailureMetrics metrics;
     private final AuditPartitionResolver partitionResolver;
+    private final AuditStreamExecutor executor;
 
     @Scheduled(
             initialDelayString = "${docflow.security.keycloak.admin.initial-delay-ms:30000}",
             fixedDelayString = "${docflow.security.keycloak.admin.poll-fixed-delay-ms}"
     )
     public void pull() {
-
         long since = checkpointRepo.findById(CHECKPOINT_ID)
                 .map(KeycloakEventCheckpoint::getLastEventTimeMs)
                 .orElse(0L);
@@ -63,7 +58,6 @@ public class KeycloakCredentialLifecycleEventPullJob {
                 keycloak.fetchEvents(since);
 
         for (var e : events) {
-
             CredentialLifecycleEventType type = mapEventType(e);
             if (type == CredentialLifecycleEventType.UNKNOWN) {
                 continue;
@@ -92,8 +86,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
                     type.name(),
                     e.userId(),
                     e.clientId(),
-                    sessionId,
-                    String.valueOf(e.time())
+                    sessionId
             ));
 
             CredentialLifecycleCanonicalMaterialBuilder.Input input =
@@ -120,49 +113,48 @@ public class KeycloakCredentialLifecycleEventPullJob {
             AuditPartition partition =
                     partitionResolver.credentialLifecycle(e.userId());
 
-            final long startNs = System.nanoTime();
             try {
-
-                AuditChainService.ChainHash chain =
-                        auditChainService.nextHash(partition, canonicalMaterial);
-
-                CredentialLifecycleAuditEvent entity =
-                        new CredentialLifecycleAuditEvent(
-                                input.timestamp(),
-                                input.subjectExternalId(),
-                                input.clientId(),
-                                input.sessionId(),
-                                input.ip(),
-                                input.eventType(),
-                                input.requiredAction(),
-                                input.correlationId(),
-                                CorrelationSource.valueOf(input.correlationSource()),
-                                ExecutionContext.valueOf(input.executionContext()),
-                                AuditResult.valueOf(input.result()),
-                                input.reasonCode(),
-                                input.reasonDetail(),
-                                input.fingerprint(),
-                                chain.chainVersion(),
-                                chain.prevHash(),
-                                chain.eventHash()
+                AuditStreamExecutor.WriteOutcome outcome =
+                        executor.execute(
+                                STREAM,
+                                EXEC_CTX,
+                                partition,
+                                canonicalMaterial,
+                                repository,
+                                prepared -> new CredentialLifecycleAuditEvent(
+                                        input.timestamp(),
+                                        input.subjectExternalId(),
+                                        input.clientId(),
+                                        input.sessionId(),
+                                        input.ip(),
+                                        input.eventType(),
+                                        input.requiredAction(),
+                                        input.correlationId(),
+                                        CorrelationSource.valueOf(input.correlationSource()),
+                                        ExecutionContext.valueOf(input.executionContext()),
+                                        AuditResult.valueOf(input.result()),
+                                        input.reasonCode(),
+                                        input.reasonDetail(),
+                                        input.fingerprint(),
+                                        prepared.chainVersion(),
+                                        prepared.prevHash(),
+                                        prepared.eventHash()
+                                )
                         );
 
-                repository.save(entity);
-
-                metrics.incrementSuccess(STREAM, EXEC_CTX);
-                metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
+                if (outcome == AuditStreamExecutor.WriteOutcome.DEDUP) {
+                    log.debug(
+                            "security_event",
+                            kv("event.category", "audit"),
+                            kv("event.action", "credential_lifecycle_deduplicated"),
+                            kv("audit.stream", STREAM),
+                            kv("subject.id", e.userId()),
+                            kv("client.id", e.clientId())
+                    );
+                }
 
                 maxTime = Math.max(maxTime, e.time());
-
-            } catch (DataIntegrityViolationException ignored) {
-                metrics.incrementDedup(STREAM, EXEC_CTX);
-                metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
-
             } catch (Exception ex) {
-
-                metrics.incrementFailure(STREAM, EXEC_CTX, ex);
-                metrics.recordLatency(STREAM, EXEC_CTX, Duration.ofNanos(System.nanoTime() - startNs));
-
                 log.error("security_event",
                         kv("schema_version", "docflow_siem_v1"),
                         kv("event.category", "audit"),
@@ -185,6 +177,7 @@ public class KeycloakCredentialLifecycleEventPullJob {
 
         if (maxTime > since) {
             final long checkpointTime = maxTime + 1;
+
             checkpointRepo.save(
                     checkpointRepo.findById(CHECKPOINT_ID)
                             .map(cp -> {
