@@ -27,24 +27,34 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Invite {
 
-    @Getter
     @Id
     @GeneratedValue
     @UuidGenerator
     private UUID id;
 
-    @Getter
     @Column(nullable = false, unique = true, length = 64)
     private String token;
 
-    @Getter
     @Column(nullable = false)
     private String email;
 
-    @Column(nullable = false, name="expires_at")
+    /* identity snapshot from invite request */
+
+    @Column(name = "first_name", nullable = false)
+    private String firstName;
+
+    @Column(name = "last_name", nullable = false)
+    private String lastName;
+
+    @Column(name = "job_title")
+    private String jobTitle;
+
+    @Column(name = "department")
+    private String department;
+
+    @Column(nullable = false, name = "expires_at")
     private Instant expiresAt;
 
-    @Getter
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InviteStatus status;
@@ -52,26 +62,39 @@ public class Invite {
     @Column(name = "tenant_id", updatable = false)
     private UUID tenantId;
 
-    @Getter
     @Enumerated(EnumType.STRING)
     @Column(name = "tenant_role", updatable = false, length = 32)
     private TenantRole tenantRole;
 
-    @Getter
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private User user;
 
-    @Column(nullable = false, updatable = false, name="created_at")
+    @Column(nullable = false, updatable = false, name = "created_at")
     private Instant createdAt;
 
-    public static Invite create(String email, UUID tenantId, TenantRole tenantRole) {
+    public static Invite create(
+            String email,
+            String firstName,
+            String lastName,
+            String jobTitle,
+            String department,
+            UUID tenantId,
+            TenantRole tenantRole
+    ) {
+
         if (tenantRole != null && tenantId == null) {
             throw new IllegalArgumentException("tenantRole cannot be set without tenantId");
         }
 
         Invite invite = new Invite();
+
         invite.email = Objects.requireNonNull(email);
+        invite.firstName = Objects.requireNonNull(firstName);
+        invite.lastName = Objects.requireNonNull(lastName);
+        invite.jobTitle = jobTitle;
+        invite.department = department;
+
         invite.token = TokenGenerator.generate();
         invite.expiresAt = Instant.now().plus(7, ChronoUnit.DAYS);
         invite.status = InviteStatus.PENDING;
@@ -104,5 +127,4 @@ public class Invite {
     public void prePersist() {
         this.createdAt = Instant.now();
     }
-
 }

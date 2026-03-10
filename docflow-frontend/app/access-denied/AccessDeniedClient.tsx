@@ -1,48 +1,43 @@
 "use client";
 
+import SystemPage from "@/components/system/SystemPage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-export default function AccessDeniedClient({
-  role,
-}: {
-  role: string | null;
-}) {
+export default function AccessDeniedClient({ role }: { role: string | null }) {
   const router = useRouter();
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-black">
-      <div className="max-w-md text-center space-y-4">
-        <h1 className="text-2xl font-semibold">Access denied</h1>
+    <SystemPage title="Access denied">
+      {role ? (
+        <p className="text-sm text-(--color-text-secondary)">
+          You do not have permission to access this page. You need the{" "}
+          <span className="font-mono text-(--color-text-primary)">
+            {role}
+          </span>{" "}
+          realm role to access this page.
+        </p>
+      ) : (
+        <p className="text-sm text-(--color-text-secondary)">
+          You do not have permission to access this page.
+        </p>
+      )}
 
-        {role ? (
-          <p className="opacity-70">
-            You do not have permission to access this page. You need the{" "}
-            <span className="font-mono">{role}</span> realm role to access this
-            page.
-          </p>
-        ) : (
-          <p className="opacity-70">
-            You do not have permission to access this page.
-          </p>
-        )}
+      <div className="flex justify-center gap-3 pt-2">
+        <button
+          onClick={() => router.back()}
+          className="px-4 py-2 rounded-md bg-(--color-surface-alt) text-(--color-text-primary) hover:opacity-90"
+        >
+          Go back
+        </button>
 
-        <div className="flex gap-3 justify-center pt-4">
-          <button
-            onClick={() => router.back()}
-            className="px-4 py-2 rounded bg-zinc-700 text-white hover:bg-zinc-800"
-          >
-            Go back
-          </button>
-
-          <Link
-            href="/"
-            className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-          >
-            Home
-          </Link>
-        </div>
+        <Link
+          href="/"
+          className="px-4 py-2 rounded-md bg-(--color-primary) text-white hover:opacity-90"
+        >
+          Home
+        </Link>
       </div>
-    </div>
+    </SystemPage>
   );
 }

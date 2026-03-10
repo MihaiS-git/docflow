@@ -59,9 +59,6 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                 }
             }
 
-            UserIdentityProjection projection =
-                    existingOpt.orElseGet(() -> new UserIdentityProjection(subjectId, "KEYCLOAK"));
-
             KeycloakUser kcUser = keycloak.fetchUser(subjectId);
 
             if (kcUser == null) {
@@ -81,6 +78,23 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                 return;
             }
 
+            UserIdentityProjection projection =
+                    existingOpt.orElseGet(() -> new UserIdentityProjection(subjectId, "KEYCLOAK"));
+
+            String normalizedUsername = safe(kcUser.username());
+            String normalizedEmail = safe(kcUser.email());
+            String normalizedDisplayName = safe(kcUser.displayName());
+
+            boolean initialized = projection.isInitialized();
+            boolean changed =
+                    !normalizedUsername.equals(safe(projection.getUsername()))
+                            || !normalizedEmail.equals(safe(projection.getEmail()))
+                            || !normalizedDisplayName.equals(safe(projection.getDisplayName()));
+
+            if (initialized && !changed) {
+                return;
+            }
+
             projection.update(
                     kcUser.username(),
                     kcUser.email(),
@@ -93,9 +107,11 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
 
             String fingerprint = EventFingerprint.of(List.of(
                     STREAM,
+                    "IDENTITY_PROJECTED",
                     subjectId,
-                    safe(kcUser.username()),
-                    safe(kcUser.displayName())
+                    "KEYCLOAK",
+                    normalizedUsername,
+                    normalizedDisplayName
             ));
 
             IdentityProjectionCanonicalMaterialBuilder.Input input =
@@ -110,11 +126,9 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                             fingerprint
                     );
 
-            String canonicalMaterial =
-                    canonicalBuilder.buildCanonicalMaterial(input);
+            String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
 
-            AuditPartition partition =
-                    partitionResolver.identityProjection(subjectId);
+            AuditPartition partition = partitionResolver.identityProjection(subjectId);
 
             AuditStreamExecutor.WriteOutcome outcome =
                     executor.execute(

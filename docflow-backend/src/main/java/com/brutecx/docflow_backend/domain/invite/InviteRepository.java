@@ -26,4 +26,10 @@ public interface InviteRepository extends JpaRepository<Invite, UUID>, JpaSpecif
             InviteStatus status,
             Instant expiresAt
     );
+
+    boolean existsByTenantIdAndEmailIgnoreCaseAndStatus(
+            UUID tenantId,
+            String email,
+            InviteStatus status
+    );
 }

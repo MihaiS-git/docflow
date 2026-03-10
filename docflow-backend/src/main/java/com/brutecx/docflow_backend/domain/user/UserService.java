@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
@@ -206,5 +207,9 @@ public class UserService {
             });
         }
         return roles;
+    }
+
+    public Optional<User> findByEmailIgnoreCase(String normalizedEmail) {
+        return userRepository.findByEmailIgnoreCase(normalizedEmail);
     }
 }

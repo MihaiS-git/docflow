@@ -40,7 +40,6 @@ export default function BootstrapActivateClient() {
     setError(null);
     try {
       await activateBootstrap();
-      // After activation, go to protected home; AuthProvider there will refresh.
       window.location.href = "/";
     } catch (err: unknown) {
       setError(mapBootstrapError(err));
@@ -50,23 +49,25 @@ export default function BootstrapActivateClient() {
   };
 
   return (
-    <>
-      {error && <p className="text-red-500">{error}</p>}
+    <div className="space-y-3 pt-2">
+      {error && (
+        <p className="text-sm text-(--color-error)">{error}</p>
+      )}
 
       <button
         onClick={activate}
         disabled={loading}
-        className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50"
+        className="w-full px-4 py-2 rounded-md bg-(--color-success) text-(--color-text-primary) hover:opacity-90 disabled:opacity-50"
       >
         {loading ? "Activating…" : "Activate system"}
       </button>
 
       <button
         onClick={postLogout}
-        className="w-full px-4 py-2 bg-zinc-700 hover:bg-zinc-800 rounded"
+        className="w-full px-4 py-2 rounded-md bg-(--color-surface-alt) text-(--color-text-primary) hover:opacity-90"
       >
         Cancel
       </button>
-    </>
+    </div>
   );
 }

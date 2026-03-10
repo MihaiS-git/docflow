@@ -165,15 +165,23 @@ CREATE TABLE public.invites
     id          uuid                        NOT NULL,
     created_at  timestamp(6) with time zone NOT NULL,
     email       character varying(255)      NOT NULL,
+    first_name  character varying(255)      NOT NULL,
+    last_name   character varying(255)      NOT NULL,
+    job_title   character varying(255),
+    department  character varying(255),
     expires_at  timestamp(6) with time zone NOT NULL,
     status      character varying(255)      NOT NULL,
-    tenant_id   uuid,
+    tenant_id   uuid                        NOT NULL,
     tenant_role character varying(32),
     token       character varying(64)       NOT NULL,
     user_id     uuid,
-    CONSTRAINT invites_status_check CHECK (((status)::text = ANY ((ARRAY['PENDING':: character varying, 'ACCEPTED':: character varying])::text[])
-) ),
-    CONSTRAINT invites_tenant_role_check CHECK (((tenant_role)::text = ANY ((ARRAY['MEMBER'::character varying, 'EXECUTOR'::character varying, 'REVIEWER'::character varying, 'MANAGER'::character varying])::text[])))
+    CONSTRAINT invites_status_check CHECK (
+        status IN ('PENDING', 'ACCEPTED')
+),
+
+    CONSTRAINT invites_tenant_role_check CHECK (
+        tenant_role IN ('MEMBER', 'EXECUTOR', 'REVIEWER', 'MANAGER')
+        )
 );
 
 CREATE TABLE public.keycloak_event_checkpoint
@@ -432,6 +440,10 @@ ALTER TABLE ONLY public.identity_projection_audit_events
 
 ALTER TABLE ONLY public.invites
     ADD CONSTRAINT uk1ws9kt1ybdrcww2o5w8300lty UNIQUE (token);
+
+ALTER TABLE ONLY public.invites
+    ADD CONSTRAINT fk_invites_tenant
+    FOREIGN KEY (tenant_id) REFERENCES public.tenants(id);
 
 ALTER TABLE ONLY public.lifecycle_denied_audit_events
     ADD CONSTRAINT uk2302wgydn44eg486dbwow14l7 UNIQUE (event_fingerprint);

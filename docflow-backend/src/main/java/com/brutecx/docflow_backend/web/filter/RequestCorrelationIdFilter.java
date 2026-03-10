@@ -1,5 +1,7 @@
 package com.brutecx.docflow_backend.web.filter;
 
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.logging.InfraEventActions;
 import com.brutecx.docflow_backend.logging.InfraEventLogger;
 import com.brutecx.docflow_backend.logging.InfraEventOutcome;
@@ -40,6 +42,7 @@ public class RequestCorrelationIdFilter extends OncePerRequestFilter {
     /** Client user agent */
     public static final String MDC_USER_AGENT = "client.user_agent";
 
+    private static final String UNKNOWN = "UNKNOWN";
     private static final int MAX_LENGTH = 128;
 
     private static final Pattern SAFE_PATTERN =
@@ -91,12 +94,32 @@ public class RequestCorrelationIdFilter extends OncePerRequestFilter {
         String userAgent = request.getHeader("User-Agent");
         String clientIp = request.getRemoteAddr();
 
+        String ip = clientIp != null ? clientIp : UNKNOWN;
+        String ua = userAgent != null ? userAgent : UNKNOWN;
+        String path = requestPath != null ? requestPath : UNKNOWN;
+
         MDC.put(MDC_CORRELATION_ID, correlationId);
         MDC.put(MDC_CORRELATION_SOURCE, correlationSource);
         MDC.put(MDC_REQUEST_ID, requestId);
-        MDC.put(MDC_REQUEST_PATH, requestPath);
-        MDC.put(MDC_CLIENT_IP, clientIp != null ? clientIp : "UNKNOWN");
-        MDC.put(MDC_USER_AGENT, userAgent != null ? userAgent : "UNKNOWN");
+        MDC.put(MDC_REQUEST_PATH, path);
+        MDC.put(MDC_CLIENT_IP, ip);
+        MDC.put(MDC_USER_AGENT, ua);
+
+        /*
+         * Build audit context once per request and cache it on the request.
+         */
+        AuditRequestContext auditCtx = new AuditRequestContext(
+                correlationId,
+                requestId,
+                ip,
+                ua,
+                path
+        );
+
+        request.setAttribute(
+                AuditRequestContextExtractor.AUDIT_CTX_ATTR,
+                auditCtx
+        );
 
         response.setHeader(HEADER_NAME, correlationId);
 

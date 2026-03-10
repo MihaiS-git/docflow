@@ -1,8 +1,6 @@
 package com.brutecx.docflow_backend.domain.user;
 
 import com.brutecx.docflow_backend.api.error.UserNotFoundException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
@@ -26,6 +24,4 @@ public interface UserRepository
     boolean existsByEmailIgnoreCase(String normalizedEmail);
 
     List<User> findByStatusAndIdIn(UserStatus userStatus, List<UUID> userIds);
-
-    Page<User> findAllByIdIn(List<UUID> ids, Pageable pageable);
 }

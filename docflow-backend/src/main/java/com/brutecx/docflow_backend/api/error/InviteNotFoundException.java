@@ -1,7 +1,8 @@
 package com.brutecx.docflow_backend.api.error;
 
-public class InviteNotFoundException extends RuntimeException {
+public class InviteNotFoundException extends ApiException {
+
     public InviteNotFoundException(String message) {
-        super(message);
+        super(ErrorCode.INVITE_NOT_FOUND, message);
     }
 }

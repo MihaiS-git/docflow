@@ -1,6 +1,7 @@
 package com.brutecx.docflow_backend.api.controller;
 
 import com.brutecx.docflow_backend.api.dto.user.LocalUserDTO;
+import com.brutecx.docflow_backend.api.error.ErrorCode;
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.domain.user.CurrentUserResult;
 import com.brutecx.docflow_backend.domain.user.UserService;
@@ -25,12 +26,12 @@ public class UserController {
             case BOOTSTRAP -> ResponseEntity.noContent().build();
 
             case LOCKED -> throw new LifecycleAccessDeniedException(
-                    "USER_LOCKED",
+                    ErrorCode.ACCOUNT_LOCKED,
                     "User account is locked"
             );
 
             case DISABLED -> throw new LifecycleAccessDeniedException(
-                    "USER_DISABLED",
+                    ErrorCode.FORBIDDEN,
                     "User account is disabled"
             );
 

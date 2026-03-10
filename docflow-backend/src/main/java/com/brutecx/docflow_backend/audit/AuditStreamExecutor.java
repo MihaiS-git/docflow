@@ -62,9 +62,7 @@ public class AuditStreamExecutor {
 
                     return WriteOutcome.SUCCESS;
                 } catch (DataIntegrityViolationException ignored) {
-                    status.setRollbackOnly();
                     return WriteOutcome.DEDUP;
-
                 } catch (RuntimeException ex) {
                     status.setRollbackOnly();
                     throw ex;

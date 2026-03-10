@@ -13,6 +13,10 @@ export function fetchAllTenants(page = 0, size = 50) {
   );
 }
 
+export function fetchManagedTenants() {
+  return apiFetch<AdminTenant[]>(`/api/tenants/managed`);
+}
+
 export function createTenant(name: string) {
   return apiFetch<AdminTenant>(
     `/api/admin/tenants?name=${encodeURIComponent(name)}`,

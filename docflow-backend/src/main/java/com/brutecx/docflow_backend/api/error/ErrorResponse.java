@@ -1,13 +1,11 @@
 package com.brutecx.docflow_backend.api.error;
 
-import lombok.Builder;
 import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Map;
 
 @Getter
-@Builder
 public class ErrorResponse {
 
     private final Instant timestamp;
@@ -18,25 +16,59 @@ public class ErrorResponse {
     private final String path;
     private final Map<String, Object> details;
 
-    public static ErrorResponse of(
+    private ErrorResponse(
+            Instant timestamp,
+            int status,
+            String error,
+            String errorCode,
+            String message,
+            String path,
+            Map<String, Object> details
+    ) {
+        this.timestamp = timestamp;
+        this.status = status;
+        this.error = error;
+        this.errorCode = errorCode;
+        this.message = message;
+        this.path = path;
+        this.details = details;
+    }
+
+    public static ErrorResponse fromTemplate(
+            ErrorTemplate template,
+            String message,
+            String path
+    ) {
+        return new ErrorResponse(
+                Instant.now(),
+                template.getStatus(),
+                template.getError(),
+                template.getErrorCode().name(),
+                message,
+                path,
+                null
+        );
+    }
+
+    public static ErrorResponse create(
             int status,
             String error,
             ErrorCode errorCode,
             String message,
             String path
     ) {
-        return ErrorResponse.builder()
-                .timestamp(Instant.now())
-                .status(status)
-                .error(error)
-                .errorCode(errorCode.name())
-                .message(message)
-                .path(path)
-                .details(null)
-                .build();
+        return new ErrorResponse(
+                Instant.now(),
+                status,
+                error,
+                errorCode.name(),
+                message,
+                path,
+                null
+        );
     }
 
-    public static ErrorResponse of(
+    public static ErrorResponse create(
             int status,
             String error,
             ErrorCode errorCode,
@@ -44,14 +76,14 @@ public class ErrorResponse {
             String path,
             Map<String, Object> details
     ) {
-        return ErrorResponse.builder()
-                .timestamp(Instant.now())
-                .status(status)
-                .error(error)
-                .errorCode(errorCode.name())
-                .message(message)
-                .path(path)
-                .details(details)
-                .build();
+        return new ErrorResponse(
+                Instant.now(),
+                status,
+                error,
+                errorCode.name(),
+                message,
+                path,
+                details
+        );
     }
 }

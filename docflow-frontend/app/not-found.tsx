@@ -1,7 +1,10 @@
+import SystemPage from "@/components/system/SystemPage";
+
 export default function NotFound() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <h1 className="text-xl">Page not found</h1>
-    </div>
+    <SystemPage
+      title="Page not found"
+      description="The page you are looking for does not exist or may have been moved."
+    />
   );
 }

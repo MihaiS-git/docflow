@@ -5,6 +5,8 @@ import com.brutecx.docflow_backend.domain.invite.Invite;
 import com.brutecx.docflow_backend.domain.invite.InviteRepository;
 import com.brutecx.docflow_backend.domain.invite.InviteSpecifications;
 import com.brutecx.docflow_backend.domain.invite.InviteStatus;
+import com.brutecx.docflow_backend.domain.tenant.Tenant;
+import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
@@ -20,6 +22,7 @@ import java.util.UUID;
 public class InviteAdminQueryService {
 
     private final InviteRepository inviteRepository;
+    private final TenantService tenantService;
 
     @Transactional(readOnly = true)
     public Page<InviteAdminViewDTO> listInvites(
@@ -38,15 +41,23 @@ public class InviteAdminQueryService {
 
         Instant now = Instant.now();
 
+        Tenant tenant = tenantService.getRequired(tenantId);
+        String tenantName = tenant.getName();
+
         return page.map(invite -> new InviteAdminViewDTO(
                 invite.getId(),
                 invite.getEmail(),
+                invite.getFirstName(),
+                invite.getLastName(),
+                invite.getJobTitle(),
+                invite.getDepartment(),
+                invite.getTenantRole(),
                 invite.getStatus(),
                 invite.getCreatedAt(),
                 invite.getExpiresAt(),
                 Duration.between(invite.getCreatedAt(), now).getSeconds(),
                 invite.getTenantId(),
-                null // tenantName optional if not joined
+                tenantName
         ));
     }
 }

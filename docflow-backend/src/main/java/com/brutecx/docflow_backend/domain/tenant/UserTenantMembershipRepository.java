@@ -16,14 +16,6 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
 
     Optional<UserTenantMembership> findByUserIdAndTenantId(UUID userId, UUID tenantId);
 
-    boolean existsByUserIdAndTenantId(UUID userId, UUID tenantId);
-
-    long countByTenantIdAndRoleAndStatus(
-            UUID tenantId,
-            TenantRole role,
-            MembershipStatus status
-    );
-
     /**
      * Concurrency-safe "last MANAGER" enforcement helper.
      * Locks all ACTIVE MANAGER memberships for the tenant in the current transaction.
@@ -41,33 +33,6 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
             @Param("role") TenantRole role,
             @Param("status") MembershipStatus status
     );
-
-    @Query("""
-            select m
-            from UserTenantMembership m
-            join fetch m.user u
-            where m.tenant.id = :tenantId
-            """)
-    Page<UserTenantMembership> findByTenantIdWithUser(
-            @Param("tenantId") UUID tenantId,
-            Pageable pageable
-    );
-
-    @Query("""
-            select m
-            from UserTenantMembership m
-            join fetch m.user u
-            where m.tenant.id = :tenantId
-            and (:role is null or m.role = :role)
-            and (:status is null or m.status = :status)
-            """)
-    Page<UserTenantMembership> findFiltered(
-            @Param("tenantId") UUID tenantId,
-            @Param("role") TenantRole role,
-            @Param("status") MembershipStatus status,
-            Pageable pageable
-    );
-
 
     @Query(
             value = """
@@ -92,4 +57,21 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
             @Param("status") MembershipStatus status,
             Pageable pageable
     );
+
+    @Query("""
+    select distinct m.tenant
+    from UserTenantMembership m
+    where m.user.id = :userId
+      and m.role = :role
+      and m.status = :status
+    order by m.tenant.createdAt desc
+""")
+    List<Tenant> findTenantsByUserRole(
+            @Param("userId") UUID userId,
+            @Param("role") TenantRole role,
+            @Param("status") MembershipStatus status
+    );
+
+
+    boolean existsByUserIdAndTenantId(UUID id, UUID id1);
 }

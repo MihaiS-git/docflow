@@ -300,3 +300,15 @@ CREATE INDEX idx_unauth_chain_segment
 -- event hash lookup
 CREATE INDEX idx_unauth_access_event_hash
     ON unauthenticated_access_audit_events (event_hash);
+
+/* =========================================================
+   OTHERS
+   ========================================================= */
+CREATE INDEX idx_invites_expired_pending
+    ON invites (expires_at)
+    WHERE status = 'PENDING';
+
+-- prevents multiple identical invites
+CREATE UNIQUE INDEX ux_invites_pending_email
+    ON invites (tenant_id, lower(email))
+    WHERE status = 'PENDING';

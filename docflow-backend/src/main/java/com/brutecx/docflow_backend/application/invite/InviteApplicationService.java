@@ -1,6 +1,8 @@
 package com.brutecx.docflow_backend.application.invite;
 
+import com.brutecx.docflow_backend.api.error.DuplicateInviteException;
 import com.brutecx.docflow_backend.api.error.InviteNotFoundException;
+import com.brutecx.docflow_backend.api.error.UserAlreadyTenantMemberException;
 import com.brutecx.docflow_backend.application.mail.IMailService;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
@@ -22,12 +24,11 @@ import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
 import com.brutecx.docflow_backend.domain.user.UserStatus;
 import com.brutecx.docflow_backend.infrastructure.keycloak.KeycloakAdminClient;
-import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.session.SessionInformation;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -85,11 +86,33 @@ public class InviteApplicationService {
         String normalizedEmail = email.toLowerCase(Locale.ROOT);
         var actor = userService.getRequiredCurrentUser();
 
-        boolean success = false;
+        if (inviteRepository.existsByTenantIdAndEmailIgnoreCaseAndStatus(
+                targetTenantId,
+                normalizedEmail,
+                InviteStatus.PENDING
+        )) {
+            throw new DuplicateInviteException(
+                    "A pending invite already exists for this email in this tenant."
+            );
+        }
+
+        userService.findByEmailIgnoreCase(normalizedEmail)
+                .ifPresent(existingUser -> {
+                    if (membershipRepository.existsByUserIdAndTenantId(
+                            existingUser.getId(),
+                            targetTenantId
+                    )) {
+                        throw new UserAlreadyTenantMemberException(
+                                "User is already a member of this tenant."
+                        );
+                    }
+                });
+
         Invite invite = null;
         String keycloakUserId = null;
 
         try {
+
             User user = userProvisioningService.provisionInvitedUser(
                     tenant,
                     normalizedEmail,
@@ -99,16 +122,28 @@ public class InviteApplicationService {
                     department
             );
 
-            TenantRole effectiveRole = (tenantRole != null)
-                    ? tenantRole
-                    : TenantRole.MEMBER;
+            TenantRole effectiveRole =
+                    (tenantRole != null) ? tenantRole : TenantRole.MEMBER;
 
-            membershipRepository.findByUserIdAndTenantId(user.getId(), tenant.getId())
-                    .ifPresent(m -> m.changeRole(effectiveRole));
+            invite = Invite.create(
+                    normalizedEmail,
+                    firstName,
+                    lastName,
+                    jobTitle,
+                    department,
+                    tenant.getId(),
+                    effectiveRole
+            );
 
-            invite = Invite.create(normalizedEmail, tenant.getId(), effectiveRole);
             invite.linkUser(user);
-            inviteRepository.save(invite);
+
+            try {
+                inviteRepository.save(invite);
+            } catch (DataIntegrityViolationException ex) {
+                throw new DuplicateInviteException(
+                        "A similar invite already exists in the database."
+                );
+            }
 
             String temporaryPassword = generateTemporaryPassword();
 
@@ -119,8 +154,12 @@ public class InviteApplicationService {
                     );
 
             String existingSubject = user.getExternalSubjectId();
+
             if (existingSubject != null && !existingSubject.equals(keycloakUserId)) {
-                identityAnomalyMetrics.incrementBindFailure(tenant.getId().toString());
+
+                identityAnomalyMetrics.incrementBindFailure(
+                        tenant.getId().toString()
+                );
 
                 adminAuditEventService.record(
                         AdminAuditActionType.INVITE_SUBJECT_BIND_FAILED,
@@ -134,7 +173,9 @@ public class InviteApplicationService {
                         )
                 );
 
-                throw new IllegalStateException("Invite subject mismatch for local user");
+                throw new IllegalStateException(
+                        "Invite subject mismatch for local user"
+                );
             }
 
             user.bindExternalSubjectId(keycloakUserId);
@@ -165,38 +206,21 @@ public class InviteApplicationService {
                     temporaryPassword
             );
 
-            success = true;
-        } catch (RuntimeException ex) {
-            identityAnomalyMetrics.incrementBindFailure(tenant.getId().toString());
-
             adminAuditEventService.record(
-                    AdminAuditActionType.INVITE_SUBJECT_BIND_FAILED,
+                    AdminAuditActionType.USER_INVITED,
                     tenant.getId(),
                     actor.getExternalSubjectId(),
                     null,
-                    new InviteSubjectBindingAuditMetadata(
-                            null,
-                            null,
-                            sha256Hex(normalizedEmail)
+                    new InviteAuditMetadata(
+                            normalizedEmail,
+                            invite.getId().toString()
                     )
             );
 
-            if (keycloakUserId != null && !keycloakUserId.isBlank()) {
-                try {
-                    keycloakAdminClient.deleteUserById(keycloakUserId);
-                } catch (Exception cleanupEx) {
-                    log.warn("invite_create_keycloak_compensation_failed subjectId={}", keycloakUserId, cleanupEx);
-                }
-            }
-            throw ex;
-        } finally {
-            AdminAuditActionType actionType =
-                    success
-                            ? AdminAuditActionType.USER_INVITED
-                            : AdminAuditActionType.INVITE_FAILED;
+        } catch (RuntimeException ex) {
 
             adminAuditEventService.record(
-                    actionType,
+                    AdminAuditActionType.INVITE_FAILED,
                     tenant.getId(),
                     actor.getExternalSubjectId(),
                     null,
@@ -205,6 +229,20 @@ public class InviteApplicationService {
                             invite != null ? invite.getId().toString() : null
                     )
             );
+
+            if (keycloakUserId != null && !keycloakUserId.isBlank()) {
+                try {
+                    keycloakAdminClient.deleteUserById(keycloakUserId);
+                } catch (Exception cleanupEx) {
+                    log.warn(
+                            "invite_create_keycloak_compensation_failed subjectId={}",
+                            keycloakUserId,
+                            cleanupEx
+                    );
+                }
+            }
+
+            throw ex;
         }
     }
 

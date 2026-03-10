@@ -1,7 +1,8 @@
 package com.brutecx.docflow_backend.security.handler;
 
-import com.brutecx.docflow_backend.api.error.ErrorCode;
 import com.brutecx.docflow_backend.api.error.ErrorResponse;
+import com.brutecx.docflow_backend.api.error.ErrorTemplates;
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.unauth.IUnauthenticatedAccessAuditService;
 import com.brutecx.docflow_backend.logging.InfraEventActions;
@@ -36,10 +37,10 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
             AuthenticationException authException
     ) throws IOException {
 
+        AuditRequestContext ctx = contextExtractor.from(request);
+
         String uri = request.getRequestURI();
         String httpMethod = request.getMethod();
-
-        var ctx = contextExtractor.from(request);
         String correlationId = ctx.correlationId();
 
         try {
@@ -74,10 +75,8 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
             );
         }
 
-        ErrorResponse body = ErrorResponse.of(
-                HttpStatus.UNAUTHORIZED.value(),
-                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
-                ErrorCode.UNAUTHORIZED,
+        ErrorResponse body = ErrorResponse.fromTemplate(
+                ErrorTemplates.UNAUTHORIZED,
                 "Authentication required",
                 uri
         );

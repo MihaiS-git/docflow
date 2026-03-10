@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.security.enforcement;
 
+import com.brutecx.docflow_backend.api.error.ErrorCode;
 import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import com.brutecx.docflow_backend.domain.tenant.TenantStatus;
@@ -68,7 +69,7 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         User user = userRepository.findByExternalSubjectId(subject)
                 .orElseThrow(() ->
                         new LifecycleAccessDeniedException(
-                                "LOCAL_USER_MISSING",
+                                ErrorCode.USER_NOT_FOUND_LOCALLY,
                                 "Authenticated subject not mapped to a local user"
                         )
                 );
@@ -78,7 +79,7 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
 
         if (tenantStatus == TenantStatus.SUSPENDED) {
             throw new LifecycleAccessDeniedException(
-                    "TENANT_SUSPENDED",
+                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
                     "Tenant is suspended"
             );
         }
@@ -86,14 +87,14 @@ public class LifecycleAuthorizationManager implements AuthorizationManager<Reque
         if (user.getExternalSubjectId() != null &&
                 !user.getExternalSubjectId().equals(subject)) {
             throw new LifecycleAccessDeniedException(
-                    "SUBJECT_MISMATCH",
+                    ErrorCode.UNAUTHORIZED,
                     "Authenticated subject does not match the bound local user"
             );
         }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new LifecycleAccessDeniedException(
-                    "USER_NOT_ACTIVE",
+                    ErrorCode.ACCOUNT_LOCKED,
                     "User is not active"
             );
         }

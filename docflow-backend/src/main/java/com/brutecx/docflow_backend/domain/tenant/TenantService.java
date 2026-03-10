@@ -707,4 +707,23 @@ public class TenantService {
             throw new LastManagerViolationException("Cannot remove or suspend last MANAGER in tenant");
         }
     }
+
+    @Transactional(readOnly = true)
+    public List<Tenant> listManagedTenantsForCurrentUser() {
+        User actor = userService.getRequiredCurrentUser();
+
+        List<Tenant> tenants =
+                membershipRepository.findTenantsByUserRole(
+                        actor.getId(),
+                        TenantRole.MANAGER,
+                        MembershipStatus.ACTIVE
+                );
+
+        // hard safety cap
+        if (tenants.size() > 50) {
+            return tenants.subList(0, 50);
+        }
+
+        return tenants;
+    }
 }

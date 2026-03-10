@@ -1,13 +1,12 @@
 package com.brutecx.docflow_backend.api.error;
 
-import com.brutecx.docflow_backend.domain.security.auditSigningKeys.signing.MissingActiveAuditSigningKeyException;
-import com.brutecx.docflow_backend.domain.tenant.TenantLifecycleViolationException;
-import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
+import com.brutecx.docflow_backend.audit.AuditRequestContext;
+import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,140 +20,53 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
+@SuppressWarnings({
+        "unused",
+        "LoggingPlaceholderCountMatchesArgumentCount",
+        "ConstantConditions",
+        "SameParameterValue"
+})
 @Slf4j
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class GlobalExceptionHandler {
 
     private static final String SCHEMA_VERSION = "docflow_siem_v1";
 
+    private final AuditRequestContextExtractor contextExtractor;
+
     /* ============================= */
-    /*  Domain Exceptions            */
+    /*  Domain Exceptions (generic)  */
     /* ============================= */
 
-    @ExceptionHandler(MissingActiveAuditSigningKeyException.class)
-    public ResponseEntity<ErrorResponse> handleMissingAuditSigningKey(
-            MissingActiveAuditSigningKeyException ex,
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ErrorResponse> handleApiException(
+            ApiException ex,
             HttpServletRequest request
     ) {
-        logHandled(HttpStatus.FAILED_DEPENDENCY,
-                ErrorCode.AUDIT_EXPORT_SIGNING_KEY_MISSING,
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
+        logHandled(
+                ex.status(),
+                ex.errorCode(),
                 ex,
                 request,
-                null);
+                null,
+                correlationId
+        );
 
-        return build(HttpStatus.FAILED_DEPENDENCY,
-                ErrorCode.AUDIT_EXPORT_SIGNING_KEY_MISSING,
+        return build(
+                ex.status(),
+                ex.errorCode(),
                 ex.getMessage(),
-                request);
-    }
-
-    @ExceptionHandler(LifecycleAccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleLifecycleAccessDenied(
-            LifecycleAccessDeniedException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.FORBIDDEN,
-                ErrorCode.ACCOUNT_LOCKED,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.FORBIDDEN,
-                ErrorCode.ACCOUNT_LOCKED,
-                ex.getMessage(),
-                request);
-    }
-
-    @ExceptionHandler(LastManagerViolationException.class)
-    public ResponseEntity<ErrorResponse> handleLastManagerViolation(
-            LastManagerViolationException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.CONFLICT,
-                ErrorCode.LAST_MANAGER_VIOLATION,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.CONFLICT,
-                ErrorCode.LAST_MANAGER_VIOLATION,
-                ex.getMessage(),
-                request);
-    }
-
-    @ExceptionHandler(AuditArchivedRangeVerificationException.class)
-    public ResponseEntity<ErrorResponse> handleAuditArchivedRangeVerification(
-            AuditArchivedRangeVerificationException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.CONFLICT,
-                ErrorCode.AUDIT_VERIFY_INCLUDES_ARCHIVED_DATA,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.CONFLICT,
-                ErrorCode.AUDIT_VERIFY_INCLUDES_ARCHIVED_DATA,
-                ex.getMessage(),
-                request);
-    }
-
-    @ExceptionHandler(BootstrapActivationDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleBootstrapActivationDenied(
-            BootstrapActivationDeniedException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.FORBIDDEN,
-                ErrorCode.BOOTSTRAP_ACTIVATION_DENIED,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.FORBIDDEN,
-                ErrorCode.BOOTSTRAP_ACTIVATION_DENIED,
-                ex.getMessage(),
-                request);
-    }
-
-    @ExceptionHandler(BootstrapActivationNotAllowedException.class)
-    public ResponseEntity<ErrorResponse> handleBootstrapActivationNotAllowed(
-            BootstrapActivationNotAllowedException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.CONFLICT,
-                ErrorCode.BOOTSTRAP_ACTIVATION_NOT_ALLOWED,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.CONFLICT,
-                ErrorCode.BOOTSTRAP_ACTIVATION_NOT_ALLOWED,
-                ex.getMessage(),
-                request);
-    }
-
-    @ExceptionHandler(TenantLifecycleViolationException.class)
-    public ResponseEntity<ErrorResponse> handleTenantLifecycleViolation(
-            TenantLifecycleViolationException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.CONFLICT,
-                ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.CONFLICT,
-                ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                ex.getMessage(),
-                request);
+                request
+        );
     }
 
     /* ============================= */
@@ -166,24 +78,34 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException ex,
             HttpServletRequest request
     ) {
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
         Map<String, String> fieldErrors = new LinkedHashMap<>();
+
         for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
             fieldErrors.put(fe.getField(), fe.getDefaultMessage());
         }
 
         Map<String, Object> details = Map.of("fieldErrors", fieldErrors);
 
-        logHandled(HttpStatus.BAD_REQUEST,
+        logHandled(
+                HttpStatus.BAD_REQUEST,
                 ErrorCode.VALIDATION_FAILED,
                 ex,
                 request,
-                details);
+                details,
+                correlationId
+        );
 
-        return build(HttpStatus.BAD_REQUEST,
+        return build(
+                HttpStatus.BAD_REQUEST,
                 ErrorCode.VALIDATION_FAILED,
                 "Request validation failed",
                 request,
-                details);
+                details
+        );
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -191,24 +113,37 @@ public class GlobalExceptionHandler {
             ConstraintViolationException ex,
             HttpServletRequest request
     ) {
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
         Map<String, String> violations = new LinkedHashMap<>();
+
         for (ConstraintViolation<?> v : ex.getConstraintViolations()) {
-            violations.put(String.valueOf(v.getPropertyPath()), v.getMessage());
+            violations.put(
+                    String.valueOf(v.getPropertyPath()),
+                    v.getMessage()
+            );
         }
 
         Map<String, Object> details = Map.of("violations", violations);
 
-        logHandled(HttpStatus.BAD_REQUEST,
+        logHandled(
+                HttpStatus.BAD_REQUEST,
                 ErrorCode.CONSTRAINT_VIOLATION,
                 ex,
                 request,
-                details);
+                details,
+                correlationId
+        );
 
-        return build(HttpStatus.BAD_REQUEST,
+        return build(
+                HttpStatus.BAD_REQUEST,
                 ErrorCode.CONSTRAINT_VIOLATION,
                 "Request constraint violation",
                 request,
-                details);
+                details
+        );
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
@@ -216,67 +151,55 @@ public class GlobalExceptionHandler {
             HttpMessageNotReadableException ex,
             HttpServletRequest request
     ) {
-        logHandled(HttpStatus.BAD_REQUEST,
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
+        logHandled(
+                HttpStatus.BAD_REQUEST,
                 ErrorCode.MALFORMED_JSON,
                 ex,
                 request,
-                null);
+                null,
+                correlationId
+        );
 
-        return build(HttpStatus.BAD_REQUEST,
+        return build(
+                HttpStatus.BAD_REQUEST,
                 ErrorCode.MALFORMED_JSON,
                 "Malformed JSON request body",
-                request);
+                request
+        );
     }
 
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleResourceNotFound(
-            ResourceNotFoundException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.NOT_FOUND,
-                ErrorCode.RESOURCE_NOT_FOUND,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.NOT_FOUND,
-                ErrorCode.RESOURCE_NOT_FOUND,
-                ex.getMessage(),
-                request);
-    }
-
-    @ExceptionHandler(UserAlreadyExistsException.class)
-    public ResponseEntity<ErrorResponse> handleUserAlreadyExists(
-            UserAlreadyExistsException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.CONFLICT,
-                ErrorCode.USER_ALREADY_EXISTS,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.CONFLICT,
-                ErrorCode.USER_ALREADY_EXISTS,
-                ex.getMessage(),
-                request);
-    }
+    /* ============================= */
+    /*  Infrastructure Exceptions    */
+    /* ============================= */
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(
             DataIntegrityViolationException ex,
             HttpServletRequest request
     ) {
-        logHandled(HttpStatus.CONFLICT,
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
+        logHandled(
+                HttpStatus.CONFLICT,
                 ErrorCode.DATA_INTEGRITY_VIOLATION,
                 ex,
                 request,
-                null);
+                null,
+                correlationId
+        );
 
-        return build(HttpStatus.CONFLICT,
+        return build(
+                HttpStatus.CONFLICT,
                 ErrorCode.DATA_INTEGRITY_VIOLATION,
                 "Request could not be completed due to a data integrity constraint.",
-                request);
+                request
+        );
     }
 
     @ExceptionHandler(RestClientException.class)
@@ -284,33 +207,25 @@ public class GlobalExceptionHandler {
             RestClientException ex,
             HttpServletRequest request
     ) {
-        logHandled(HttpStatus.BAD_GATEWAY,
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
+        logHandled(
+                HttpStatus.BAD_GATEWAY,
                 ErrorCode.UPSTREAM_SERVICE_ERROR,
                 ex,
                 request,
-                null);
+                null,
+                correlationId
+        );
 
-        return build(HttpStatus.BAD_GATEWAY,
+        return build(
+                HttpStatus.BAD_GATEWAY,
                 ErrorCode.UPSTREAM_SERVICE_ERROR,
                 ex.getMessage(),
-                request);
-    }
-
-    @ExceptionHandler(SelfActionForbiddenException.class)
-    public ResponseEntity<ErrorResponse> handleSelfActionForbidden(
-            SelfActionForbiddenException ex,
-            HttpServletRequest request
-    ) {
-        logHandled(HttpStatus.FORBIDDEN,
-                ErrorCode.SELF_ACTION_FORBIDDEN,
-                ex,
-                request,
-                null);
-
-        return build(HttpStatus.FORBIDDEN,
-                ErrorCode.SELF_ACTION_FORBIDDEN,
-                ex.getMessage(),
-                request);
+                request
+        );
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -318,16 +233,25 @@ public class GlobalExceptionHandler {
             IllegalArgumentException ex,
             HttpServletRequest request
     ) {
-        logHandled(HttpStatus.BAD_REQUEST,
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
+        logHandled(
+                HttpStatus.BAD_REQUEST,
                 ErrorCode.INVALID_ARGUMENT,
                 ex,
                 request,
-                null);
+                null,
+                correlationId
+        );
 
-        return build(HttpStatus.BAD_REQUEST,
+        return build(
+                HttpStatus.BAD_REQUEST,
                 ErrorCode.INVALID_ARGUMENT,
                 ex.getMessage(),
-                request);
+                request
+        );
     }
 
     @ExceptionHandler(Exception.class)
@@ -335,15 +259,24 @@ public class GlobalExceptionHandler {
             Exception ex,
             HttpServletRequest request
     ) {
-        logUnhandled(HttpStatus.INTERNAL_SERVER_ERROR,
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
+        logUnhandled(
+                HttpStatus.INTERNAL_SERVER_ERROR,
                 ErrorCode.INTERNAL_SERVER_ERROR,
                 ex,
-                request);
+                request,
+                correlationId
+        );
 
-        return build(HttpStatus.INTERNAL_SERVER_ERROR,
+        return build(
+                HttpStatus.INTERNAL_SERVER_ERROR,
                 ErrorCode.INTERNAL_SERVER_ERROR,
                 "An unexpected error occurred",
-                request);
+                request
+        );
     }
 
     /* ============================= */
@@ -355,15 +288,18 @@ public class GlobalExceptionHandler {
             ErrorCode errorCode,
             Exception ex,
             HttpServletRequest request,
-            Map<String, Object> details
+            Map<String, Object> details,
+            String correlationId
     ) {
+
         boolean includeStacktrace = status.is5xxServerError();
 
         Actor actor = resolveActor();
-        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_CORRELATION_ID);
 
         if (includeStacktrace) {
-            log.error("application_error",
+
+            log.error(
+                    "application_error",
                     kv("schema_version", SCHEMA_VERSION),
                     kv("event.category", "application"),
                     kv("event.action", "handled_exception"),
@@ -380,8 +316,11 @@ public class GlobalExceptionHandler {
                     details != null ? kv("error.details", details) : null,
                     ex
             );
+
         } else {
-            log.warn("application_error",
+
+            log.warn(
+                    "application_error",
                     kv("schema_version", SCHEMA_VERSION),
                     kv("event.category", "application"),
                     kv("event.action", "handled_exception"),
@@ -404,12 +343,14 @@ public class GlobalExceptionHandler {
             HttpStatus status,
             ErrorCode errorCode,
             Exception ex,
-            HttpServletRequest request
+            HttpServletRequest request,
+            String correlationId
     ) {
-        Actor actor = resolveActor();
-        String correlationId = MDC.get(RequestCorrelationIdFilter.MDC_CORRELATION_ID);
 
-        log.error("application_error",
+        Actor actor = resolveActor();
+
+        log.error(
+                "application_error",
                 kv("schema_version", SCHEMA_VERSION),
                 kv("event.category", "application"),
                 kv("event.action", "request_failed"),
@@ -428,20 +369,31 @@ public class GlobalExceptionHandler {
     }
 
     private Actor resolveActor() {
-        Authentication auth = SecurityContextHolder.getContext() != null
-                ? SecurityContextHolder.getContext().getAuthentication()
-                : null;
 
-        if (auth == null || auth instanceof AnonymousAuthenticationToken || !auth.isAuthenticated()) {
+        Authentication auth =
+                SecurityContextHolder.getContext() != null
+                        ? SecurityContextHolder.getContext().getAuthentication()
+                        : null;
+
+        if (auth == null
+                || auth instanceof AnonymousAuthenticationToken
+                || !auth.isAuthenticated()) {
+
             return new Actor("ANONYMOUS", "anonymous", List.of());
         }
 
         String name = auth.getName() != null ? auth.getName() : "unknown";
 
         List<String> roles = new ArrayList<>();
+
         if (auth.getAuthorities() != null) {
+
             auth.getAuthorities().forEach(a -> {
-                if (a != null && a.getAuthority() != null && !a.getAuthority().isBlank()) {
+
+                if (a != null
+                        && a.getAuthority() != null
+                        && !a.getAuthority().isBlank()) {
+
                     roles.add(a.getAuthority());
                 }
             });
@@ -450,8 +402,7 @@ public class GlobalExceptionHandler {
         return new Actor("USER", name, roles);
     }
 
-    private record Actor(String type, String name, List<String> roles) {
-    }
+    private record Actor(String type, String name, List<String> roles) {}
 
     /* ============================= */
 
@@ -461,8 +412,9 @@ public class GlobalExceptionHandler {
             String message,
             HttpServletRequest request
     ) {
+
         return ResponseEntity.status(status)
-                .body(ErrorResponse.of(
+                .body(ErrorResponse.create(
                         status.value(),
                         status.getReasonPhrase(),
                         errorCode,
@@ -478,8 +430,9 @@ public class GlobalExceptionHandler {
             HttpServletRequest request,
             Map<String, Object> details
     ) {
+
         return ResponseEntity.status(status)
-                .body(ErrorResponse.of(
+                .body(ErrorResponse.create(
                         status.value(),
                         status.getReasonPhrase(),
                         errorCode,
