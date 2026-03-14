@@ -1,9 +1,11 @@
-import { InputHTMLAttributes } from "react";
+import { InputHTMLAttributes, ReactNode } from "react";
 
-type Props = InputHTMLAttributes<HTMLInputElement>;
+type Props = InputHTMLAttributes<HTMLInputElement> & {
+  label?: ReactNode;
+};
 
-export default function Input({ className = "", ...props }: Props) {
-  return (
+export default function Input({ label, className = "", ...props }: Props) {
+  const input = (
     <input
       className={`
         w-full
@@ -19,5 +21,14 @@ export default function Input({ className = "", ...props }: Props) {
       `}
       {...props}
     />
+  );
+
+  if (!label) return input;
+
+  return (
+    <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
+      <span>{label}</span>
+      {input}
+    </label>
   );
 }

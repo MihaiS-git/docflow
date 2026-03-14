@@ -1,6 +1,6 @@
 package com.brutecx.docflow_backend.api.controller.user.tenant;
 
-import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO;
+import com.brutecx.docflow_backend.api.dto.tenant.UserTenantListItemDTO;
 import com.brutecx.docflow_backend.domain.tenant.Tenant;
 import com.brutecx.docflow_backend.domain.tenant.TenantService;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +19,7 @@ public class UserTenantController {
     private final TenantService tenantService;
 
     @GetMapping("/managed")
-    public ResponseEntity<List<TenantListItemDTO>> listManagedTenants() {
+    public ResponseEntity<List<UserTenantListItemDTO>> listManagedTenants() {
         List<Tenant> tenants =
                 tenantService.listManagedTenantsForCurrentUser();
 
@@ -30,14 +30,13 @@ public class UserTenantController {
         );
     }
 
-    private TenantListItemDTO toDto(Tenant t) {
-        return new TenantListItemDTO(
+    private UserTenantListItemDTO toDto(Tenant t) {
+        return new UserTenantListItemDTO(
                 t.getId(),
                 t.getName(),
                 t.getStatus(),
                 t.getDataRegion(),
                 t.getRetentionDays(),
-                t.isBootstrapEnabled(),
                 t.getCreatedAt(),
                 t.getUpdatedAt()
         );

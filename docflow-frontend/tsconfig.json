@@ -29,6 +29,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-  ],
+, "app/(protected)/console/users/AdminUsersTableCard"  ],
   "exclude": ["node_modules"]
 }

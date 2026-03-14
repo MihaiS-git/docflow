@@ -21,7 +21,7 @@ import java.util.Objects;
 public final class CredentialLifecycleCanonicalMaterialBuilder
         implements AuditCanonicalMaterialBuilder<CredentialLifecycleCanonicalMaterialBuilder.Input> {
 
-    public static final String STREAM = "CREDENTIAL";
+    public static final String STREAM = "CREDENTIAL_LIFECYCLE";
     private static final String NULL_TOKEN = "-";
 
     private final AuditCanonicalVersionProvider versionProvider;

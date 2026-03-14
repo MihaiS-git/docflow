@@ -1,14 +1,31 @@
-export type TenantStatus = "ACTIVE" | "SUSPENDED";
+export type TenantStatus =
+  | "ACTIVE"
+  | "SUSPENDED"
+  | "TERMINATED";
 
 export interface AdminTenant {
-  id: string;
-  name: string;
-  status: string;
-  dataRegion: string | null;
-  retentionDays: number | null;
-  bootstrapEnabled: boolean;
-  createdAt: string;
-  updatedAt: string;
+  id: string
+  name: string
+  status: TenantStatus
+
+  managerName?: string
+  managerEmail?: string
+
+  membersCount: number
+
+  dataRegion?: string
+  retentionDays?: number
+
+  lastActivity?: string
+
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminTenantLookup {
+  id: string
+  name: string
+  status: TenantStatus
 }
 
 export interface Page<T> {

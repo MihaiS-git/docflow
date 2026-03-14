@@ -1,26 +1,19 @@
-package com.brutecx.docflow_backend.api.dto.admin.tenant;
+package com.brutecx.docflow_backend.api.dto.tenant;
 
 import com.brutecx.docflow_backend.domain.tenant.TenantStatus;
 
 import java.time.Instant;
 import java.util.UUID;
 
-public record TenantListItemDTO(
+public record UserTenantListItemDTO(
+
         UUID id,
         String name,
         TenantStatus status,
 
-        String managerName,
-        String managerEmail,
-
-        long membersCount,
-
         String dataRegion,
         Long retentionDays,
 
-        Instant lastActivity,
-
         Instant createdAt,
         Instant updatedAt
-) {
-}
+) {}

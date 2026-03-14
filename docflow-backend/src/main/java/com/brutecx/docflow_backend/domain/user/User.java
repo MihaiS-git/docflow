@@ -1,14 +1,13 @@
 package com.brutecx.docflow_backend.domain.user;
 
+import com.brutecx.docflow_backend.domain.tenant.UserTenantMembership;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
-import java.util.Locale;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 @Entity
 @Getter
@@ -80,6 +79,9 @@ public class User {
     @Setter
     @Column(name = "last_login_user_agent")
     private String lastLoginUserAgent;
+
+    @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+    private Set<UserTenantMembership> memberships = new HashSet<>();
 
     public User(
             String email,

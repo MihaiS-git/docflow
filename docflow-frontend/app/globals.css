@@ -7,7 +7,6 @@
 -------------------------------------------------- */
 
 :root {
-
   /* --------------------------------------------------
      SURFACES
   -------------------------------------------------- */
@@ -20,7 +19,7 @@
      BORDERS
   -------------------------------------------------- */
 
-  --color-border: theme(colors.gray.200);
+  --color-border: theme(colors.gray.200 / 0.7);
 
   /* --------------------------------------------------
      TEXT
@@ -38,10 +37,26 @@
   -------------------------------------------------- */
 
   --color-primary: theme(colors.blue.600);
+  --color-primary-hover: theme(colors.blue.700);
+
   --color-success: theme(colors.emerald.600);
+  --color-success-hover: theme(colors.emerald.700);
+
   --color-warning: theme(colors.amber.500);
+  --color-warning-hover: theme(colors.amber.600);
+
   --color-error: theme(colors.red.600);
+  --color-error-hover: theme(colors.red.700);
+
   --color-info: theme(colors.sky.500);
+  --color-info-hover: theme(colors.sky.600);
+
+  /* --------------------------------------------------
+     FOCUS
+  -------------------------------------------------- */
+
+  --color-focus-ring: theme(colors.blue.500);
+  --color-focus-ring-offset: theme(colors.gray.50);
 
   /* --------------------------------------------------
      TABLES
@@ -58,7 +73,6 @@
 -------------------------------------------------- */
 
 .dark {
-
   /* --------------------------------------------------
      SURFACES
   -------------------------------------------------- */
@@ -71,7 +85,7 @@
      BORDERS
   -------------------------------------------------- */
 
-  --color-border: theme(colors.neutral.800);
+  --color-border: theme(colors.neutral.800 / 0.7);
 
   /* --------------------------------------------------
      TEXT
@@ -89,10 +103,26 @@
   -------------------------------------------------- */
 
   --color-primary: theme(colors.blue.500);
+  --color-primary-hover: theme(colors.blue.600);
+
   --color-success: theme(colors.emerald.500);
+  --color-success-hover: theme(colors.emerald.600);
+
   --color-warning: theme(colors.amber.400);
+  --color-warning-hover: theme(colors.amber.500);
+
   --color-error: theme(colors.red.500);
+  --color-error-hover: theme(colors.red.600);
+
   --color-info: theme(colors.sky.400);
+  --color-info-hover: theme(colors.sky.500);
+
+  /* --------------------------------------------------
+     FOCUS
+  -------------------------------------------------- */
+
+  --color-focus-ring: theme(colors.blue.400);
+  --color-focus-ring-offset: theme(colors.neutral.900);
 
   /* --------------------------------------------------
      TABLES
@@ -102,4 +132,12 @@
   --color-table-row: theme(colors.neutral.900);
   --color-table-row-hover: theme(colors.neutral.800);
   --color-table-border: theme(colors.neutral.800);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html {
+  scrollbar-gutter: stable;
 }

@@ -9,5 +9,20 @@ public record AdminUserResponseDTO(
         UUID id,
         String email,
         UserStatus status,
-        List<String> roles
-) {}
+        List<String> roles,
+        boolean identityProvisioned
+) {
+    public AdminUserResponseDTO(
+            UUID id,
+            String email,
+            UserStatus status,
+            List<String> roles,
+            boolean identityProvisioned
+    ) {
+        this.id = id;
+        this.email = email;
+        this.status = status;
+        this.roles = roles;
+        this.identityProvisioned = identityProvisioned;
+    }
+}

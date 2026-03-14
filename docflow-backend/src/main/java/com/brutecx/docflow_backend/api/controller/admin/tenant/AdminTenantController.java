@@ -1,17 +1,19 @@
 package com.brutecx.docflow_backend.api.controller.admin.tenant;
 
+import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantFilter;
 import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO;
-import com.brutecx.docflow_backend.domain.tenant.Tenant;
-import com.brutecx.docflow_backend.domain.tenant.TenantService;
+import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO;
+import com.brutecx.docflow_backend.domain.tenant.*;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -22,53 +24,61 @@ public class AdminTenantController {
 
     private static final int MAX_PAGE_SIZE = 100;
 
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+            "name",
+            "status",
+            "dataRegion",
+            "retentionDays",
+            "createdAt",
+            "updatedAt"
+    );
+
     private final TenantService tenantService;
 
-    /* ===========================
-       Queries
-       =========================== */
+    @GetMapping("/lookup")
+    public ResponseEntity<List<TenantLookupDTO>> lookupTenants() {
+        return ResponseEntity.ok(tenantService.listTenantLookup());
+    }
 
     @GetMapping
     public ResponseEntity<Page<TenantListItemDTO>> listAll(
+
+            @RequestParam(required = false) TenantStatus status,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String dataRegion,
+            @RequestParam(required = false) String managerName,
+            @RequestParam(required = false) String managerEmail,
+            @RequestParam(required = false) LocalDate createdAfter,
+            @RequestParam(required = false) LocalDate createdBefore,
+
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "createdAt") String sort,
             @RequestParam(defaultValue = "DESC") Sort.Direction direction
     ) {
+
+        String safeSort = ALLOWED_SORT_FIELDS.contains(sort) ? sort : "createdAt";
+
         Pageable pageable = PageRequest.of(
                 page,
                 Math.min(size, MAX_PAGE_SIZE),
-                Sort.by(direction, sort)
+                Sort.by(direction, safeSort)
+        );
+
+        TenantFilter filter = new TenantFilter(
+                status,
+                name,
+                dataRegion,
+                managerName,
+                managerEmail,
+                createdAfter,
+                createdBefore
         );
 
         return ResponseEntity.ok(
-                tenantService.listAll(pageable)
-                        .map(this::toDto)
+                tenantService.listAll(filter, pageable)
         );
     }
-
-    @GetMapping("/active")
-    public ResponseEntity<Page<TenantListItemDTO>> listActive(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "createdAt") String sort,
-            @RequestParam(defaultValue = "DESC") Sort.Direction direction
-    ) {
-        Pageable pageable = PageRequest.of(
-                page,
-                Math.min(size, MAX_PAGE_SIZE),
-                Sort.by(direction, sort)
-        );
-
-        return ResponseEntity.ok(
-                tenantService.listActive(pageable)
-                        .map(this::toDto)
-        );
-    }
-
-    /* ===========================
-       Mutations
-       =========================== */
 
     @PostMapping
     public ResponseEntity<Tenant> create(
@@ -89,6 +99,7 @@ public class AdminTenantController {
             @RequestParam(required = false) Boolean disableBootstrap,
             @RequestParam(required = false) String comment
     ) {
+
         tenantService.updateTenant(
                 tenantId,
                 name,
@@ -106,8 +117,9 @@ public class AdminTenantController {
             @PathVariable UUID tenantId,
             @RequestParam String comment
     ) {
+
         if (comment == null || comment.isBlank()) {
-            throw new IllegalArgumentException("Comment is required for tenant suspension");
+            throw new IllegalArgumentException("Comment required");
         }
 
         tenantService.suspendTenant(tenantId, comment);
@@ -115,14 +127,14 @@ public class AdminTenantController {
         return ResponseEntity.noContent().build();
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/{tenantId}/reactivate")
     public ResponseEntity<Void> reactivate(
             @PathVariable UUID tenantId,
             @RequestParam String comment
     ) {
+
         if (comment == null || comment.isBlank()) {
-            throw new IllegalArgumentException("Comment is required for tenant reactivation");
+            throw new IllegalArgumentException("Comment required");
         }
 
         tenantService.reactivateTenant(tenantId, comment);
@@ -130,16 +142,19 @@ public class AdminTenantController {
         return ResponseEntity.noContent().build();
     }
 
-    private TenantListItemDTO toDto(Tenant t) {
-        return new TenantListItemDTO(
-                t.getId(),
-                t.getName(),
-                t.getStatus(),
-                t.getDataRegion(),
-                t.getRetentionDays(),
-                t.isBootstrapEnabled(),
-                t.getCreatedAt(),
-                t.getUpdatedAt()
-        );
+    @PostMapping("/{tenantId}/terminate")
+    public ResponseEntity<Void> terminate(
+            @PathVariable UUID tenantId,
+            @RequestParam String comment
+    ) {
+
+        if (comment == null || comment.isBlank()) {
+            throw new IllegalArgumentException("Comment required");
+        }
+
+        tenantService.terminateTenant(tenantId, comment);
+
+        return ResponseEntity.noContent().build();
     }
+
 }

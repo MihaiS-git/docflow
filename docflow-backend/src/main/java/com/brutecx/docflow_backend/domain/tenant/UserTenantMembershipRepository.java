@@ -74,4 +74,19 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
 
 
     boolean existsByUserIdAndTenantId(UUID id, UUID id1);
+
+    long countByTenantIdAndStatus(
+            UUID tenantId,
+            MembershipStatus status
+    );
+
+    @Query("""
+        select u.firstName, u.lastName, u.email
+        from UserTenantMembership m
+        join m.user u
+        where m.tenant.id = :tenantId
+          and m.role = com.brutecx.docflow_backend.domain.tenant.TenantRole.MANAGER
+          and m.status = com.brutecx.docflow_backend.domain.tenant.MembershipStatus.ACTIVE
+        """)
+    List<Object[]> findActiveManagers(UUID tenantId);
 }

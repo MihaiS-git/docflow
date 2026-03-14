@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +42,7 @@ public class AuditChainAnchorService {
     }
 
     public void snapshotAnchors() {
+
         List<AuditChainState> states = stateRepository.findAll();
 
         if (states.isEmpty()) {
@@ -56,10 +58,13 @@ public class AuditChainAnchorService {
                      )) {
 
             for (AuditChainState s : states) {
+
+                String partition = uuidToString(s.getTenantId());
+
                 AnchorRecord record = new AnchorRecord(
                         now,
                         s.getStream(),
-                        s.getTenantId(),
+                        partition,
                         s.getLastEventHash(),
                         s.getLastCheckpointHash(),
                         s.getLastCheckpointAt()
@@ -68,9 +73,14 @@ public class AuditChainAnchorService {
                 writer.write(objectMapper.writeValueAsString(record));
                 writer.newLine();
             }
+
         } catch (IOException e) {
             throw new IllegalStateException("Failed to write audit anchor snapshot", e);
         }
+    }
+
+    private String uuidToString(UUID value) {
+        return value == null ? null : value.toString();
     }
 
     record AnchorRecord(

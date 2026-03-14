@@ -69,7 +69,7 @@ public class AdminUserService {
                 .filter(Objects::nonNull)
                 .toList();
 
-        Map<String, List<String>> rolesBySubject =
+        Map<String, KeycloakAdminClient.RealmUserRoles> rolesBySubject =
                 keycloakAdminClient.fetchRealmRolesForUsers(subjectIds);
         String resourcePath = contextExtractor.fromCurrentRequest().resourcePath();
 
@@ -89,19 +89,25 @@ public class AdminUserService {
         );
 
         return page.map(user -> {
+            KeycloakAdminClient.RealmUserRoles info =
+                    rolesBySubject.get(user.getExternalSubjectId());
+
             List<String> roles =
                     authRoleExtractor.filterRealmRoles(
-                            rolesBySubject.getOrDefault(
-                                    user.getExternalSubjectId(),
-                                    List.of()
-                            )
+                            info != null ? info.roles() : List.of()
                     );
+
+            boolean identityProvisioned =
+                    info != null && info.identityExists();
+
+            List<String> rolesSafe = roles == null ? List.of() : roles;
 
             return new AdminUserResponseDTO(
                     user.getId(),
                     user.getEmail(),
                     user.getStatus(),
-                    roles
+                    rolesSafe,
+                    identityProvisioned
             );
         });
     }

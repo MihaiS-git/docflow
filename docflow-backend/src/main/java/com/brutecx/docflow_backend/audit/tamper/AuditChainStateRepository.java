@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface AuditChainStateRepository extends JpaRepository<AuditChainState, String> {
 
@@ -58,7 +59,8 @@ public interface AuditChainStateRepository extends JpaRepository<AuditChainState
      * Bootstrap insert for first event of a partition.
      */
     @Modifying
-    @Query(value = """
+    @Query(
+            value = """
         INSERT INTO audit_chain_state (
             state_key,
             stream,
@@ -75,21 +77,23 @@ public interface AuditChainStateRepository extends JpaRepository<AuditChainState
             :stream,
             :tenantId,
             :lastEventHash,
-            :checkpointHash,
-            :checkpointAt,
+            :lastCheckpointHash,
+            :lastCheckpointAt,
             :eventsSinceCheckpoint,
             :eventCount,
             :updatedAt
         )
         ON CONFLICT (state_key) DO NOTHING
-        """, nativeQuery = true)
+        """,
+            nativeQuery = true
+    )
     int insertIfAbsent(
             @Param("stateKey") String stateKey,
             @Param("stream") String stream,
-            @Param("tenantId") String tenantId,
+            @Param("tenantId") UUID tenantId,
             @Param("lastEventHash") String lastEventHash,
-            @Param("checkpointHash") String checkpointHash,
-            @Param("checkpointAt") Instant checkpointAt,
+            @Param("lastCheckpointHash") String lastCheckpointHash,
+            @Param("lastCheckpointAt") Instant lastCheckpointAt,
             @Param("eventsSinceCheckpoint") int eventsSinceCheckpoint,
             @Param("eventCount") long eventCount,
             @Param("updatedAt") Instant updatedAt

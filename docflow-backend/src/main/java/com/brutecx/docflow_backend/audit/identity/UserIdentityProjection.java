@@ -7,17 +7,14 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Objects;
 
-/**
- * Entity representing a projection of user identity information.
- * This entity is used to cache user details fetched from an external identity provider.
- * It includes fields for username, email, display name, source of identity,
- * and the timestamp of the last synchronization.
- * Methods are provided to update the identity information and check its freshness.
- */
 @Entity
 @Table(name = "user_identity_projection")
 @Getter
@@ -37,20 +34,42 @@ public class UserIdentityProjection {
     @Column(nullable = false)
     private String source;
 
-    @Column(nullable = false, name="last_synced_at")
+    @Column(nullable = false, name = "last_synced_at")
     private Instant lastSyncedAt;
 
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "realm_roles", columnDefinition = "text[]", nullable = false)
+    private String[] realmRoles = new String[0];
+
     public UserIdentityProjection(String subjectId, String source) {
-        this.subjectId = subjectId;
-        this.source = source;
+        this.subjectId = Objects.requireNonNull(subjectId, "subjectId");
+        this.source = Objects.requireNonNull(source, "source");
         this.lastSyncedAt = Instant.EPOCH;
     }
 
-    public void update(String username, String email, String displayName) {
+    public void update(
+            String username,
+            String email,
+            String displayName,
+            String[] realmRoles
+    ) {
         this.username = username;
         this.email = email;
         this.displayName = displayName;
+        this.realmRoles = realmRoles == null ? new String[0] : Arrays.copyOf(realmRoles, realmRoles.length);
         this.lastSyncedAt = Instant.now();
+    }
+
+    public boolean sameIdentitySnapshot(
+            String username,
+            String email,
+            String displayName,
+            String[] realmRoles
+    ) {
+        return Objects.equals(this.username, username)
+                && Objects.equals(this.email, email)
+                && Objects.equals(this.displayName, displayName)
+                && Arrays.equals(this.realmRoles, realmRoles == null ? new String[0] : realmRoles);
     }
 
     public boolean isFresh(Duration maxAge) {
@@ -60,5 +79,4 @@ public class UserIdentityProjection {
     public boolean isInitialized() {
         return !Instant.EPOCH.equals(lastSyncedAt);
     }
-
 }

@@ -31,6 +31,7 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
 
     private static final String STREAM = IdentityProjectionCanonicalMaterialBuilder.STREAM;
     private static final String EXEC_CTX = ExecutionContext.SCHEDULED_JOB.name();
+    private static final Duration FRESHNESS_WINDOW = Duration.ofHours(24);
 
     private final UserIdentityProjectionRepository repo;
     private final KeycloakAdminClient keycloak;
@@ -54,13 +55,12 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
 
             if (existingOpt.isPresent()) {
                 UserIdentityProjection existing = existingOpt.get();
-                if (existing.isInitialized() && existing.isFresh(Duration.ofHours(24))) {
+                if (existing.isInitialized() && existing.isFresh(FRESHNESS_WINDOW)) {
                     return;
                 }
             }
 
             KeycloakUser kcUser = keycloak.fetchUser(subjectId);
-
             if (kcUser == null) {
                 log.warn(
                         "security_event",
@@ -78,30 +78,37 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                 return;
             }
 
+            String[] normalizedRoles = normalizeRoles(
+                    keycloak.fetchRealmRolesForUsers(List.of(subjectId))
+                            .getOrDefault(subjectId, new KeycloakAdminClient.RealmUserRoles(true, List.of()))
+                            .roles()
+            );
+
             UserIdentityProjection projection =
                     existingOpt.orElseGet(() -> new UserIdentityProjection(subjectId, "KEYCLOAK"));
 
-            String normalizedUsername = safe(kcUser.username());
-            String normalizedEmail = safe(kcUser.email());
-            String normalizedDisplayName = safe(kcUser.displayName());
+            String normalizedUsername = nullableTrim(kcUser.username());
+            String normalizedEmail = nullableTrim(kcUser.email());
+            String normalizedDisplayName = nullableTrim(kcUser.displayName());
 
-            boolean initialized = projection.isInitialized();
-            boolean changed =
-                    !normalizedUsername.equals(safe(projection.getUsername()))
-                            || !normalizedEmail.equals(safe(projection.getEmail()))
-                            || !normalizedDisplayName.equals(safe(projection.getDisplayName()));
-
-            if (initialized && !changed) {
+            if (projection.isInitialized()
+                    && projection.sameIdentitySnapshot(
+                    normalizedUsername,
+                    normalizedEmail,
+                    normalizedDisplayName,
+                    normalizedRoles
+            )) {
                 return;
             }
 
             projection.update(
-                    kcUser.username(),
-                    kcUser.email(),
-                    kcUser.displayName()
+                    normalizedUsername,
+                    normalizedEmail,
+                    normalizedDisplayName,
+                    normalizedRoles
             );
 
-            repo.saveAndFlush(projection);
+            repo.save(projection);
 
             Instant now = Instant.now();
 
@@ -110,8 +117,9 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                     "IDENTITY_PROJECTED",
                     subjectId,
                     "KEYCLOAK",
-                    normalizedUsername,
-                    normalizedDisplayName
+                    safe(normalizedUsername),
+                    safe(normalizedDisplayName),
+                    String.join(",", normalizedRoles)
             ));
 
             IdentityProjectionCanonicalMaterialBuilder.Input input =
@@ -127,7 +135,6 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
                     );
 
             String canonicalMaterial = canonicalBuilder.buildCanonicalMaterial(input);
-
             AuditPartition partition = partitionResolver.identityProjection(subjectId);
 
             AuditStreamExecutor.WriteOutcome outcome =
@@ -179,7 +186,29 @@ public class UserIdentityEnrichmentServiceImpl implements IUserIdentityProjectio
         }
     }
 
-    private static String safe(String v) {
-        return (v == null || v.isBlank()) ? "-" : v.trim();
+    private static String[] normalizeRoles(List<String> roles) {
+        if (roles == null || roles.isEmpty()) {
+            return new String[0];
+        }
+
+        return roles.stream()
+                .filter(role -> role != null && !role.isBlank())
+                .map(String::trim)
+                .distinct()
+                .sorted()
+                .toArray(String[]::new);
+    }
+
+    private static String nullableTrim(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String safe(String value) {
+        return value == null || value.isBlank() ? "-" : value;
     }
 }

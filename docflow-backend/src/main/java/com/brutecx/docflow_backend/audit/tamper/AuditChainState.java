@@ -9,6 +9,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "audit_chain_state")
@@ -24,7 +25,7 @@ public class AuditChainState {
     private String stream;
 
     @Column(name = "tenant_id", updatable = false, length = 64)
-    private String tenantId;
+    private UUID tenantId;
 
     @Column(name = "last_event_hash", nullable = false, length = 128)
     private String lastEventHash;
@@ -50,7 +51,7 @@ public class AuditChainState {
     public AuditChainState(
             String stateKey,
             String stream,
-            String tenantId,
+            UUID tenantId,
             String lastEventHash
     ) {
         this.stateKey = stateKey;

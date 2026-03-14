@@ -13,7 +13,7 @@ import java.util.Objects;
 public final class AuthenticationAuditCanonicalMaterialBuilder
         implements AuditCanonicalMaterialBuilder<AuthenticationAuditCanonicalMaterialBuilder.Input> {
 
-    public static final String STREAM = "AUTH";
+    public static final String STREAM = "AUTHENTICATION";
     private static final String NULL_TOKEN = "-";
 
     private final AuditCanonicalVersionProvider versionProvider;

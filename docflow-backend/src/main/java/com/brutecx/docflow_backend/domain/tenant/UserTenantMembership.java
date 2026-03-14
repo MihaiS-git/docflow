@@ -22,14 +22,6 @@ import java.util.UUID;
                         name = "uk_membership_user_tenant",
                         columnNames = {"user_id", "tenant_id"}
                 )
-        },
-        indexes = {
-                @Index(name = "idx_membership_tenant_id", columnList = "tenant_id"),
-                @Index(name = "idx_membership_user_id", columnList = "user_id"),
-                @Index(
-                        name = "idx_membership_tenant_role_status",
-                        columnList = "tenant_id, role, status"
-                )
         }
 )
 public class UserTenantMembership {

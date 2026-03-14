@@ -3,14 +3,21 @@
 import { useEffect, useState } from "react";
 import type { AdminUser } from "@/types/admin/AdminUser";
 import type { SpringPage } from "@/types/api/SpringPage";
-import type { AdminTenant } from "@/types/admin/Tenant";
+import type { AdminTenantLookup } from "@/types/admin/Tenant";
 
 import { fetchAdminUsers } from "@/lib/admin/adminUsers";
 import { fetchAdminRoles } from "@/lib/admin/adminRoles";
-import { fetchActiveTenants } from "@/lib/admin/adminTenants";
+import { fetchTenantsLookup } from "@/lib/admin/adminTenants";
 
-import { AdminUserRow } from "../AdminUserRow";
+import { AdminUserRow } from "./AdminUserRow";
 import { useAuth } from "@/lib/auth/useAuth";
+
+import PageContainer from "@/components/layout/PageContainer";
+import PageHeader from "@/components/layout/PageHeader";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
 
 const PAGE_SIZE = 20;
 
@@ -20,11 +27,10 @@ export default function AdminUsersPage() {
   const authLoading = status === "LOADING";
   const isAdmin = identity?.roles.includes("ADMIN");
 
-  const [page, setPage] =
-    useState<SpringPage<AdminUser> | null>(null);
+  const [page, setPage] = useState<SpringPage<AdminUser> | null>(null);
 
   const [roles, setRoles] = useState<string[]>([]);
-  const [tenants, setTenants] = useState<AdminTenant[]>([]);
+  const [tenants, setTenants] = useState<AdminTenantLookup[]>([]);
 
   const [pageIndex, setPageIndex] = useState(0);
 
@@ -32,17 +38,11 @@ export default function AdminUsersPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [emailFilter, setEmailFilter] = useState("");
 
-  // --- load tenants once ---
-
   useEffect(() => {
     if (status !== "AUTH" || !isAdmin) return;
 
-    fetchActiveTenants().then(res =>
-      setTenants(res.content)
-    );
+    fetchTenantsLookup().then((res) => setTenants(res ?? []));
   }, [status, isAdmin]);
-
-  // --- load users ---
 
   useEffect(() => {
     if (status !== "AUTH" || !isAdmin) return;
@@ -58,159 +58,171 @@ export default function AdminUsersPage() {
       fetchAdminRoles(),
     ]).then(([pageData, rolesData]) => {
       setPage(pageData);
-      setRoles(rolesData);
+      setRoles(rolesData ?? []);
     });
-  }, [
-    status,
-    isAdmin,
-    pageIndex,
-    tenantFilter,
-    statusFilter,
-    emailFilter,
-  ]);
+  }, [status, isAdmin, pageIndex, tenantFilter, statusFilter, emailFilter]);
 
-  // --- guards ---
+  if (authLoading)
+    return (
+      <PageContainer>
+        <p className="text-sm text-(--color-text-secondary)">Loading auth…</p>
+      </PageContainer>
+    );
 
-  if (authLoading) return <div>Loading auth…</div>;
-
-  if (status !== "AUTH") return <div>Please login.</div>;
+  if (status !== "AUTH")
+    return (
+      <PageContainer>
+        <p className="text-sm text-(--color-text-secondary)">Please login.</p>
+      </PageContainer>
+    );
 
   if (!isAdmin)
-    return <div className="text-red-600">Access denied</div>;
+    return (
+      <PageContainer>
+        <p className="text-sm text-(--color-error)">Access denied</p>
+      </PageContainer>
+    );
 
-  if (!page) return <div>Loading admin data…</div>;
-
-  // --- update helper ---
+  if (!page)
+    return (
+      <PageContainer>
+        <p className="text-sm text-(--color-text-secondary)">
+          Loading admin data…
+        </p>
+      </PageContainer>
+    );
 
   const updateUser = (updated: AdminUser) => {
-    setPage(prev =>
+    setPage((prev) =>
       prev
         ? {
             ...prev,
-            content: prev.content.map(u =>
-              u.id === updated.id ? updated : u
+            content: (prev.content ?? []).map((u) =>
+              u.id === updated.id ? updated : u,
             ),
           }
-        : prev
+        : prev,
     );
   };
-
-  // --- pagination helpers ---
 
   const canPrev = pageIndex > 0;
   const canNext = pageIndex < page.totalPages - 1;
 
-  // --- UI ---
-
   return (
-    <div className="space-y-6">
+    <PageContainer>
+      <PageHeader
+        title="Admin — Users"
+        description="Manage user accounts, roles, and account status."
+      />
 
-      <h1 className="text-xl font-bold">
-        Admin — Users
-      </h1>
+      <Card>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid gap-3 sm:grid-cols-3 w-full">
+            <Select
+              value={tenantFilter}
+              onChange={(e) => {
+                setPageIndex(0);
+                setTenantFilter(e.target.value);
+              }}
+            >
+              <option value="">All tenants</option>
+              {(tenants ?? []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
 
-      {/* Filters */}
+            <Select
+              value={statusFilter}
+              onChange={(e) => {
+                setPageIndex(0);
+                setStatusFilter(e.target.value);
+              }}
+            >
+              <option value="">All statuses</option>
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="LOCKED">LOCKED</option>
+              <option value="DISABLED">DISABLED</option>
+            </Select>
 
-      <div className="flex gap-4 flex-wrap">
-
-        {/* Tenant */}
-
-        <select
-          value={tenantFilter}
-          onChange={e => {
-            setPageIndex(0);
-            setTenantFilter(e.target.value);
-          }}
-          className="border p-2"
-        >
-          <option value="">All tenants</option>
-          {tenants.map(t => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-
-        {/* Status */}
-
-        <select
-          value={statusFilter}
-          onChange={e => {
-            setPageIndex(0);
-            setStatusFilter(e.target.value);
-          }}
-          className="border p-2"
-        >
-          <option value="">All statuses</option>
-          <option value="ACTIVE">ACTIVE</option>
-          <option value="LOCKED">LOCKED</option>
-          <option value="DISABLED">DISABLED</option>
-        </select>
-
-        {/* Email */}
-
-        <input
-          placeholder="Search email…"
-          value={emailFilter}
-          onChange={e => {
-            setPageIndex(0);
-            setEmailFilter(e.target.value);
-          }}
-          className="border p-2 flex-1 min-w-50"
-        />
-
-      </div>
-
-      {/* Table */}
-
-      <table className="w-full border">
-        <thead>
-          <tr>
-            <th>Email</th>
-            <th>Status</th>
-            <th>Roles</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {page.content.map(u => (
-            <AdminUserRow
-              key={u.id}
-              user={u}
-              allRoles={roles}
-              onUserUpdated={updateUser}
+            <Input
+              type="search"
+              placeholder="Search email…"
+              value={emailFilter}
+              onChange={(e) => {
+                setPageIndex(0);
+                setEmailFilter(e.target.value);
+              }}
             />
-          ))}
-        </tbody>
-      </table>
+          </div>
+        </div>
+      </Card>
 
-      {/* Pagination */}
+      <Card>
+        <div className="overflow-x-auto overflow-y-visible">
+          <div className="rounded-lg border border-(--color-border) bg-(--color-surface)">
+            <table className="min-w-full table-fixed">
+              <thead className="bg-(--color-table-header) text-(--color-text-secondary)">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
+                    Email
+                  </th>
 
-      <div className="flex items-center gap-4">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
+                    Status
+                  </th>
 
-        <button
-          disabled={!canPrev}
-          onClick={() => setPageIndex(p => p - 1)}
-          className="border px-3 py-1 disabled:opacity-40"
-        >
-          Prev
-        </button>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
+                    Roles
+                  </th>
 
-        <span>
-          Page {pageIndex + 1} / {page.totalPages}
-        </span>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
 
-        <button
-          disabled={!canNext}
-          onClick={() => setPageIndex(p => p + 1)}
-          className="border px-3 py-1 disabled:opacity-40"
-        >
-          Next
-        </button>
+              <tbody className="bg-(--color-table-row)">
+                {(page.content ?? []).map((u) => (
+                  <AdminUserRow
+                    key={u.id}
+                    user={u}
+                    allRoles={roles}
+                    onUserUpdated={updateUser}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-      </div>
+        <div className="mt-4 flex flex-col gap-3 text-sm text-(--color-text-secondary) sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Page {pageIndex + 1} / {Math.max(page.totalPages, 1)}
+          </span>
 
-    </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!canPrev}
+              onClick={() => setPageIndex((p) => p - 1)}
+            >
+              Prev
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!canNext}
+              onClick={() => setPageIndex((p) => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </PageContainer>
   );
 }

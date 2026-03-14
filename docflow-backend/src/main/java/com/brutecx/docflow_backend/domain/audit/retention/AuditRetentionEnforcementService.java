@@ -62,9 +62,11 @@ public class AuditRetentionEnforcementService {
     }
 
     public void enforceAllStreams() {
+
         Map<String, AuditRetentionPolicy> overrides = new HashMap<>();
 
         for (AuditRetentionPolicy p : policyRepository.findAll()) {
+
             if (p == null) continue;
 
             String s = p.getStreamName();
@@ -80,11 +82,16 @@ public class AuditRetentionEnforcementService {
         }
 
         try {
+
             for (String streamName : AuditRetentionStreamRegistry.STREAM_NAMES) {
+
                 AuditRetentionPolicy override = overrides.get(streamName);
+
                 enforceEffectivePolicy(streamName, override);
             }
+
         } finally {
+
             releaseLock();
         }
     }
@@ -94,12 +101,15 @@ public class AuditRetentionEnforcementService {
         if (streamName == null || streamName.isBlank()) return;
 
         String streamKey = streamName.trim().toUpperCase(Locale.ROOT);
+
         AuditRetentionStreamRegistry.StreamTable t =
                 AuditRetentionStreamRegistry.STREAMS.get(streamKey);
 
         if (t == null) {
+
             log.warn("audit_retention unknown_stream policy_stream={} normalized_stream={} - skipping",
                     streamName, streamKey);
+
             return;
         }
 
@@ -107,11 +117,11 @@ public class AuditRetentionEnforcementService {
                 AuditRetentionStreamRegistry.defaultFor(streamKey);
 
         int days = override != null ? override.getRetentionDays() : def.retentionDays();
-        boolean archiveEnabled = override != null ? override.isArchiveEnabled() : def.archiveEnabled();
 
-        if (days <= 0) return;
+        boolean archiveEnabled =
+                override != null ? override.isArchiveEnabled() : def.archiveEnabled();
 
-        if (!archiveEnabled) {
+        if (days <= 0 || !archiveEnabled) {
             return;
         }
 
@@ -120,9 +130,16 @@ public class AuditRetentionEnforcementService {
         long total = 0L;
 
         while (true) {
-            Integer updated = txTemplate.execute(status -> exportAndDeleteBatch(t, cutoff));
+
+            Integer updated = txTemplate.execute(status -> {
+
+                jdbcTemplate.execute("SET LOCAL docflow.retention_mode = 'on'");
+
+                return exportAndDeleteBatch(t, cutoff);
+            });
 
             int u = updated != null ? updated : 0;
+
             if (u <= 0) break;
 
             total += u;
@@ -131,7 +148,7 @@ public class AuditRetentionEnforcementService {
         }
 
         if (total > 0) {
-            // Clear chain checkpoints that now point to deleted rows
+
             txTemplate.executeWithoutResult(status ->
                     chainStateRepository.clearCheckpointsOlderThan(
                             t.streamName(),
@@ -139,8 +156,14 @@ public class AuditRetentionEnforcementService {
                             Instant.now()
                     )
             );
-            log.info("audit_retention export_and_delete stream={} table={} deleted_count={} cutoff={}",
-                    t.streamName(), t.tableName(), total, cutoff);
+
+            log.info(
+                    "audit_retention export_and_delete stream={} table={} deleted_count={} cutoff={}",
+                    t.streamName(),
+                    t.tableName(),
+                    total,
+                    cutoff
+            );
         }
     }
 
@@ -158,7 +181,8 @@ public class AuditRetentionEnforcementService {
 
         if (!safe) {
 
-            log.warn("audit_retention checkpoint_protection_blocked stream={} table={} cutoff={}",
+            log.warn(
+                    "audit_retention checkpoint_protection_blocked stream={} table={} cutoff={}",
                     t.streamName(),
                     t.tableName(),
                     cutoff
@@ -180,14 +204,14 @@ public class AuditRetentionEnforcementService {
                         " WHERE d." + t.idColumn() + " = v." + t.idColumn() + " " +
                         " RETURNING d.* " +
                         " ) " +
-                        "SELECT * FROM deleted " +
-                        "ORDER BY " + t.timestampColumn() + " ASC, " + t.idColumn() + " ASC";
+                        "SELECT * FROM deleted";
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                sql,
-                Timestamp.from(cutoff),
-                batchSize
-        );
+        List<Map<String, Object>> rows =
+                jdbcTemplate.queryForList(
+                        sql,
+                        Timestamp.from(cutoff),
+                        batchSize
+                );
 
         if (rows.isEmpty()) {
             return 0;
@@ -208,20 +232,27 @@ public class AuditRetentionEnforcementService {
         deletedRowsCounter(t.streamName()).increment(deleted);
         batchesCounter(t.streamName()).increment();
 
-        log.info("audit_retention export_and_delete stream={} cutoff={} deletedRowCount={} snapshotId={} digest={} keyId={}",
-                t.streamName(), cutoff, deleted,
-                result.snapshotId(), result.digestHex(), result.keyId());
+        log.info(
+                "audit_retention export_and_delete stream={} cutoff={} deletedRowCount={} snapshotId={} digest={} keyId={}",
+                t.streamName(),
+                cutoff,
+                deleted,
+                result.snapshotId(),
+                result.digestHex(),
+                result.keyId()
+        );
 
         return deleted;
     }
 
     private boolean tryAcquireLock() {
 
-        Boolean ok = jdbcTemplate.queryForObject(
-                "SELECT pg_try_advisory_lock(?)",
-                Boolean.class,
-                ADVISORY_LOCK_KEY
-        );
+        Boolean ok =
+                jdbcTemplate.queryForObject(
+                        "SELECT pg_try_advisory_lock(?)",
+                        Boolean.class,
+                        ADVISORY_LOCK_KEY
+                );
 
         return Boolean.TRUE.equals(ok);
     }

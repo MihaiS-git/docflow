@@ -9,6 +9,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -41,10 +42,6 @@ public class Tenant {
     @Column(name = "tenant_type", nullable = false, length = 32)
     private TenantType tenantType;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "parent_tenant_id")
-    private Tenant parentTenant;
-
     @NotNull
     @Column(name="created_at")
     private Instant createdAt;
@@ -59,39 +56,28 @@ public class Tenant {
     @Column(name = "retention_days")
     private Long retentionDays;
 
-    /**
-     * TRUE only for system bootstrap tenant.
-     */
     @Column(name = "bootstrap_enabled", nullable = false)
     private Boolean bootstrapEnabled;
 
-    /**
-     * Normal tenant creation (admin/UI).
-     * Bootstrap is ALWAYS disabled.
-     * Default type = DEPARTMENT.
-     */
+    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY)
+    private Set<UserTenantMembership> memberships;
+
     public Tenant(String name) {
-        this(name, TenantType.DEPARTMENT, null, false);
+        this(name, TenantType.ORGANIZATION, false);
     }
 
-    /**
-     * Explicit bootstrap tenant factory.
-     * Only TenantBootstrap is allowed to call this.
-     */
     public static Tenant bootstrapTenant(String name) {
-        return new Tenant(name, TenantType.ROOT, null, true);
+        return new Tenant(name, TenantType.ROOT, true);
     }
 
     private Tenant(
             String name,
             TenantType type,
-            Tenant parentTenant,
             boolean bootstrapEnabled
     ) {
         this.name = canonicalize(name);
         this.status = TenantStatus.ACTIVE;
-        this.tenantType = Objects.requireNonNull(type, "type");
-        this.parentTenant = parentTenant;
+        this.tenantType = Objects.requireNonNull(type);
         this.bootstrapEnabled = bootstrapEnabled;
     }
 
@@ -107,7 +93,7 @@ public class Tenant {
     }
 
     private static String canonicalize(String name) {
-        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(name);
         String normalized = name.trim().replaceAll("\\s+", " ");
         if (normalized.isBlank()) {
             throw new IllegalArgumentException("Tenant name is required");
@@ -144,8 +130,8 @@ public class Tenant {
     }
 
     public void suspend() {
-        if (status == TenantStatus.SUSPENDED) {
-            throw new TenantLifecycleViolationException("Tenant already suspended");
+        if (status != TenantStatus.ACTIVE) {
+            throw new TenantLifecycleViolationException("Only ACTIVE tenant can be suspended");
         }
         status = TenantStatus.SUSPENDED;
     }
@@ -157,10 +143,17 @@ public class Tenant {
         status = TenantStatus.ACTIVE;
     }
 
+    public void terminate() {
+        if (status == TenantStatus.TERMINATED) {
+            throw new TenantLifecycleViolationException("Tenant already terminated");
+        }
+        status = TenantStatus.TERMINATED;
+    }
+
     private void requireActive(String op) {
-        if (status == TenantStatus.SUSPENDED) {
+        if (status != TenantStatus.ACTIVE) {
             throw new TenantLifecycleViolationException(
-                    "Tenant suspended; operation denied: " + op
+                    "Tenant must be ACTIVE to perform operation: " + op
             );
         }
     }

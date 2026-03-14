@@ -1,5 +1,8 @@
 package com.brutecx.docflow_backend.domain.tenant;
 
+import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantFilter;
+import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO;
+import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO;
 import com.brutecx.docflow_backend.api.dto.tenant.TenantUserResponseDTO;
 import com.brutecx.docflow_backend.api.error.LastManagerViolationException;
 import com.brutecx.docflow_backend.api.error.SelfActionForbiddenException;
@@ -24,11 +27,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static net.logstash.logback.argument.StructuredArguments.entries;
 
@@ -81,7 +81,6 @@ public class TenantService {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
-        // Deterministic ordering: add id as tiebreaker
         Sort sortSpec = Sort.by(direction, mapSortField(sort))
                 .and(Sort.by(Sort.Direction.ASC, "id"));
 
@@ -117,11 +116,9 @@ public class TenantService {
 
     private static String mapSortField(String field) {
         return switch (field) {
-            // membership fields
             case "role" -> "role";
             case "status" -> "status";
             case "createdAt" -> "createdAt";
-            // nested user fields (supported by Spring Data sort with property traversal)
             case "email" -> "user.email";
             case "firstName" -> "user.firstName";
             case "lastName" -> "user.lastName";
@@ -166,13 +163,57 @@ public class TenantService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Tenant> listAll(Pageable pageable) {
-        return tenantRepository.findAll(pageable);
-    }
+    public Page<TenantListItemDTO> listAll(TenantFilter filter, Pageable pageable) {
 
-    @Transactional(readOnly = true)
-    public Page<Tenant> listActive(Pageable pageable) {
-        return tenantRepository.findByStatus(TenantStatus.ACTIVE, pageable);
+        Page<Tenant> page =
+                tenantRepository.findAll(
+                        TenantSpecification.fromFilter(filter),
+                        pageable
+                );
+
+        if (page.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        List<UUID> ids =
+                page.getContent()
+                        .stream()
+                        .map(Tenant::getId)
+                        .toList();
+
+        List<TenantListItemDTO> rows =
+                tenantRepository.fetchAdminRows(ids);
+
+        Map<UUID, Integer> order = new HashMap<>(ids.size());
+        for (int i = 0; i < ids.size(); i++) {
+            order.put(ids.get(i), i);
+        }
+
+        rows.sort((a, b) ->
+                Integer.compare(order.get(a.id()), order.get(b.id()))
+        );
+
+        Map<UUID, TenantListItemDTO> rowMap =
+                rows.stream()
+                        .collect(Collectors.toMap(
+                                TenantListItemDTO::id,
+                                r -> r,
+                                (a, b) -> a,
+                                () -> new HashMap<>(ids.size())
+                        ));
+
+        List<TenantListItemDTO> ordered =
+                page.getContent()
+                        .stream()
+                        .map(t -> rowMap.get(t.getId()))
+                        .filter(Objects::nonNull)
+                        .toList();
+
+        return new PageImpl<>(
+                ordered,
+                pageable,
+                page.getTotalElements()
+        );
     }
 
     @Transactional
@@ -202,7 +243,6 @@ public class TenantService {
 
             User actor = userService.getRequiredCurrentUser();
 
-            // Ensure creator becomes MANAGER of the new tenant (idempotent upsert)
             try {
                 tenantMembershipService.ensureMembership(actor.getId(), created.getId(), TenantRole.MANAGER);
             } catch (RuntimeException ex) {
@@ -318,16 +358,51 @@ public class TenantService {
                     "REACTIVATE_TENANT",
                     comment
             );
-
         } catch (TenantLifecycleViolationException ex) {
-
             recordTenantAdminAudit(
                     tenant,
                     AdminAuditActionType.TENANT_MUTATION_DENIED,
                     "REACTIVATE_TENANT",
                     ex.getMessage()
             );
+            throw ex;
+        }
+    }
 
+    @Transactional
+    public void terminateTenant(UUID tenantId, String comment) {
+        Objects.requireNonNull(tenantId, "tenantId");
+
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new IllegalStateException("Tenant not found: " + tenantId));
+
+        try {
+            tenant.terminate();
+            try {
+                tenantRepository.save(tenant);
+            } catch (RuntimeException ex) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_terminate_persist_failure",
+                        ex
+                );
+                throw ex;
+            }
+
+            recordTenantAdminAudit(
+                    tenant,
+                    AdminAuditActionType.TENANT_UPDATED,
+                    "TERMINATE_TENANT",
+                    comment
+            );
+        } catch (TenantLifecycleViolationException ex) {
+            recordTenantAdminAudit(
+                    tenant,
+                    AdminAuditActionType.TENANT_MUTATION_DENIED,
+                    "TERMINATE_TENANT",
+                    ex.getMessage()
+            );
             throw ex;
         }
     }
@@ -383,7 +458,6 @@ public class TenantService {
                 }
 
                 recordTenantAdminAudit(
-                        // audits remain tenant-specific here
                         tenant,
                         AdminAuditActionType.TENANT_UPDATED,
                         "UPDATE_TENANT",
@@ -447,10 +521,6 @@ public class TenantService {
 
         TenantRole oldRole = membership.getRole();
         MembershipStatus oldStatus = membership.getStatus();
-
-    /* =====================================================
-       ROLE CHANGE
-       ===================================================== */
 
         if (!newRole.equals(oldRole)) {
 
@@ -532,10 +602,6 @@ public class TenantService {
 
             oldRole = newRole;
         }
-
-    /* =====================================================
-       STATUS CHANGE
-       ===================================================== */
 
         if (!newStatus.equals(oldStatus)) {
 
@@ -719,11 +785,20 @@ public class TenantService {
                         MembershipStatus.ACTIVE
                 );
 
-        // hard safety cap
         if (tenants.size() > 50) {
             return tenants.subList(0, 50);
         }
 
         return tenants;
+    }
+
+    public List<TenantLookupDTO> listTenantLookup() {
+        return tenantRepository.findAll().stream()
+                .map(t -> new TenantLookupDTO(
+                        t.getId(),
+                        t.getName(),
+                        t.getStatus()
+                ))
+                .toList();
     }
 }

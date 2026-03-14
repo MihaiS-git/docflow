@@ -10,6 +10,7 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -32,6 +33,11 @@ import static net.logstash.logback.argument.StructuredArguments.kv;
 @Component
 @RequiredArgsConstructor
 public class KeycloakAdminClient {
+
+    public record RealmUserRoles(
+            boolean identityExists,
+            List<String> roles
+    ) {}
 
     private static final String SCHEMA = "docflow_siem_v1";
     private static final String EXEC_CTX = "ADMIN_API";
@@ -402,7 +408,7 @@ public class KeycloakAdminClient {
         }
     }
 
-    public Map<String, List<String>> fetchRealmRolesForUsers(List<String> userIds) {
+    public Map<String, RealmUserRoles> fetchRealmRolesForUsers(List<String> userIds) {
 
         final long startNs = System.nanoTime();
 
@@ -414,7 +420,7 @@ public class KeycloakAdminClient {
 
             String token = fetchAccessToken();
 
-            Map<String, List<String>> result = new HashMap<>();
+            Map<String, RealmUserRoles> result = new HashMap<>();
 
             for (String userId : userIds) {
 
@@ -436,7 +442,7 @@ public class KeycloakAdminClient {
                             .body(String.class);
 
                     if (body == null || body.isBlank()) {
-                        result.put(userId, List.of());
+                        result.put(userId, new RealmUserRoles(true, List.of()));
                         continue;
                     }
 
@@ -449,10 +455,21 @@ public class KeycloakAdminClient {
                                     .filter(Objects::nonNull)
                                     .toList();
 
-                    result.put(userId, roleNames);
+                    result.put(userId, new RealmUserRoles(true, roleNames));
+
+                } catch (HttpClientErrorException.NotFound ex) {
+
+                    log.warn(
+                            "Keycloak user missing while fetching roles: {}",
+                            userId
+                    );
+
+                    result.put(userId, new RealmUserRoles(false, List.of()));
 
                 } catch (Exception ex) {
+
                     metrics.incrementFailure(OP_FETCH_ROLES_FOR_USERS);
+
                     throw new RestClientException(
                             "Failed to fetch realm roles for user " + userId,
                             ex
@@ -464,7 +481,8 @@ public class KeycloakAdminClient {
             return result;
 
         } finally {
-            metrics.recordLatency(OP_FETCH_ROLES_FOR_USERS, Duration.ofNanos(System.nanoTime() - startNs));
+            metrics.recordLatency(OP_FETCH_ROLES_FOR_USERS,
+                    Duration.ofNanos(System.nanoTime() - startNs));
         }
     }
 

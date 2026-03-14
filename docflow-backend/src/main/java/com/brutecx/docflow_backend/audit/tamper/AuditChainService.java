@@ -236,7 +236,7 @@ public class AuditChainService {
                 stateRepository.insertIfAbsent(
                         prepared.stateKey(),
                         partition.stream(),
-                        partition.partitionValue(),
+                        extractTenantId(partition),
                         prepared.eventHash(),
                         prepared.checkpointHash(),
                         prepared.checkpointAt(),
@@ -246,9 +246,25 @@ public class AuditChainService {
                 );
 
         if (inserted != 1) {
-            throw new IllegalStateException(
-                    "Concurrent bootstrap detected for stateKey=" + prepared.stateKey()
-            );
+            // Another thread/node created the chain state first.
+            // Retry using the normal CAS update path.
+            int updated =
+                    stateRepository.compareAndSetHash(
+                            prepared.stateKey(),
+                            "-",
+                            prepared.eventHash(),
+                            prepared.eventsSinceCheckpoint(),
+                            prepared.eventCount(),
+                            prepared.checkpointHash(),
+                            prepared.checkpointAt(),
+                            now
+                    );
+
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "Audit chain bootstrap race unresolved for stateKey=" + prepared.stateKey()
+                );
+            }
         }
 
         writeAnchorSnapshot(
@@ -390,5 +406,19 @@ public class AuditChainService {
 
     private String nullSafe(String value) {
         return value == null ? "" : value;
+    }
+
+    private UUID extractTenantId(AuditPartition partition) {
+        if (!"TENANT".equals(partition.type())) {
+            return null;
+        }
+        try {
+            return UUID.fromString(partition.value());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalStateException(
+                    "Invalid tenant UUID in audit partition: " + partition.value(),
+                    ex
+            );
+        }
     }
 }
