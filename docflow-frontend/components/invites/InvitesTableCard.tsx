@@ -1,300 +1,378 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+
+import { apiFetch } from "@/lib/apiFetch";
+import { ApiError } from "@/lib/apiErrors";
+
+import type { AdminTenant } from "@/types/admin/Tenant";
+import {
+  InvitePage,
+  InviteRow,
+  InviteStatusFilter,
+} from "@/types/invites/types";
+
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
-import type { AdminTenant } from "@/types/admin/Tenant";
-import { InviteRow, InviteStatusFilter } from "@/types/invites/types";
+import Button from "@/components/ui/Button";
 
-type InvitesTableCardProps = {
+import TableToolbar from "@/components/ui/TableToolbar";
+import DataTable from "@/components/ui/DataTable";
+import DataTableFooter from "@/components/ui/DataTableFooter";
+import TableColumnWidths from "@/components/ui/TableColumnWidths";
+import SortableHeader from "@/components/ui/SortableHeader";
+
+import { useDebouncedPrefixFilter } from "@/hooks/useDebouncedPrefixFilter";
+
+const PAGE_SIZE = 20;
+
+type Props = {
   tenants: AdminTenant[];
-  selectedTenantId: string;
-  onSelectedTenantIdChange: (value: string) => void;
-
-  filterEmail: string;
-  onFilterEmailChange: (value: string) => void;
-
-  filterStatus: InviteStatusFilter;
-  onFilterStatusChange: (value: InviteStatusFilter) => void;
-
-  onFilterSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
-  onResetFilters: () => void;
-
-  onCleanupInvites: () => void;
-
-  invites: InviteRow[];
-  invitesLoading: boolean;
-  cleanupLoading: boolean;
-
-  revokeLoadingId: string | null;
-
-  tableSuccess: string | null;
-  invitesError: string | null;
-
-  invitePage: number;
-  inviteTotalPages: number;
-  inviteTotalElements: number;
-
-  onPreviousPage: () => void;
-  onNextPage: () => void;
-
-  onRevokeInvite: (inviteId: string) => void;
 };
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString();
 }
 
-export default function InvitesTableCard({
-  tenants,
-  selectedTenantId,
-  onSelectedTenantIdChange,
+export default function InvitesTableCard({ tenants }: Props) {
+  const [selectedTenantId, setSelectedTenantId] = useState("");
 
-  filterEmail,
-  onFilterEmailChange,
-  filterStatus,
-  onFilterStatusChange,
+  const [filterEmail, setFilterEmail] = useState("");
+  const [filterStatus, setFilterStatus] = useState<InviteStatusFilter>("");
 
-  onFilterSubmit,
-  onResetFilters,
-  onCleanupInvites,
+  const emailFilter = useDebouncedPrefixFilter(filterEmail);
 
-  invites,
-  invitesLoading,
-  cleanupLoading,
-  revokeLoadingId,
+  const [invites, setInvites] = useState<InviteRow[]>([]);
 
-  tableSuccess,
-  invitesError,
+  const [invitePage, setInvitePage] = useState(0);
+  const [inviteTotalPages, setInviteTotalPages] = useState(0);
+  const [inviteTotalElements, setInviteTotalElements] = useState(0);
 
-  invitePage,
-  inviteTotalPages,
-  inviteTotalElements,
+  const [invitesLoading, setInvitesLoading] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
 
-  onPreviousPage,
-  onNextPage,
-  onRevokeInvite,
-}: InvitesTableCardProps) {
-  return (
-    <Card>
-      <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-(--color-text-primary)">
-            Existing invites
-          </h2>
+  const [tableSuccess, setTableSuccess] = useState<string | null>(null);
+  const [invitesError, setInvitesError] = useState<string | null>(null);
 
-          <p className="mt-1 text-sm text-(--color-text-secondary)">
-            Search invites by email or status, revoke active invites, and run
-            cleanup for expired invites.
-          </p>
+  const [sort, setSort] = useState("createdAt");
+  const [direction, setDirection] = useState<"ASC" | "DESC">("DESC");
+
+  useEffect(() => {
+    if (!selectedTenantId) return;
+
+    void loadInvites();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selectedTenantId,
+    invitePage,
+    emailFilter.debounced,
+    filterStatus,
+    sort,
+    direction,
+  ]);
+
+  async function loadInvites() {
+    if (emailFilter.shouldBlock()) {
+      setInvites([]);
+      setInviteTotalPages(0);
+      setInviteTotalElements(0);
+      return;
+    }
+
+    setInvitesLoading(true);
+    setInvitesError(null);
+
+    try {
+      const query = new URLSearchParams({
+        page: String(invitePage),
+        size: String(PAGE_SIZE),
+        sort,
+        direction,
+      });
+
+      if (emailFilter.debounced) query.set("email", emailFilter.debounced);
+      if (filterStatus) query.set("status", filterStatus);
+
+      const res = await apiFetch<InvitePage>(
+        `/api/tenants/${selectedTenantId}/invites?${query.toString()}`,
+      );
+
+      setInvites(res.content);
+      setInviteTotalPages(res.totalPages);
+      setInviteTotalElements(res.totalElements);
+
+      emailFilter.registerResult(res.totalElements);
+    } catch (err) {
+      if (err instanceof ApiError) setInvitesError(err.message);
+      else setInvitesError("Failed to load invites.");
+    } finally {
+      setInvitesLoading(false);
+    }
+  }
+
+  function handleSort(field: string) {
+    setSort((prev) => {
+      if (prev === field) {
+        setDirection((d) => (d === "ASC" ? "DESC" : "ASC"));
+        return prev;
+      }
+
+      setDirection("ASC");
+      return field;
+    });
+
+    setInvitePage(0);
+  }
+
+  async function onCleanupInvites() {
+    if (!selectedTenantId) return;
+
+    setCleanupLoading(true);
+    setTableSuccess(null);
+
+    try {
+      const result = await apiFetch<{
+        deletedInvites: number;
+        deletedUsers: number;
+      }>(`/api/tenants/${selectedTenantId}/invites/cleanup`, {
+        method: "POST",
+      });
+
+      setTableSuccess(
+        `Cleanup completed. Deleted ${result.deletedInvites} expired invites and ${result.deletedUsers} orphaned users.`,
+      );
+
+      await loadInvites();
+    } catch (err) {
+      if (err instanceof ApiError) setInvitesError(err.message);
+      else setInvitesError("Cleanup failed.");
+    } finally {
+      setCleanupLoading(false);
+    }
+  }
+
+  async function onRevokeInvite(inviteId: string) {
+    setRevokeLoadingId(inviteId);
+
+    try {
+      await apiFetch<void>(
+        `/api/tenants/${selectedTenantId}/invites/${inviteId}/revoke`,
+        { method: "POST" },
+      );
+
+      setTableSuccess("Invite revoked successfully.");
+
+      await loadInvites();
+    } catch (err) {
+      if (err instanceof ApiError) setInvitesError(err.message);
+      else setInvitesError("Failed to revoke invite.");
+    } finally {
+      setRevokeLoadingId(null);
+    }
+  }
+
+  function onResetFilters() {
+    setFilterEmail("");
+    setFilterStatus("");
+    setInvitePage(0);
+    emailFilter.reset();
+  }
+
+  const columnWidths = useMemo(
+    () => (
+      <TableColumnWidths widths={["26%", "20%", "12%", "12%", "18%", "12%"]} />
+    ),
+    [],
+  );
+
+  const rows = invites.map((invite) => (
+    <tr key={invite.id} className="border-b border-(--color-border)">
+      <td className="px-4 py-2 text-sm">
+        <div>{invite.email}</div>
+        <div className="text-xs text-(--color-text-muted)">
+          Created {formatDateTime(invite.createdAt)}
         </div>
+      </td>
 
-        <button
-          type="button"
-          onClick={onCleanupInvites}
-          disabled={cleanupLoading || !selectedTenantId}
-          className="rounded-md bg-(--color-surface-alt) px-4 py-2 text-(--color-text-primary) hover:opacity-90 disabled:opacity-50"
-        >
-          {cleanupLoading ? "Cleaning…" : "Cleanup Expired Invites"}
-        </button>
-      </div>
+      <td className="px-4 py-2 text-sm">
+        {invite.firstName} {invite.lastName}
+      </td>
 
-      <div className="mb-4">
-        <Select
-          value={selectedTenantId}
-          onChange={(e) => onSelectedTenantIdChange(e.target.value)}
-        >
-          <option value="">Select a tenant</option>
+      <td className="px-4 py-2 text-sm">{invite.tenantRole}</td>
 
-          {tenants?.map((tenant) => (
-            <option key={tenant.id} value={tenant.id}>
-              {tenant.name}
-            </option>
-          ))}
-        </Select>
-      </div>
+      <td className="px-4 py-2 text-sm">{invite.status}</td>
 
-      <form
-        onSubmit={onFilterSubmit}
-        className="mb-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem] lg:grid-cols-[minmax(0,1fr)_12rem_auto_auto]"
-      >
-        <Input
-          type="search"
-          placeholder="Search by email"
-          value={filterEmail}
-          onChange={(e) => onFilterEmailChange(e.target.value)}
-          disabled={!selectedTenantId}
-        />
+      <td className="px-4 py-2 text-sm">{formatDateTime(invite.expiresAt)}</td>
 
-        <Select
-          value={filterStatus}
-          onChange={(e) =>
-            onFilterStatusChange(e.target.value as InviteStatusFilter)
+      <td className="px-4 py-2 text-right">
+        <Button
+          size="sm"
+          variant="danger"
+          onClick={() => onRevokeInvite(invite.id)}
+          disabled={
+            revokeLoadingId === invite.id || invite.status !== "PENDING"
           }
-          disabled={!selectedTenantId}
         >
-          <option value="">All statuses</option>
-          <option value="PENDING">Pending</option>
-          <option value="ACCEPTED">Accepted</option>
-        </Select>
+          {revokeLoadingId === invite.id ? "Revoking…" : "Revoke"}
+        </Button>
+      </td>
+    </tr>
+  ));
 
-        <button
-          type="submit"
-          disabled={!selectedTenantId}
-          className="rounded-md bg-(--color-primary) px-4 py-2 text-(--color-text-inverse) hover:opacity-90 disabled:opacity-50"
+  const filters = (
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="w-56">
+        <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
+          <span>Tenant</span>
+
+          <Select
+            value={selectedTenantId}
+            size={6}
+            className="max-h-40 overflow-y-auto"
+            onChange={(e) => {
+              setSelectedTenantId(e.target.value);
+              setInvitePage(0);
+            }}
+          >
+            <option value="">Select tenant</option>
+
+            {tenants.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+      </div>
+
+      <div className="w-56">
+        <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
+          <span>Status</span>
+          <Select
+            value={filterStatus}
+            onChange={(e) =>
+              setFilterStatus(e.target.value as InviteStatusFilter)
+            }
+          >
+            <option value="">All statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="ACCEPTED">Accepted</option>
+          </Select>
+        </label>
+      </div>
+
+      <Input
+        label="Email"
+        type="search"
+        placeholder="Search by email"
+        value={filterEmail}
+        onChange={(e) => {
+          setFilterEmail(e.target.value);
+          setInvitePage(0);
+        }}
+        className="w-56"
+      />
+
+      <Button type="button" variant="ghost" onClick={onResetFilters}>
+        Reset
+      </Button>
+    </div>
+  );
+
+  const actions = (
+    <Button
+      onClick={onCleanupInvites}
+      disabled={!selectedTenantId}
+      variant="secondary"
+    >
+      {cleanupLoading ? "Cleaning…" : "Cleanup Expired Invites"}
+    </Button>
+  );
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card title="Filters">
+        <TableToolbar filters={filters} actions={actions} />
+      </Card>
+
+      <Card title="Existing invites">
+        <DataTable
+          loading={invitesLoading && invites.length === 0}
+          empty={!invitesLoading && invites.length === 0}
+          emptyMessage="No invites found"
+          footer={
+            <DataTableFooter
+              page={invitePage}
+              pageSize={PAGE_SIZE}
+              totalPages={inviteTotalPages}
+              totalElements={inviteTotalElements}
+              onPageChange={(p) => setInvitePage(p)}
+            />
+          }
         >
-          Search
-        </button>
+          {columnWidths}
 
-        <button
-          type="button"
-          onClick={onResetFilters}
-          disabled={!selectedTenantId}
-          className="rounded-md bg-(--color-surface-alt) px-4 py-2 text-(--color-text-primary) hover:opacity-90 disabled:opacity-50"
-        >
-          Reset
-        </button>
-      </form>
-
-      {tableSuccess && (
-        <p className="mb-4 text-sm text-(--color-success)">{tableSuccess}</p>
-      )}
-
-      {invitesError && (
-        <p className="mb-4 text-sm text-(--color-error)">{invitesError}</p>
-      )}
-
-      {!selectedTenantId && (
-        <p className="mb-4 text-sm text-(--color-text-secondary)">
-          Select a tenant first.
-        </p>
-      )}
-
-      <div className="overflow-x-auto rounded-lg border border-(--color-border) bg-(--color-surface)">
-        <table className="min-w-full">
-          <thead className="bg-(--color-surface-alt) text-(--color-text-secondary)">
+          <thead className="sticky top-0 bg-(--color-table-header)">
             <tr>
-              <th className="px-4 py-2 text-left text-xs uppercase">Email</th>
-              <th className="px-4 py-2 text-left text-xs uppercase">Name</th>
-              <th className="px-4 py-2 text-left text-xs uppercase">Role</th>
-              <th className="px-4 py-2 text-left text-xs uppercase">Status</th>
-              <th className="px-4 py-2 text-left text-xs uppercase">Expires</th>
-              <th className="px-4 py-2 text-left text-xs uppercase">Actions</th>
+              <SortableHeader
+                label="Email"
+                field="email"
+                activeSort={sort}
+                direction={direction}
+                onSortChange={handleSort}
+              />
+
+              <SortableHeader
+                label="Name"
+                field="firstName"
+                activeSort={sort}
+                direction={direction}
+                onSortChange={handleSort}
+              />
+
+              <SortableHeader
+                label="Role"
+                field="tenantRole"
+                activeSort={sort}
+                direction={direction}
+                onSortChange={handleSort}
+              />
+
+              <SortableHeader
+                label="Status"
+                field="status"
+                activeSort={sort}
+                direction={direction}
+                onSortChange={handleSort}
+              />
+
+              <SortableHeader
+                label="Expires"
+                field="expiresAt"
+                activeSort={sort}
+                direction={direction}
+                onSortChange={handleSort}
+              />
+
+              <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide">
+                Actions
+              </th>
             </tr>
           </thead>
 
-          <tbody>
-            {invitesLoading ? (
-              <tr className="border-b border-(--color-border)">
-                <td
-                  colSpan={6}
-                  className="px-4 py-6 text-sm text-(--color-text-secondary)"
-                >
-                  Loading invites…
-                </td>
-              </tr>
-            ) : invites.length === 0 ? (
-              <tr className="border-b border-(--color-border)">
-                <td
-                  colSpan={6}
-                  className="px-4 py-6 text-sm text-(--color-text-secondary)"
-                >
-                  No invites found.
-                </td>
-              </tr>
-            ) : (
-              invites.map((invite) => (
-                <tr
-                  key={invite.id}
-                  className="border-b border-(--color-border) hover:bg-(--color-surface-alt)"
-                >
-                  <td className="px-4 py-2 text-sm text-(--color-text-primary)">
-                    <div>{invite.email}</div>
-                    <div className="text-xs text-(--color-text-muted)">
-                      Created {formatDateTime(invite.createdAt)}
-                    </div>
-                  </td>
+          <tbody>{rows}</tbody>
+        </DataTable>
 
-                  <td className="px-4 py-2 text-sm text-(--color-text-primary)">
-                    <div>
-                      {invite.firstName} {invite.lastName}
-                    </div>
+        {tableSuccess && (
+          <p className="mt-4 text-sm text-(--color-success)">{tableSuccess}</p>
+        )}
 
-                    {(invite.jobTitle || invite.department) && (
-                      <div className="text-xs text-(--color-text-muted)">
-                        {[invite.jobTitle, invite.department]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </div>
-                    )}
-                  </td>
-
-                  <td className="px-4 py-2 text-sm text-(--color-text-primary)">
-                    {invite.tenantRole}
-                  </td>
-
-                  <td className="px-4 py-2 text-sm text-(--color-text-primary)">
-                    {invite.status}
-                  </td>
-
-                  <td className="px-4 py-2 text-sm text-(--color-text-primary)">
-                    {formatDateTime(invite.expiresAt)}
-                  </td>
-
-                  <td className="px-4 py-2 text-sm">
-                    <button
-                      type="button"
-                      onClick={() => onRevokeInvite(invite.id)}
-                      disabled={
-                        revokeLoadingId === invite.id ||
-                        invite.status !== "PENDING"
-                      }
-                      className="rounded-md bg-(--color-error) px-3 py-1.5 text-(--color-text-inverse) hover:opacity-90 disabled:opacity-50"
-                    >
-                      {revokeLoadingId === invite.id ? "Revoking…" : "Revoke"}
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-4 flex flex-col gap-3 text-sm text-(--color-text-secondary) sm:flex-row sm:items-center sm:justify-between">
-        <span>
-          {inviteTotalElements > 0
-            ? `Page ${invitePage + 1} of ${Math.max(
-                inviteTotalPages,
-                1
-              )} · ${inviteTotalElements} invite(s)`
-            : "0 invites"}
-        </span>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onPreviousPage}
-            disabled={invitePage === 0 || invitesLoading}
-            className="rounded-md bg-(--color-surface-alt) px-3 py-1.5 text-(--color-text-primary) hover:opacity-90 disabled:opacity-50"
-          >
-            Previous
-          </button>
-
-          <button
-            type="button"
-            onClick={onNextPage}
-            disabled={
-              invitesLoading ||
-              inviteTotalPages === 0 ||
-              invitePage >= inviteTotalPages - 1
-            }
-            className="rounded-md bg-(--color-surface-alt) px-3 py-1.5 text-(--color-text-primary) hover:opacity-90 disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
-      </div>
-    </Card>
+        {invitesError && (
+          <p className="mt-4 text-sm text-(--color-error)">{invitesError}</p>
+        )}
+      </Card>
+    </div>
   );
 }

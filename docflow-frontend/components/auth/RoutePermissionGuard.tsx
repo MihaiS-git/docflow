@@ -1,29 +1,31 @@
 "use client";
 
-import { useAuth } from "@/lib/auth/useAuth";
+import { useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+
 import { getRequiredRole } from "@/lib/auth/routePermissions";
+import { useAuthSelector } from "@/hooks/useAuthSelector";
 
 export default function RoutePermissionGuard({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { status, identity } = useAuth();
+  const status = useAuthSelector((s) => s.status);
+  const identity = useAuthSelector((s) => s.identity);
+
   const pathname = usePathname();
   const router = useRouter();
 
-  const requiredRole = getRequiredRole(pathname);
+  const requiredRole = useMemo(() => getRequiredRole(pathname), [pathname]);
 
-  const hasRole =
-    !requiredRole || identity?.roles?.includes(requiredRole);
+  const hasRole = !requiredRole || identity?.roles?.includes(requiredRole);
 
   useEffect(() => {
-    if (status !== "LOADING" && !hasRole && requiredRole) {
+    if (status !== "LOADING" && requiredRole && !hasRole) {
       router.replace(`/access-denied?role=${requiredRole}`);
     }
-  }, [status, hasRole, requiredRole, router]);
+  }, [status, requiredRole, hasRole, router]);
 
   if (status === "LOADING") {
     return (
@@ -33,7 +35,9 @@ export default function RoutePermissionGuard({
     );
   }
 
-  if (!hasRole && requiredRole) return null;
+  if (requiredRole && !hasRole) {
+    return null;
+  }
 
   return <>{children}</>;
 }

@@ -1,13 +1,8 @@
 import { apiFetch } from "@/lib/apiFetch";
 import type {
   AdminTenant,
-  AdminTenantLookup,
   Page,
 } from "@/types/admin/Tenant";
-
-export function fetchTenantsLookup() {
-  return apiFetch<AdminTenantLookup[]>(`/api/admin/tenants/lookup`);
-}
 
 export function fetchAllTenants(
   page = 0,

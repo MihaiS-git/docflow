@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { memo } from "react";
 
 type Props = {
   label: string;
@@ -10,7 +11,7 @@ type Props = {
   onSortChange: (field: string) => void;
 };
 
-export default function SortableHeader({
+function SortableHeaderComponent({
   label,
   field,
   activeSort,
@@ -22,11 +23,10 @@ export default function SortableHeader({
   return (
     <th
       onClick={() => onSortChange(field)}
-      className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide cursor-pointer select-none"
+      className="cursor-pointer select-none px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
     >
       <span className="flex items-center gap-1">
         {label}
-
         {active &&
           (direction === "ASC" ? (
             <ChevronUp size={14} />
@@ -37,3 +37,5 @@ export default function SortableHeader({
     </th>
   );
 }
+
+export default memo(SortableHeaderComponent);

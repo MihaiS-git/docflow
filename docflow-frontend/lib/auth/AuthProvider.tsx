@@ -8,15 +8,18 @@ import {
 } from "@/lib/auth/auth";
 import { setAuthErrorHandler } from "@/lib/auth/authEvents";
 import { ForbiddenError } from "@/lib/apiErrors";
+
 import { AuthStatus } from "@/types/auth/AuthStatus";
 import { AuthUser } from "@/types/auth/AuthUser";
 import { LocalUser } from "@/types/auth/LocalUser";
+
 import {
   createContext,
   useCallback,
   useEffect,
   useMemo,
   useReducer,
+  useRef,
 } from "react";
 
 type State = {
@@ -27,11 +30,11 @@ type State = {
 };
 
 type Action =
-  | { type: "BOOTSTRAP_START" }
+  | { type: "LOADING" }
   | { type: "BOOTSTRAP_READY"; identity: AuthUser }
   | { type: "AUTH_OK"; identity: AuthUser; localUser: LocalUser }
-  | { type: "ANON" }
-  | { type: "BLOCKED"; blockedCode: string };
+  | { type: "BLOCKED"; blockedCode: string }
+  | { type: "ANON" };
 
 const initialState: State = {
   status: "ANON",
@@ -42,7 +45,8 @@ const initialState: State = {
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case "BOOTSTRAP_START":
+    case "LOADING":
+      if (state.status === "LOADING") return state;
       return { ...state, status: "LOADING" };
 
     case "BOOTSTRAP_READY":
@@ -70,38 +74,48 @@ function reducer(state: State, action: Action): State {
       };
 
     case "ANON":
-      return { ...initialState, status: "ANON" };
+      return initialState;
 
     default:
       return state;
   }
 }
 
-type AuthContextValue = {
-  status: AuthStatus;
-  isAuthenticated: boolean;
-  identity: AuthUser | null;
-  localUser: LocalUser | null;
-  blockedCode: string | null;
+const SESSION_FLAG = "docflow:auth:hasSession";
+const LOGIN_INTENT_FLAG = "docflow:auth:loginIntent";
+
+type AuthStateContextValue = State;
+
+type AuthActionsContextValue = {
   login: () => void;
   logout: () => void;
   refresh: () => Promise<void>;
   clearBlocked: () => void;
 };
 
-export const AuthContext = createContext<AuthContextValue | null>(null);
+export const AuthStateContext =
+  createContext<AuthStateContextValue | null>(null);
 
-const SESSION_FLAG = "docflow:auth:hasSession";
-const LOGIN_INTENT_FLAG = "docflow:auth:loginIntent";
+export const AuthActionsContext =
+  createContext<AuthActionsContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const toAnon = useCallback(() => {
     try {
       sessionStorage.removeItem(SESSION_FLAG);
       sessionStorage.removeItem(LOGIN_INTENT_FLAG);
     } catch {}
+
     dispatch({ type: "ANON" });
   }, []);
 
@@ -110,23 +124,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem(SESSION_FLAG);
       sessionStorage.removeItem(LOGIN_INTENT_FLAG);
     } catch {}
+
     dispatch({ type: "BLOCKED", blockedCode });
   }, []);
 
-  useEffect(() => {
-    setAuthErrorHandler((event) => {
-      if (event.type === "401") {
-        toAnon();
-      } else {
-        toBlocked(event.errorCode);
-      }
-    });
-    return () => setAuthErrorHandler(null);
-  }, [toAnon, toBlocked]);
-
   const refresh = useCallback(async () => {
-    dispatch({ type: "BOOTSTRAP_START" });
-
     try {
       const identity = await fetchIdentity();
 
@@ -142,32 +144,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw e;
       }
 
-      // ✅ 204 → undefined → BOOTSTRAP
+      if (!mountedRef.current) return;
+
       if (!localUser) {
         dispatch({ type: "BOOTSTRAP_READY", identity });
         return;
       }
 
-      sessionStorage.setItem(SESSION_FLAG, "1");
-      sessionStorage.removeItem(LOGIN_INTENT_FLAG);
+      try {
+        sessionStorage.setItem(SESSION_FLAG, "1");
+        sessionStorage.removeItem(LOGIN_INTENT_FLAG);
+      } catch {}
 
-      dispatch({ type: "AUTH_OK", identity, localUser });
+      dispatch({
+        type: "AUTH_OK",
+        identity,
+        localUser,
+      });
     } catch (e) {
-      if (e instanceof ForbiddenError) {
-        return;
-      }
+      if (e instanceof ForbiddenError) return;
       toAnon();
     }
   }, [toAnon, toBlocked]);
 
   useEffect(() => {
+    dispatch({ type: "LOADING" });
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    setAuthErrorHandler((event) => {
+      if (event.type === "401") {
+        toAnon();
+      } else {
+        toBlocked(event.errorCode);
+      }
+    });
+
+    return () => setAuthErrorHandler(null);
+  }, [toAnon, toBlocked]);
 
   const login = useCallback(() => {
     try {
       sessionStorage.setItem(LOGIN_INTENT_FLAG, "1");
     } catch {}
+
     startLogin();
   }, []);
 
@@ -180,20 +201,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "ANON" });
   }, []);
 
-  const value = useMemo<AuthContextValue>(
+  const actions = useMemo<AuthActionsContextValue>(
     () => ({
-      status: state.status,
-      isAuthenticated: state.status === "AUTH",
-      identity: state.identity,
-      localUser: state.localUser,
-      blockedCode: state.blockedCode,
       login,
       logout,
       refresh,
       clearBlocked,
     }),
-    [state, login, logout, refresh, clearBlocked],
+    [login, logout, refresh, clearBlocked]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthStateContext.Provider value={state}>
+      <AuthActionsContext.Provider value={actions}>
+        {children}
+      </AuthActionsContext.Provider>
+    </AuthStateContext.Provider>
+  );
 }

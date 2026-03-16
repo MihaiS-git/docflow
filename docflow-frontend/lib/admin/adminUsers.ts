@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/apiFetch";
 import type { AdminUser } from "@/types/admin/AdminUser";
-import { SpringPage } from "@/types/api/SpringPage";
+import type { SpringPage } from "@/types/api/SpringPage";
 
 export function activateUser(userId: string) {
   return apiFetch<void>(`/api/admin/users/${userId}/activate`, {
@@ -34,30 +34,29 @@ export function revokeRole(userId: string, roleName: string) {
   );
 }
 
-type FetchUsersParams = {
-  page?: number;
-  size?: number;
+type FetchUsersFilters = {
+  tenantId?: string;
   status?: string;
   email?: string;
-  tenantId?: string;
 };
 
 export function fetchAdminUsers(
-  params: FetchUsersParams = {},
+  page = 0,
+  size = 20,
+  sort = "email",
+  direction: "ASC" | "DESC" = "ASC",
+  filters?: FetchUsersFilters,
 ): Promise<SpringPage<AdminUser>> {
-  const qs = new URLSearchParams();
+  const params = new URLSearchParams();
 
-  if (params.page !== undefined) qs.set("page", String(params.page));
+  params.append("page", String(page));
+  params.append("size", String(size));
+  params.append("sort", sort);
+  params.append("direction", direction);
 
-  if (params.size !== undefined) qs.set("size", String(params.size));
+  if (filters?.tenantId) params.append("tenantId", filters.tenantId);
+  if (filters?.status) params.append("status", filters.status);
+  if (filters?.email) params.append("email", filters.email);
 
-  if (params.tenantId) qs.set("tenantId", params.tenantId);
-
-  if (params.status) qs.set("status", params.status);
-
-  if (params.email) qs.set("email", params.email);
-
-  const url = qs.toString() ? `/api/admin/users?${qs}` : `/api/admin/users`;
-
-  return apiFetch(url);
+  return apiFetch(`/api/admin/users?${params.toString()}`);
 }

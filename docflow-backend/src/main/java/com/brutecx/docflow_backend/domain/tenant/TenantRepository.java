@@ -61,4 +61,6 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID>, JpaSpecif
                 t.updatedAt
             """)
     List<TenantListItemDTO> fetchAdminRows(@Param("ids") List<UUID> ids);
+
+    List<Tenant> findByStatus(TenantStatus tenantStatus);
 }

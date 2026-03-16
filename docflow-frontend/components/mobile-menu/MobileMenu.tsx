@@ -1,7 +1,8 @@
 "use client";
 
-import { AuthUser } from "@/types/auth/AuthUser";
+import { memo } from "react";
 import Link from "next/link";
+import { AuthUser } from "@/types/auth/AuthUser";
 
 type MenuProps = {
   open: boolean;
@@ -12,7 +13,7 @@ type MenuProps = {
   onNavigate: () => void;
 };
 
-export default function MobileMenu({
+function MobileMenuComponent({
   open,
   identity,
   isAuthenticated,
@@ -22,9 +23,14 @@ export default function MobileMenu({
 }: MenuProps) {
   if (!open) return null;
 
+  const roles = identity?.roles ?? [];
+
+  const isAdmin = roles.includes("ADMIN");
+  const isAuditor = roles.includes("AUDITOR");
+
   return (
     <div className="sm:hidden border-t border-(--color-border) bg-(--color-surface) px-2 pb-3 pt-2 space-y-1">
-      {identity?.roles.includes("ADMIN") && (
+      {isAdmin && (
         <>
           <Link
             href="/console/users"
@@ -52,7 +58,7 @@ export default function MobileMenu({
         </>
       )}
 
-      {identity?.roles.includes("AUDITOR") && (
+      {isAuditor && (
         <Link
           href="/console/audit"
           onClick={onNavigate}
@@ -88,3 +94,5 @@ export default function MobileMenu({
     </div>
   );
 }
+
+export default memo(MobileMenuComponent);

@@ -4,7 +4,9 @@ import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantFilter;
 import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO;
 import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO;
 import com.brutecx.docflow_backend.api.dto.tenant.TenantUserResponseDTO;
+import com.brutecx.docflow_backend.api.error.ErrorCode;
 import com.brutecx.docflow_backend.api.error.LastManagerViolationException;
+import com.brutecx.docflow_backend.api.error.LifecycleAccessDeniedException;
 import com.brutecx.docflow_backend.api.error.SelfActionForbiddenException;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
@@ -67,6 +69,11 @@ public class TenantService {
             Sort.Direction direction
     ) {
         Objects.requireNonNull(tenantId, "tenantId");
+
+        TenantStatus tenantStatus = getRequiredTenantStatus(tenantId);
+        if (tenantStatus != TenantStatus.ACTIVE) {
+            throw new IllegalStateException("Tenant is not active: " + tenantId);
+        }
 
         if (sort == null || sort.isBlank()) {
             sort = "createdAt";
@@ -775,30 +782,26 @@ public class TenantService {
     }
 
     @Transactional(readOnly = true)
-    public List<Tenant> listManagedTenantsForCurrentUser() {
+    public List<TenantLookupDTO> listManagedTenantsForCurrentUser() {
         User actor = userService.getRequiredCurrentUser();
 
-        List<Tenant> tenants =
-                membershipRepository.findTenantsByUserRole(
-                        actor.getId(),
-                        TenantRole.MANAGER,
-                        MembershipStatus.ACTIVE
-                );
-
-        if (tenants.size() > 50) {
-            return tenants.subList(0, 50);
-        }
-
-        return tenants;
+        return membershipRepository.findActiveManagedTenantLookup(
+                actor.getId(),
+                TenantRole.MANAGER,
+                MembershipStatus.ACTIVE,
+                TenantStatus.ACTIVE
+        );
     }
 
-    public List<TenantLookupDTO> listTenantLookup() {
-        return tenantRepository.findAll().stream()
-                .map(t -> new TenantLookupDTO(
-                        t.getId(),
-                        t.getName(),
-                        t.getStatus()
-                ))
-                .toList();
+    @Transactional(readOnly = true)
+    public void requireActiveTenant(UUID tenantId) {
+        TenantStatus status = getRequiredTenantStatus(tenantId);
+
+        if (status != TenantStatus.ACTIVE) {
+            throw new LifecycleAccessDeniedException(
+                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                    "Tenant is not active: " + tenantId
+            );
+        }
     }
 }

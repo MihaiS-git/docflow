@@ -57,7 +57,6 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
             );
         } else {
             errorCode = ErrorCode.FORBIDDEN;
-
             auditExecutor.rbac(
                     subjectId,
                     httpMethod,

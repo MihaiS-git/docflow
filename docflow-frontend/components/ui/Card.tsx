@@ -14,6 +14,7 @@ export default function Card({ children, title, className = "" }: Props) {
         border border-(--color-border)
         rounded-lg
         p-4
+        w-full
         ${className}
       `}
     >

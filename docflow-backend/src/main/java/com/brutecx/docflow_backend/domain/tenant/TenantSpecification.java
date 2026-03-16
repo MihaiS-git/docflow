@@ -49,7 +49,7 @@ public class TenantSpecification {
             if (filter.createdAfter() != null) {
                 predicates.add(
                         cb.greaterThanOrEqualTo(
-                                root.<Instant>get("createdAt"),
+                                root.get("createdAt"),
                                 filter.createdAfter()
                                         .atStartOfDay()
                                         .toInstant(ZoneOffset.UTC)
@@ -60,7 +60,7 @@ public class TenantSpecification {
             if (filter.createdBefore() != null) {
                 predicates.add(
                         cb.lessThan(
-                                root.<Instant>get("createdAt"),
+                                root.get("createdAt"),
                                 filter.createdBefore()
                                         .plusDays(1)
                                         .atStartOfDay()

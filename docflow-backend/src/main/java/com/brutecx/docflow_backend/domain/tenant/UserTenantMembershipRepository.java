@@ -1,5 +1,6 @@
 package com.brutecx.docflow_backend.domain.tenant;
 
+import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -59,34 +60,25 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
     );
 
     @Query("""
-    select distinct m.tenant
+    select new com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO(
+        t.id,
+        t.name,
+        t.status
+    )
     from UserTenantMembership m
+    join m.tenant t
     where m.user.id = :userId
       and m.role = :role
-      and m.status = :status
-    order by m.tenant.createdAt desc
+      and m.status = :membershipStatus
+      and t.status = :tenantStatus
+    order by t.name asc
 """)
-    List<Tenant> findTenantsByUserRole(
+    List<TenantLookupDTO> findActiveManagedTenantLookup(
             @Param("userId") UUID userId,
             @Param("role") TenantRole role,
-            @Param("status") MembershipStatus status
+            @Param("membershipStatus") MembershipStatus membershipStatus,
+            @Param("tenantStatus") TenantStatus tenantStatus
     );
-
 
     boolean existsByUserIdAndTenantId(UUID id, UUID id1);
-
-    long countByTenantIdAndStatus(
-            UUID tenantId,
-            MembershipStatus status
-    );
-
-    @Query("""
-        select u.firstName, u.lastName, u.email
-        from UserTenantMembership m
-        join m.user u
-        where m.tenant.id = :tenantId
-          and m.role = com.brutecx.docflow_backend.domain.tenant.TenantRole.MANAGER
-          and m.status = com.brutecx.docflow_backend.domain.tenant.MembershipStatus.ACTIVE
-        """)
-    List<Object[]> findActiveManagers(UUID tenantId);
 }

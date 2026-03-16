@@ -138,6 +138,10 @@ html {
   scrollbar-gutter: stable;
 }
 
-html {
-  scrollbar-gutter: stable;
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
 }

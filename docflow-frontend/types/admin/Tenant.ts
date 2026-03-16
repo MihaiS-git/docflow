@@ -22,12 +22,6 @@ export interface AdminTenant {
   updatedAt: string
 }
 
-export interface AdminTenantLookup {
-  id: string
-  name: string
-  status: TenantStatus
-}
-
 export interface Page<T> {
   content: T[];
   totalElements: number;

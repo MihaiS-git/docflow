@@ -1,18 +1,20 @@
-import { InputHTMLAttributes, ReactNode } from "react";
+"use client";
+
+import { InputHTMLAttributes, ReactNode, memo } from "react";
 
 type Props = InputHTMLAttributes<HTMLInputElement> & {
   label?: ReactNode;
 };
 
-export default function Input({ label, className = "", ...props }: Props) {
+function InputComponent({ label, className = "", ...props }: Props) {
   const input = (
     <input
       className={`
         w-full
-        p-2
         rounded
         border border-(--color-border)
         bg-(--color-surface)
+        p-2
         text-(--color-text-primary)
         focus:outline-none
         focus:ring-2
@@ -32,3 +34,5 @@ export default function Input({ label, className = "", ...props }: Props) {
     </label>
   );
 }
+
+export default memo(InputComponent);

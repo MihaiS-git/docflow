@@ -1,8 +1,6 @@
 package com.brutecx.docflow_backend.application.invite;
 
-import com.brutecx.docflow_backend.api.error.DuplicateInviteException;
-import com.brutecx.docflow_backend.api.error.InviteNotFoundException;
-import com.brutecx.docflow_backend.api.error.UserAlreadyTenantMemberException;
+import com.brutecx.docflow_backend.api.error.*;
 import com.brutecx.docflow_backend.application.mail.IMailService;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
@@ -15,10 +13,7 @@ import com.brutecx.docflow_backend.audit.onboarding.OnboardingAuditService;
 import com.brutecx.docflow_backend.domain.invite.Invite;
 import com.brutecx.docflow_backend.domain.invite.InviteRepository;
 import com.brutecx.docflow_backend.domain.invite.InviteStatus;
-import com.brutecx.docflow_backend.domain.tenant.Tenant;
-import com.brutecx.docflow_backend.domain.tenant.TenantRole;
-import com.brutecx.docflow_backend.domain.tenant.TenantService;
-import com.brutecx.docflow_backend.domain.tenant.UserTenantMembershipRepository;
+import com.brutecx.docflow_backend.domain.tenant.*;
 import com.brutecx.docflow_backend.domain.user.IUserProvisioningService;
 import com.brutecx.docflow_backend.domain.user.User;
 import com.brutecx.docflow_backend.domain.user.UserService;
@@ -82,6 +77,7 @@ public class InviteApplicationService {
             );
         }
 
+        tenantService.requireActiveTenant(targetTenantId);
         Tenant tenant = tenantService.getRequired(targetTenantId);
         String normalizedEmail = email.toLowerCase(Locale.ROOT);
         var actor = userService.getRequiredCurrentUser();
@@ -334,6 +330,8 @@ public class InviteApplicationService {
         Objects.requireNonNull(inviteId, "inviteId");
         Objects.requireNonNull(tenantId, "tenantId");
 
+        tenantService.requireActiveTenant(tenantId);
+
         Invite invite = inviteRepository.findById(inviteId)
                 .orElseThrow(() ->
                         new InviteNotFoundException("Invite not found")
@@ -502,4 +500,5 @@ public class InviteApplicationService {
             }
         }
     }
+
 }

@@ -1,22 +1,32 @@
 "use client";
 
-import { useAuth } from "@/lib/auth/useAuth";
 import Link from "next/link";
 import { useState } from "react";
+
 import ThemeToggleButton from "../theme/ThemeToggleButton";
-import MainMenu from "../main-menu/MainMenu";
 import MobileMenuButton from "./MobileMenuButton";
 import MobileMenu from "../mobile-menu/MobileMenu";
 
+import { useAuthSelector } from "@/hooks/useAuthSelector";
+import { useAuth } from "@/lib/auth/useAuth";
+import MainMenu from "../main-menu/MainMenu";
+
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { status, isAuthenticated, identity, login, logout } = useAuth();
+
+  const status = useAuthSelector((s) => s.status);
+  const identity = useAuthSelector((s) => s.identity);
+
+  const { login, logout } = useAuth();
+
+  const isAuthenticated = status === "AUTH";
 
   return (
-    <nav className="relative bg-(--color-surface)] border-b border-(--color-border)">
+    <nav className="relative bg-(--color-surface) border-b border-(--color-border)">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {status === "LOADING" && <div>Loading…</div>}
+
           <Link href="/">
             <h1 className="font-semibold text-(--color-text-primary)">
               DocFlow

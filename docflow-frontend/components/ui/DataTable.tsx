@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { memo, ReactNode, useEffect, useRef, useState } from "react";
 import TableSkeleton from "@/components/ui/TableSkeleton";
 
 type Props = {
@@ -12,7 +12,7 @@ type Props = {
   className?: string;
 };
 
-export default function DataTable({
+function DataTableComponent({
   children,
   loading = false,
   empty = false,
@@ -20,10 +20,12 @@ export default function DataTable({
   footer,
   className = "",
 }: Props) {
+  console.count("DataTable renders");
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [showLeft, setShowLeft] = useState(false);
-  const [showRight, setShowRight] = useState(true);
+  const [showRight, setShowRight] = useState(false);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -36,12 +38,18 @@ export default function DataTable({
   }
 
   useEffect(() => {
-    handleScroll();
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const { scrollWidth, clientWidth } = el;
+    setShowRight(scrollWidth > clientWidth);
   }, []);
 
   return (
     <>
-      <div className={`relative rounded-lg border border-(--color-border) bg-(--color-surface) ${className}`}>
+      <div
+        className={`relative rounded-lg border border-(--color-border) bg-(--color-surface) ${className}`}
+      >
         {showLeft && (
           <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-linear-to-r from-(--color-surface) to-transparent" />
         )}
@@ -50,14 +58,18 @@ export default function DataTable({
           <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-linear-to-l from-(--color-surface) to-transparent" />
         )}
 
-        <div ref={scrollRef} onScroll={handleScroll} className="overflow-x-auto">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="overflow-x-auto"
+        >
           <table className="min-w-225 w-full table-fixed">
             {children}
 
-            {loading && <TableSkeleton />}
-
-            {!loading && empty && (
-              <tbody>
+            <tbody>
+              {loading ? (
+                <TableSkeleton />
+              ) : empty ? (
                 <tr>
                   <td
                     colSpan={999}
@@ -66,8 +78,8 @@ export default function DataTable({
                     {emptyMessage}
                   </td>
                 </tr>
-              </tbody>
-            )}
+              ) : null}
+            </tbody>
           </table>
         </div>
       </div>
@@ -80,3 +92,5 @@ export default function DataTable({
     </>
   );
 }
+
+export default memo(DataTableComponent);

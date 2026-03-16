@@ -7,7 +7,7 @@ type Props = {
 
 export default function TableSkeleton({ rows = 6, columns = 8 }: Props) {
   return (
-    <tbody>
+    <>
       {Array.from({ length: rows }).map((_, r) => (
         <tr key={r} className="animate-pulse">
           {Array.from({ length: columns }).map((_, c) => (
@@ -17,6 +17,6 @@ export default function TableSkeleton({ rows = 6, columns = 8 }: Props) {
           ))}
         </tr>
       ))}
-    </tbody>
+    </>
   );
 }

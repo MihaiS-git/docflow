@@ -2,7 +2,6 @@ package com.brutecx.docflow_backend.api.controller.admin.tenant;
 
 import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantFilter;
 import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO;
-import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO;
 import com.brutecx.docflow_backend.domain.tenant.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -10,9 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -34,11 +31,6 @@ public class AdminTenantController {
     );
 
     private final TenantService tenantService;
-
-    @GetMapping("/lookup")
-    public ResponseEntity<List<TenantLookupDTO>> lookupTenants() {
-        return ResponseEntity.ok(tenantService.listTenantLookup());
-    }
 
     @GetMapping
     public ResponseEntity<Page<TenantListItemDTO>> listAll(

@@ -1,8 +1,10 @@
 "use client";
 
-import { AuthContext } from "@/lib/auth/AuthProvider";
 import { usePathname, useRouter } from "next/navigation";
-import { useContext, useMemo } from "react";
+import { useEffect } from "react";
+
+import { useAuthSelector } from "@/hooks/useAuthSelector";
+import { useAuth } from "@/lib/auth/useAuth";
 
 function mapBlocked(code: string): { title: string; message: string } {
   switch (code) {
@@ -36,32 +38,23 @@ export default function AuthLifecycleGuard({
   children: React.ReactNode;
 }) {
   const path = usePathname();
-
-  const rawCtx = useContext(AuthContext);
   const router = useRouter();
 
-  const ctx = useMemo(
-    () =>
-      rawCtx ?? {
-        status: "ANON" as const,
-        identity: null,
-        localUser: null,
-        blockedCode: null,
-        login: () => {},
-        logout: () => {},
-        refresh: async () => {},
-        clearBlocked: () => {},
-        isAuthenticated: false,
-      },
-    [rawCtx],
-  );
+  const status = useAuthSelector((s) => s.status);
+  const blockedCode = useAuthSelector((s) => s.blockedCode);
 
-  const blocked = useMemo(() => {
-    if (ctx.status !== "BLOCKED" || !ctx.blockedCode) return null;
-    return mapBlocked(ctx.blockedCode);
-  }, [ctx]);
+  const { clearBlocked } = useAuth();
 
-  if (ctx.status === "LOADING") {
+  const blocked =
+    status === "BLOCKED" && blockedCode ? mapBlocked(blockedCode) : null;
+
+  useEffect(() => {
+    if (status === "BOOTSTRAP" && path !== "/bootstrap/activate") {
+      router.replace("/bootstrap/activate");
+    }
+  }, [status, path, router]);
+
+  if (status === "LOADING") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
         Loading session…
@@ -69,15 +62,10 @@ export default function AuthLifecycleGuard({
     );
   }
 
-  if (ctx.status === "BOOTSTRAP") {
-    if (typeof window !== "undefined") {
-      if (path !== "/bootstrap/activate") {
-        router.replace("/bootstrap/activate");
-        return null;
-      }
+  if (status === "BOOTSTRAP") {
+    if (path !== "/bootstrap/activate") {
+      return null;
     }
-
-    // already on /bootstrap/activate → allow rendering
     return <>{children}</>;
   }
 
@@ -86,11 +74,12 @@ export default function AuthLifecycleGuard({
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
         <div className="max-w-md text-center space-y-4">
           <h1 className="text-2xl font-bold">{blocked.title}</h1>
+
           <p className="opacity-80">{blocked.message}</p>
 
           <button
-            className="mt-6 px-4 py-2 bg-red-600 hover:bg-red-700 rounded"
-            onClick={() => ctx.clearBlocked()}
+            className="mt-6 rounded bg-red-600 px-4 py-2 hover:bg-red-700"
+            onClick={clearBlocked}
           >
             Go to login
           </button>

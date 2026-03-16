@@ -1,16 +1,22 @@
 "use client";
 
-import { AuthUser } from "@/types/auth/AuthUser";
+import { memo } from "react";
 import Link from "next/link";
+import { AuthUser } from "@/types/auth/AuthUser";
 
 type MenuProps = {
   identity: AuthUser | null;
 };
 
-export default function MainMenu({ identity }: MenuProps) {
+function MainMenuComponent({ identity }: MenuProps) {
+  const roles = identity?.roles ?? [];
+
+  const isAdmin = roles.includes("ADMIN");
+  const isAuditor = roles.includes("AUDITOR");
+
   return (
     <div className="hidden sm:flex space-x-4">
-      {identity?.roles.includes("ADMIN") && (
+      {isAdmin && (
         <>
           <Link
             href="/console/users"
@@ -18,12 +24,14 @@ export default function MainMenu({ identity }: MenuProps) {
           >
             Users
           </Link>
+
           <Link
             href="/console/invites"
             className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
           >
             Invites
           </Link>
+
           <Link
             href="/console/tenants"
             className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
@@ -33,7 +41,7 @@ export default function MainMenu({ identity }: MenuProps) {
         </>
       )}
 
-      {identity?.roles.includes("AUDITOR") && (
+      {isAuditor && (
         <Link
           href="/console/audit"
           className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
@@ -44,3 +52,5 @@ export default function MainMenu({ identity }: MenuProps) {
     </div>
   );
 }
+
+export default memo(MainMenuComponent);
