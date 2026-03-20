@@ -1,9 +1,23 @@
 "use client";
 
+import PageContainer from "@/components/layout/PageContainer";
+import PageHeader from "@/components/layout/PageHeader";
+
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { ApiError } from "@/lib/apiErrors";
 import { toast } from "sonner";
+
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "@/components/ui/table";
+import Button from "@/components/ui/Button";
 
 type AuditRetentionPolicyDTO = {
   streamName: string;
@@ -77,33 +91,43 @@ export default function RetentionPolicyPage() {
   );
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-lg font-semibold">Retention Policies</h1>
+    <PageContainer>
+      <PageHeader
+        title="Audit — Retention Policies"
+        description="Define retention and archiving rules for each audit stream."
+      />
 
-      {loading && (
-        <div className="text-sm text-gray-600">Loading policies...</div>
-      )}
+      <section className="rounded-md border border-(--color-border) bg-(--color-surface) p-4">
+        {loading && (
+          <div className="text-sm text-(--color-text-muted)">
+            Loading policies…
+          </div>
+        )}
 
-      {error && <div className="text-sm text-red-600">{error}</div>}
+        {error && (
+          <div className="text-sm text-(--color-error)">{error}</div>
+        )}
 
-      <div className="overflow-auto border rounded">
-        <table className="min-w-full text-xs table-fixed">
-          <thead>
-            <tr>
-              <th className="p-2 border-b text-left">Stream</th>
-              <th className="p-2 border-b text-left">Retention Days</th>
-              <th className="p-2 border-b text-left">Archive</th>
-              <th className="p-2 border-b text-left">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {policies.map((p) => (
-              <RetentionRow key={p.streamName} policy={p} onSave={upsert} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+        <TableContainer>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Stream</TableHeaderCell>
+                <TableHeaderCell>Retention Days</TableHeaderCell>
+                <TableHeaderCell>Archive</TableHeaderCell>
+                <TableHeaderCell>Action</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+
+            <TableBody>
+              {policies.map((p) => (
+                <RetentionRow key={p.streamName} policy={p} onSave={upsert} />
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </section>
+    </PageContainer>
   );
 }
 
@@ -125,34 +149,38 @@ const RetentionRow = memo(function RetentionRow({
   const [saving, setSaving] = useState(false);
 
   return (
-    <tr>
-      <td className="p-2 font-mono">{policy.streamName}</td>
+    <TableRow className="hover:bg-(--color-table-row-hover)">
+      <TableCell className="font-mono">{policy.streamName}</TableCell>
 
-      <td className="p-2">
+      <TableCell>
         <input
           type="number"
           min={1}
           step={1}
           defaultValue={policy.retentionDays ?? ""}
           ref={retentionRef}
-          className="border rounded px-2 py-1 w-24"
+          className="w-24 rounded border border-(--color-border) bg-(--color-surface) px-2 py-1 text-(--color-text-primary)"
         />
         {localError && (
-          <div className="text-xs text-red-600 mt-1">{localError}</div>
+          <div className="mt-1 text-xs text-(--color-error)">
+            {localError}
+          </div>
         )}
-      </td>
+      </TableCell>
 
-      <td className="p-2">
+      <TableCell>
         <input
           type="checkbox"
           defaultChecked={policy.archiveEnabled}
           disabled={saving}
           ref={archiveRef}
         />
-      </td>
+      </TableCell>
 
-      <td className="p-2">
-        <button
+      <TableCell>
+        <Button
+          size="sm"
+          variant="primary"
           disabled={saving || !!localError}
           onClick={async () => {
             const value = retentionRef.current?.value ?? "";
@@ -178,11 +206,10 @@ const RetentionRow = memo(function RetentionRow({
               setSaving(false);
             }
           }}
-          className="w-20 px-3 py-1 rounded bg-black text-white text-xs disabled:opacity-50"
         >
-          {saving ? "..." : "Save"}
-        </button>
-      </td>
-    </tr>
+          {saving ? "…" : "Save"}
+        </Button>
+      </TableCell>
+    </TableRow>
   );
 });

@@ -3,8 +3,12 @@ import { AuthUser } from "@/types/auth/AuthUser";
 import { LocalUser } from "@/types/auth/LocalUser";
 
 // Identity projection (Keycloak claims + roles)
-export async function fetchIdentity(): Promise<AuthUser> {
-  return apiFetch<AuthUser>("/api/auth/me");
+export async function fetchIdentity(): Promise<AuthUser | null> {
+  const res = await apiFetch<AuthUser | undefined>("/api/auth/me", {
+    allow401: true,
+  });
+
+  return res ?? null;
 }
 
 // IMPORTANT:

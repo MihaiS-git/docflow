@@ -62,6 +62,8 @@ public class AdminAuditQueryService extends AbstractAuditStreamQueryService {
             UUID cursorId,
             int size
     ) {
+        String normalizedCorrelationId = correlationId != null ? correlationId.trim() : null;
+
         CursorQueryResult<AdminAuditDTO> result = executeCursorQuery(
                 from,
                 to,
@@ -74,7 +76,9 @@ public class AdminAuditQueryService extends AbstractAuditStreamQueryService {
                         Specification.allOf(
                                 from != null ? AdminAuditSpecifications.timestampFrom(from) : null,
                                 to != null ? AdminAuditSpecifications.timestampTo(to) : null,
-                                hasText(correlationId) ? AdminAuditSpecifications.hasCorrelationId(correlationId) : null,
+                                hasText(normalizedCorrelationId)
+                                        ? AdminAuditSpecifications.hasCorrelationId(normalizedCorrelationId)
+                                        : null,
                                 actorUserId != null ? AdminAuditSpecifications.hasActorUserId(actorUserId) : null,
                                 tenantId != null ? AdminAuditSpecifications.hasTenantId(tenantId) : null,
                                 cursorTimestamp != null

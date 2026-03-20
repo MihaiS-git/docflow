@@ -35,7 +35,5 @@ export const identityProjectionStream: AuditStreamDefinition<
     textColumn("reason", r => r.reasonCode),
 
     pivotColumn("correlationId", "correlationId", r => r.correlationId, "font-mono"),
-
-    textColumn("fingerprint", r => r.eventFingerprint, "font-mono"),
   ],
 };

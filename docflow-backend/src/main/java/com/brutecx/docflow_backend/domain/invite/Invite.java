@@ -13,6 +13,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.UUID;
 
+import static com.brutecx.docflow_backend.infrastructure.security.HashUtils.sha256Hex;
+
 @Entity
 @Table(
         name = "invites",
@@ -32,8 +34,8 @@ public class Invite {
     @UuidGenerator
     private UUID id;
 
-    @Column(nullable = false, unique = true, length = 64)
-    private String token;
+    @Column(name = "hashed_token", updatable = false, nullable = false, unique = true, length = 64)
+    private String hashedToken;
 
     @Column(nullable = false)
     private String email;
@@ -59,7 +61,7 @@ public class Invite {
     @Column(nullable = false)
     private InviteStatus status;
 
-    @Column(name = "tenant_id", updatable = false)
+    @Column(name = "tenant_id", updatable = false, nullable = false)
     private UUID tenantId;
 
     @Enumerated(EnumType.STRING)
@@ -73,7 +75,7 @@ public class Invite {
     @Column(nullable = false, updatable = false, name = "created_at")
     private Instant createdAt;
 
-    public static Invite create(
+    public static CreatedInvite create(
             String email,
             String firstName,
             String lastName,
@@ -95,10 +97,10 @@ public class Invite {
         invite.jobTitle = jobTitle;
         invite.department = department;
 
-        invite.token = TokenGenerator.generate();
+        String rawToken = TokenGenerator.generate();
+        invite.hashedToken = sha256Hex(rawToken);
         invite.expiresAt = Instant.now().plus(7, ChronoUnit.DAYS);
         invite.status = InviteStatus.PENDING;
-        invite.createdAt = Instant.now();
 
         invite.tenantId = tenantId;
 
@@ -108,7 +110,7 @@ public class Invite {
                     : TenantRole.MEMBER;
         }
 
-        return invite;
+        return new CreatedInvite(invite, rawToken);
     }
 
     public boolean isExpired() {

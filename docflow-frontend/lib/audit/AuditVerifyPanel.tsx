@@ -1,5 +1,6 @@
 "use client";
 
+import Button from "@/components/ui/Button";
 import { AuditVerificationResultDTO } from "../api/AuditVerificationResultDTO";
 
 type Props = {
@@ -19,14 +20,13 @@ export function AuditVerifyPanel({
 }: Props) {
   return (
     <div className="space-y-3">
-      <button
-        type="button"
+      <Button
+        variant="outline"
         onClick={onVerify}
         disabled={verifying}
-        className="px-3 py-1 rounded border disabled:opacity-50"
       >
         {verifying ? "Verifying…" : "Verify"}
-      </button>
+      </Button>
 
       {result && (
         <div className="border rounded p-3 space-y-1 text-sm">

@@ -43,7 +43,5 @@ export const rbacDeniedStream: AuditStreamDefinition<
       (r) => r.correlationId,
       "font-mono",
     ),
-
-    textColumn("fingerprint", (r) => r.eventFingerprint, "font-mono"),
   ],
 };

@@ -2,6 +2,7 @@ package com.brutecx.docflow_backend.api.controller.audit;
 
 import com.brutecx.docflow_backend.api.dto.audit.AdminAuditCursorPageDTO;
 import com.brutecx.docflow_backend.api.dto.audit.AuditVerificationResultDTO;
+import com.brutecx.docflow_backend.api.validation.ValidCorrelationId;
 import com.brutecx.docflow_backend.domain.audit.AdminAuditQueryService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class AdminAuditController {
             Instant to,
 
             @RequestParam(required = false)
+            @ValidCorrelationId
             String correlationId,
 
             @RequestParam(required = false)

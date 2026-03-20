@@ -1,5 +1,7 @@
 "use client";
 
+import Button from "@/components/ui/Button";
+
 type Props = {
   onExportJsonl: () => void;
   onExportCsv: () => void;
@@ -13,23 +15,21 @@ export function AuditExportButtons({
 }: Props) {
   return (
     <div className="flex gap-2 flex-wrap">
-      <button
-        type="button"
+      <Button
+        variant="outline"
         onClick={onExportJsonl}
         disabled={loading !== null}
-        className="px-3 py-1 rounded border disabled:opacity-50"
       >
         {loading === "jsonl" ? "Exporting…" : "Export JSONL"}
-      </button>
+      </Button>
 
-      <button
-        type="button"
+      <Button
+        variant="outline"
         onClick={onExportCsv}
         disabled={loading !== null}
-        className="px-3 py-1 rounded border disabled:opacity-50"
       >
         {loading === "csv" ? "Exporting…" : "Export CSV"}
-      </button>
+      </Button>
     </div>
   );
 }

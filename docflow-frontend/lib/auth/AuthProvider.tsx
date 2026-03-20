@@ -93,11 +93,13 @@ type AuthActionsContextValue = {
   clearBlocked: () => void;
 };
 
-export const AuthStateContext =
-  createContext<AuthStateContextValue | null>(null);
+export const AuthStateContext = createContext<AuthStateContextValue | null>(
+  null,
+);
 
-export const AuthActionsContext =
-  createContext<AuthActionsContextValue | null>(null);
+export const AuthActionsContext = createContext<AuthActionsContextValue | null>(
+  null,
+);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -131,6 +133,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const identity = await fetchIdentity();
+
+      if (!identity) {
+        toAnon();
+        return;
+      }
 
       let localUser: LocalUser | undefined;
 
@@ -208,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refresh,
       clearBlocked,
     }),
-    [login, logout, refresh, clearBlocked]
+    [login, logout, refresh, clearBlocked],
   );
 
   return (

@@ -2,12 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+
+import Button from "@/components/ui/Button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "@/components/ui/table";
 import { apiFetch } from "@/lib/apiFetch";
 
 type AuditSigningKeyPublicDTO = {
   keyId: string;
   fingerprintSha256Hex: string;
-  createdAt: string; // ISO
+  createdAt: string;
 };
 
 function formatTs(iso: string): string {
@@ -25,14 +36,15 @@ export default function AuditKeysClient() {
 
   async function refresh() {
     setLoading(true);
+
     try {
       const data = await apiFetch<AuditSigningKeyPublicDTO[]>(
-        "/api/security/audit-keys"
+        "/api/security/audit-keys",
       );
       setKeys(data);
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Failed to load audit signing keys"
+        e instanceof Error ? e.message : "Failed to load audit signing keys",
       );
     } finally {
       setLoading(false);
@@ -44,77 +56,82 @@ export default function AuditKeysClient() {
   }, []);
 
   function handleDownload(keyId: string) {
-    // Let browser handle Content-Disposition
     window.location.href = `/api/security/audit-keys/${encodeURIComponent(
-      keyId
+      keyId,
     )}/public`;
   }
 
   return (
-    <div className="p-4 space-y-6">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
+    <section className="rounded-md border border-(--color-border) bg-(--color-surface) p-4">
+      <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold">
+          <h2 className="text-sm font-semibold text-(--color-text-primary)">
             Audit Export Public Signing Keys
-          </h1>
-          <p className="text-sm text-gray-600">
-            These public keys are required to verify exported audit JSONL
-            files. Match <span className="font-mono">keyId</span> and{" "}
+          </h2>
+          <p className="mt-1 text-xs text-(--color-text-muted)">
+            These public keys are required to verify exported audit JSONL files.
+            Match <span className="font-mono">keyId</span> and{" "}
             <span className="font-mono">publicKeyFingerprint</span> from the
             export metadata with the list below.
           </p>
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={refresh}
           disabled={loading}
-          className="px-3 py-1 rounded border disabled:opacity-50"
         >
           {loading ? "Refreshing…" : "Refresh"}
-        </button>
+        </Button>
       </div>
 
-      <div className="border rounded overflow-auto">
-        <table className="min-w-full text-xs">
-          <thead>
-            <tr>
-              <th className="p-2 border-b text-left">keyId</th>
-              <th className="p-2 border-b text-left">createdAt</th>
-              <th className="p-2 border-b text-left">fingerprint (SHA-256)</th>
-              <th className="p-2 border-b text-left">download</th>
-            </tr>
-          </thead>
-          <tbody>
+      <TableContainer>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>keyId</TableHeaderCell>
+              <TableHeaderCell>createdAt</TableHeaderCell>
+              <TableHeaderCell>fingerprint (SHA-256)</TableHeaderCell>
+              <TableHeaderCell>download</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
             {keys.length === 0 && (
-              <tr>
-                <td className="p-2 text-gray-600" colSpan={4}>
+              <TableRow>
+                <TableCell colSpan={4} className="text-(--color-text-muted)">
                   {loading ? "Loading…" : "No signing keys found."}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )}
 
             {keys.map((k) => (
-              <tr key={k.keyId}>
-                <td className="p-2 font-mono">{k.keyId}</td>
-                <td className="p-2">{formatTs(k.createdAt)}</td>
-                <td className="p-2 font-mono break-all">
+              <TableRow
+                key={k.keyId}
+                className="hover:bg-(--color-table-row-hover)"
+              >
+                <TableCell className="font-mono">{k.keyId}</TableCell>
+                <TableCell>{formatTs(k.createdAt)}</TableCell>
+                <TableCell className="break-all font-mono">
                   {k.fingerprintSha256Hex}
-                </td>
-                <td className="p-2">
-                  <button
+                </TableCell>
+                <TableCell>
+                  <Button
                     type="button"
-                    className="px-3 py-1 rounded border"
+                    variant="outline"
+                    size="sm"
                     onClick={() => handleDownload(k.keyId)}
                   >
                     Download PEM
-                  </button>
-                </td>
-              </tr>
+                  </Button>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </section>
   );
 }

@@ -1,0 +1,158 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP Requests Rate",
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[1m]))",
+          "legendFormat": "req/s"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Error Rate (5xx)",
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[1m]))",
+          "legendFormat": "5xx"
+        }
+      ],
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Latency (p95)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "JVM Memory Used",
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes)",
+          "legendFormat": "used"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "JVM Threads",
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads",
+          "legendFormat": "threads"
+        }
+      ],
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Connections",
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active",
+          "legendFormat": "active"
+        }
+      ],
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "Audit Write Success Rate",
+      "targets": [
+        {
+          "expr": "sum(rate(docflow_audit_write_success_total[1m]))",
+          "legendFormat": "success/s"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 16, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Audit Write Failures Rate",
+      "targets": [
+        {
+          "expr": "sum(rate(docflow_audit_write_failures_total[1m]))",
+          "legendFormat": "failures/s"
+        }
+      ],
+      "gridPos": { "x": 8, "y": 16, "w": 8, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Audit Dedup Rate",
+      "targets": [
+        {
+          "expr": "sum(rate(docflow_audit_write_dedup_total[1m]))",
+          "legendFormat": "dedup/s"
+        }
+      ],
+      "gridPos": { "x": 16, "y": 16, "w": 8, "h": 8 }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "Audit Failure Ratio",
+      "targets": [
+        {
+          "expr": "sum(rate(docflow_audit_write_failures_total[1m])) / sum(rate(docflow_audit_write_success_total[1m]))",
+          "legendFormat": "failure ratio"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Audit Latency (p95)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(docflow_audit_write_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "Audit Failures by Reason",
+      "targets": [
+        {
+          "expr": "sum(rate(docflow_audit_write_failures_total[1m])) by (reason)",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Audit Throughput by Stream",
+      "targets": [
+        {
+          "expr": "sum(rate(docflow_audit_write_success_total[1m])) by (stream)",
+          "legendFormat": "{{stream}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 }
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["docflow"],
+  "title": "DocFlow Backend Overview",
+  "version": 2
+}

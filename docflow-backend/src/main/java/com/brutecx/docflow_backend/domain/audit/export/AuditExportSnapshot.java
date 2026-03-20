@@ -14,7 +14,7 @@ import java.util.UUID;
         indexes = {
                 @Index(name = "idx_audit_export_snapshot_stream", columnList = "stream"),
                 @Index(name = "idx_audit_export_snapshot_tenant", columnList = "tenantId"),
-                @Index(name = "idx_audit_export_snapshot_created_at", columnList = "createdAt"),
+                @Index(name = "idx_audit_export_snapshot_timestamp", columnList = "timestamp"),
                 @Index(name = "idx_audit_export_snapshot_created_by", columnList = "createdBy")
         }
 )
@@ -44,8 +44,8 @@ public class AuditExportSnapshot {
     @Column(nullable = false, updatable = false, name="row_count")
     private long rowCount;
 
-    @Column(nullable = false, updatable = false, name="created_at")
-    private Instant createdAt;
+    @Column(nullable = false, updatable = false)
+    private Instant timestamp;
 
     @Column(nullable = false, updatable = false, name="created_by")
     private UUID createdBy;
@@ -66,7 +66,7 @@ public class AuditExportSnapshot {
             UUID tenantId,
             String sha256DigestHex,
             long rowCount,
-            Instant createdAt,
+            Instant timestamp,
             UUID createdBy,
             String signatureB64,
             String signatureAlg,
@@ -78,7 +78,7 @@ public class AuditExportSnapshot {
         this.tenantId = tenantId;
         this.sha256DigestHex = sha256DigestHex;
         this.rowCount = rowCount;
-        this.createdAt = createdAt;
+        this.timestamp = timestamp;
         this.createdBy = createdBy;
         this.signatureB64 = signatureB64;
         this.signatureAlg = signatureAlg;

@@ -1,8 +1,10 @@
-export default function HomePage() {
+import PageContainer from "@/components/layout/PageContainer";
+import PageHeader from "@/components/layout/PageHeader";
 
+export default function HomePage() {
   return (
-    <>
-      <h1>Welcome to DocFlow</h1>
-    </>
+    <PageContainer>
+      <PageHeader title="Home" description="Company Home page." />
+    </PageContainer>
   );
 }

@@ -1,5 +1,10 @@
 "use client";
 
+import type { KeyboardEvent } from "react";
+
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+
 type FilterDefinition<F> = {
   key: keyof F;
   label: string;
@@ -19,48 +24,44 @@ export function AuditFiltersPanel<F extends Record<string, string>>({
   definitions,
 }: Props<F>) {
   function reset() {
-    definitions.forEach((d) => setFilter(d.key, ""));
+    definitions.forEach((definition) => setFilter(definition.key, ""));
     triggerQuery?.();
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
+      e.stopPropagation(); // critical: prevents bubbling into parent handlers
       triggerQuery?.();
     }
   }
 
-  return (
-    <div className="border rounded p-4 grid gap-4 md:grid-cols-3">
-      {definitions.map((d) => (
-        <div key={String(d.key)} className="flex flex-col gap-1">
-          <label className="text-xs font-semibold">{d.label}</label>
+  function handleApplyClick() {
+    // guard against accidental double execution in same tick
+    triggerQuery?.();
+  }
 
-          <input
-            className="border rounded px-2 py-1"
-            value={filters[d.key]}
-            onChange={(e) => setFilter(d.key, e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-        </div>
+  return (
+    <div className="flex flex-wrap items-end gap-4">
+      {definitions.map((definition) => (
+        <Input
+          key={String(definition.key)}
+          label={definition.label}
+          value={filters[definition.key]}
+          onChange={(e) => setFilter(definition.key, e.target.value)}
+          onKeyDown={handleKeyDown}
+          className="w-full sm:w-64"
+        />
       ))}
 
-      <div className="md:col-span-3 flex justify-end gap-2">
-        <button
-          type="button"
-          className="border rounded px-3 py-1 text-sm"
-          onClick={() => triggerQuery?.()}
-        >
-          Apply Filters
-        </button>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" onClick={handleApplyClick}>
+          Apply
+        </Button>
 
-        <button
-          type="button"
-          className="border rounded px-3 py-1 text-sm"
-          onClick={reset}
-        >
-          Reset Filters
-        </button>
+        <Button variant="outline" onClick={reset}>
+          Reset
+        </Button>
       </div>
     </div>
   );

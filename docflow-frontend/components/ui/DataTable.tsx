@@ -20,8 +20,6 @@ function DataTableComponent({
   footer,
   className = "",
 }: Props) {
-  console.count("DataTable renders");
-
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [showLeft, setShowLeft] = useState(false);

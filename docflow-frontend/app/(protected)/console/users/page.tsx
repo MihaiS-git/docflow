@@ -101,8 +101,6 @@ function emptyUsersPage(page: number): SpringPage<AdminUser> {
 }
 
 export default function AdminUsersPage() {
-  console.count("AdminUsersPage renders");
-
   const { status, identity } = useAuth();
   const isAdmin =
     status === "AUTH" && identity?.roles?.includes("ADMIN") === true;
@@ -183,7 +181,6 @@ export default function AdminUsersPage() {
     emailFilter.registerResult(result.content.length);
 
     return result;
-
   }, [
     page,
     sort,
@@ -335,9 +332,8 @@ export default function AdminUsersPage() {
       <form className="flex flex-wrap items-end gap-4">
         <div className="w-full sm:w-56">
           <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
-            <span>Tenant</span>
-            <Select value={filters.tenantId} onChange={handleTenantChange}>
-              <option value="">All tenants</option>
+            <Select label="Tenant" value={filters.tenantId} onChange={handleTenantChange}>
+              <option value="">Select tenant…</option>
               {tenants.map((tenant) => (
                 <option key={tenant.id} value={tenant.id}>
                   {tenant.name}
@@ -349,8 +345,7 @@ export default function AdminUsersPage() {
 
         <div className="w-full sm:w-40">
           <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
-            <span>Status</span>
-            <Select value={filters.status} onChange={handleStatusChange}>
+            <Select label="Status" value={filters.status} onChange={handleStatusChange}>
               <option value="">All statuses</option>
               <option value="ACTIVE">Active</option>
               <option value="LOCKED">Locked</option>
@@ -366,7 +361,7 @@ export default function AdminUsersPage() {
           className="w-full sm:w-64"
         />
 
-        <Button type="button" variant="ghost" onClick={resetFilters}>
+        <Button type="button" variant="outline" onClick={resetFilters}>
           Reset
         </Button>
       </form>

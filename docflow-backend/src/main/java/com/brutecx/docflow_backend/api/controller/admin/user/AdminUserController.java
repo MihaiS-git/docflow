@@ -29,7 +29,7 @@ public class AdminUserController {
     public ResponseEntity<Page<AdminUserResponseDTO>> listUsers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "createdAt") String sort,
+            @RequestParam(defaultValue = "timestamp") String sort,
             @RequestParam(defaultValue = "DESC") Sort.Direction direction,
             @RequestParam(required = false) UUID tenantId,
             @RequestParam(required = false) UserStatus status,

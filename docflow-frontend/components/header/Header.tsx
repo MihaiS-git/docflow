@@ -10,6 +10,7 @@ import MobileMenu from "../mobile-menu/MobileMenu";
 import { useAuthSelector } from "@/hooks/useAuthSelector";
 import { useAuth } from "@/lib/auth/useAuth";
 import MainMenu from "../main-menu/MainMenu";
+import Button from "../ui/Button";
 
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -38,9 +39,9 @@ export default function Header() {
           <div className="flex items-center gap-3">
             <ThemeToggleButton />
 
-            {isAuthenticated && <button onClick={logout}>Logout</button>}
+            {isAuthenticated && <Button variant="outline" size="lg" onClick={logout}>Logout</Button>}
 
-            {status === "ANON" && <button onClick={login}>Login</button>}
+            {status === "ANON" && <Button variant="outline" size="lg"  onClick={login}>Login</Button>}
 
             <MobileMenuButton
               mobileOpen={mobileOpen}

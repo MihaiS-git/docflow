@@ -19,6 +19,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.*;
 
@@ -66,6 +67,38 @@ public class GlobalExceptionHandler {
                 ex.errorCode(),
                 ex.getMessage(),
                 request
+        );
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex,
+            HttpServletRequest request
+    ) {
+
+        AuditRequestContext ctx = contextExtractor.from(request);
+        String correlationId = ctx.correlationId();
+
+        Map<String, Object> details = Map.of(
+                "parameter", ex.getName(),
+                "value", String.valueOf(ex.getValue())
+        );
+
+        logHandled(
+                HttpStatus.BAD_REQUEST,
+                ErrorCode.INVALID_ARGUMENT,
+                ex,
+                request,
+                details,
+                correlationId
+        );
+
+        return build(
+                HttpStatus.BAD_REQUEST,
+                ErrorCode.INVALID_ARGUMENT,
+                "Invalid value for parameter '" + ex.getName() + "'",
+                request,
+                details
         );
     }
 
@@ -402,7 +435,8 @@ public class GlobalExceptionHandler {
         return new Actor("USER", name, roles);
     }
 
-    private record Actor(String type, String name, List<String> roles) {}
+    private record Actor(String type, String name, List<String> roles) {
+    }
 
     /* ============================= */
 

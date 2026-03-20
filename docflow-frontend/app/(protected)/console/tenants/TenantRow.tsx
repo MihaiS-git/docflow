@@ -122,7 +122,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
                     close();
                     setEditOpen(true);
                   }}
-                  className="block w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface-alt)"
+                  className="block w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface-alt) cursor-pointer disabled:pointer-events-none"
                 >
                   Update
                 </button>
@@ -134,7 +134,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
                       close();
                       setSuspendOpen(true);
                     }}
-                    className="block w-full text-left px-3 py-2 text-sm text-(--color-warning) hover:bg-(--color-surface-alt)"
+                    className="block w-full text-left px-3 py-2 text-sm text-(--color-warning) hover:bg-(--color-surface-alt) cursor-pointer disabled:pointer-events-none"
                   >
                     Suspend
                   </button>
@@ -147,7 +147,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
                       close();
                       setReactivateOpen(true);
                     }}
-                    className="block w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface-alt)"
+                    className="block w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface-alt) cursor-pointer disabled:pointer-events-none"
                   >
                     Reactivate
                   </button>
@@ -160,7 +160,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
                       close();
                       setTerminateOpen(true);
                     }}
-                    className="block w-full text-left px-3 py-2 text-sm text-(--color-error) hover:bg-(--color-surface-alt)"
+                    className="block w-full text-left px-3 py-2 text-sm text-(--color-error) hover:bg-(--color-surface-alt) cursor-pointer disabled:pointer-events-none"
                   >
                     Terminate
                   </button>

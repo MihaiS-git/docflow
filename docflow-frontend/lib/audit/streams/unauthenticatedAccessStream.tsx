@@ -36,7 +36,5 @@ export const unauthenticatedAccessStream: AuditStreamDefinition<
       (r) => r.correlationId,
       "font-mono",
     ),
-
-    textColumn("fingerprint", (r) => r.eventFingerprint, "font-mono"),
   ],
 };

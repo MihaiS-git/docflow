@@ -32,7 +32,7 @@ public class AuditExportSnapshotController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant exportFromTs,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant exportToTs,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant cursorCreatedAt,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant nextCursorTimestamp,
             @RequestParam(required = false) UUID cursorId,
             @RequestParam(defaultValue = "20") int size
     ) {
@@ -45,7 +45,7 @@ public class AuditExportSnapshotController {
                 createdTo,
                 exportFromTs,
                 exportToTs,
-                cursorCreatedAt,
+                nextCursorTimestamp,
                 cursorId,
                 size
         ));

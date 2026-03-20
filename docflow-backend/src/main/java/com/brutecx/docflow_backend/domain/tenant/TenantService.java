@@ -171,7 +171,6 @@ public class TenantService {
 
     @Transactional(readOnly = true)
     public Page<TenantListItemDTO> listAll(TenantFilter filter, Pageable pageable) {
-
         Page<Tenant> page =
                 tenantRepository.findAll(
                         TenantSpecification.fromFilter(filter),

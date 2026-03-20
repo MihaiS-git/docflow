@@ -1,5 +1,15 @@
 "use client";
 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableHeaderRow,
+  TableRow,
+} from "../ui/table";
 import type { AuditColumn } from "./AuditColumn";
 
 type AuditTableProps<T> = {
@@ -23,35 +33,36 @@ export function AuditTable<T>({
   };
 
   return (
-    <div className="overflow-auto border rounded">
-      <table className="min-w-full text-xs">
-        <thead>
-          <tr>
+    <TableContainer>
+      <Table>
+        <TableHead>
+          <TableHeaderRow>
             {columns.map((c) => (
-              <th key={c.header} className="p-2 border-b text-left">
-                {c.header}
-              </th>
+              <TableHeaderCell key={c.header}>{c.header}</TableHeaderCell>
             ))}
-          </tr>
-        </thead>
+          </TableHeaderRow>
+        </TableHead>
 
-        <tbody>
+        <TableBody>
           {rows.map((r) => (
-            <tr key={rowKey(r)} className="hover:bg-gray-50">
+            <TableRow
+              key={rowKey(r)}
+              variant={triggerQuery ? "clickable" : "default"}
+            >
               {columns.map((c) => (
-                <td
+                <TableCell
                   key={c.header}
-                  className={`p-2 ${c.className ?? ""} ${
+                  className={`${
                     triggerQuery ? "cursor-pointer" : ""
-                  }`}
+                  } ${c.className ?? ""}`}
                 >
                   {c.render(r, ctx)}
-                </td>
+                </TableCell>
               ))}
-            </tr>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }

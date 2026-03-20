@@ -46,7 +46,7 @@ function ThemeToggleButtonComponent() {
       type="button"
       onClick={toggle}
       aria-label="Toggle theme"
-      className="rounded-md p-2 transition hover:bg-(--color-surface-alt)"
+      className="rounded-md p-2 transition hover:bg-(--color-surface-alt) cursor-pointer"
     >
       {dark ? <Sun size={16} /> : <Moon size={16} />}
     </button>

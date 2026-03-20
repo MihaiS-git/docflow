@@ -38,6 +38,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
+import static com.brutecx.docflow_backend.infrastructure.security.HashUtils.sha256Hex;
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Slf4j
@@ -79,7 +80,7 @@ public class InviteApplicationService {
 
         tenantService.requireActiveTenant(targetTenantId);
         Tenant tenant = tenantService.getRequired(targetTenantId);
-        String normalizedEmail = email.toLowerCase(Locale.ROOT);
+        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
         var actor = userService.getRequiredCurrentUser();
 
         if (inviteRepository.existsByTenantIdAndEmailIgnoreCaseAndStatus(
@@ -104,11 +105,15 @@ public class InviteApplicationService {
                     }
                 });
 
+        firstName = firstName == null ? null : firstName.trim();
+        lastName = lastName == null ? null : lastName.trim();
+        jobTitle = jobTitle == null ? null : jobTitle.trim();
+        department = department == null ? null : department.trim();
+
         Invite invite = null;
         String keycloakUserId = null;
 
         try {
-
             User user = userProvisioningService.provisionInvitedUser(
                     tenant,
                     normalizedEmail,
@@ -121,7 +126,7 @@ public class InviteApplicationService {
             TenantRole effectiveRole =
                     (tenantRole != null) ? tenantRole : TenantRole.MEMBER;
 
-            invite = Invite.create(
+            var created = Invite.create(
                     normalizedEmail,
                     firstName,
                     lastName,
@@ -131,75 +136,28 @@ public class InviteApplicationService {
                     effectiveRole
             );
 
+            invite = created.invite();
+            String rawToken = created.rawToken();
             invite.linkUser(user);
 
             try {
                 inviteRepository.save(invite);
             } catch (DataIntegrityViolationException ex) {
                 throw new DuplicateInviteException(
-                        "A similar invite already exists in the database."
+                        "A pending invite already exists for this email in this tenant."
                 );
             }
 
-            String temporaryPassword = generateTemporaryPassword();
-
-            keycloakUserId =
-                    keycloakAdminClient.ensureInviteUserExistsWithRequiredActionsAndTempPassword(
-                            normalizedEmail,
-                            temporaryPassword
-                    );
-
-            String existingSubject = user.getExternalSubjectId();
-
-            if (existingSubject != null && !existingSubject.equals(keycloakUserId)) {
-
-                identityAnomalyMetrics.incrementBindFailure(
-                        tenant.getId().toString()
-                );
-
-                adminAuditEventService.record(
-                        AdminAuditActionType.INVITE_SUBJECT_BIND_FAILED,
-                        tenant.getId(),
-                        actor.getExternalSubjectId(),
-                        user.getId(),
-                        new InviteSubjectBindingAuditMetadata(
-                                user.getId(),
-                                null,
-                                sha256Hex(normalizedEmail)
-                        )
-                );
-
-                throw new IllegalStateException(
-                        "Invite subject mismatch for local user"
-                );
-            }
-
-            user.bindExternalSubjectId(keycloakUserId);
-
-            adminAuditEventService.record(
-                    AdminAuditActionType.INVITE_SUBJECT_BOUND,
-                    tenant.getId(),
-                    actor.getExternalSubjectId(),
-                    user.getId(),
-                    new InviteSubjectBindingAuditMetadata(
-                            user.getId(),
-                            keycloakUserId,
-                            sha256Hex(normalizedEmail)
-                    )
-            );
-
-            String inviteLink =
-                    frontendBaseUrl + "/invite?token=" + invite.getToken();
-
-            mailService.sendInvite(
+            keycloakUserId = handleExternalProvisioningAndNotification(
                     tenant,
+                    user,
+                    rawToken,
                     normalizedEmail,
                     firstName,
                     lastName,
                     jobTitle,
                     department,
-                    inviteLink,
-                    temporaryPassword
+                    actor.getExternalSubjectId()
             );
 
             adminAuditEventService.record(
@@ -214,7 +172,6 @@ public class InviteApplicationService {
             );
 
         } catch (RuntimeException ex) {
-
             adminAuditEventService.record(
                     AdminAuditActionType.INVITE_FAILED,
                     tenant.getId(),
@@ -242,6 +199,80 @@ public class InviteApplicationService {
         }
     }
 
+    private String handleExternalProvisioningAndNotification(
+            Tenant tenant,
+            User user,
+            String rawToken,
+            String normalizedEmail,
+            String firstName,
+            String lastName,
+            String jobTitle,
+            String department,
+            String actorSubjectId
+    ) {
+        String temporaryPassword = generateTemporaryPassword();
+
+        String keycloakUserId =
+                keycloakAdminClient.ensureInviteUserExistsWithRequiredActionsAndTempPassword(
+                        normalizedEmail,
+                        temporaryPassword
+                );
+
+        String existingSubject = user.getExternalSubjectId();
+
+        if (existingSubject != null && !existingSubject.equals(keycloakUserId)) {
+            identityAnomalyMetrics.incrementBindFailure(
+                    tenant.getId().toString()
+            );
+
+            adminAuditEventService.record(
+                    AdminAuditActionType.INVITE_SUBJECT_BIND_FAILED,
+                    tenant.getId(),
+                    actorSubjectId,
+                    user.getId(),
+                    new InviteSubjectBindingAuditMetadata(
+                            user.getId(),
+                            null,
+                            sha256Hex(normalizedEmail)
+                    )
+            );
+
+            throw new IllegalStateException(
+                    "Invite subject mismatch for local user"
+            );
+        }
+
+        user.bindExternalSubjectId(keycloakUserId);
+
+        adminAuditEventService.record(
+                AdminAuditActionType.INVITE_SUBJECT_BOUND,
+                tenant.getId(),
+                actorSubjectId,
+                user.getId(),
+                new InviteSubjectBindingAuditMetadata(
+                        user.getId(),
+                        keycloakUserId,
+                        sha256Hex(normalizedEmail)
+                )
+        );
+
+        String inviteLink =
+                frontendBaseUrl + "/invite?token=" + rawToken;
+
+        mailService.sendInvite(
+                tenant,
+                normalizedEmail,
+                firstName,
+                lastName,
+                jobTitle,
+                department,
+                inviteLink,
+                temporaryPassword
+        );
+
+        return keycloakUserId;
+    }
+
     @Transactional
     public void consumeInviteIfPresent(HttpSession session) {
         if (session == null) return;
@@ -249,13 +280,18 @@ public class InviteApplicationService {
         Object raw = session.getAttribute(InviteSessionKeys.INVITE_TOKEN);
         if (!(raw instanceof String token) || token.isBlank()) return;
 
-        Invite invite = validateInviteOrThrow(token);
+        Invite invite = inviteRepository.findByTokenForUpdate(sha256Hex(token))
+                .orElseThrow(() ->
+                        new InviteNotFoundException("Invite not found for the provided token")
+                );
+
+        validateInviteStateOrThrow(invite);
         acceptInviteOrThrow(invite);
 
         session.removeAttribute(InviteSessionKeys.INVITE_TOKEN);
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public void validateAndStoreInviteToken(String token, HttpSession session) {
         if (token == null || token.isBlank()) {
             throw new InviteNotFoundException("Invite token not provided");
@@ -265,37 +301,14 @@ public class InviteApplicationService {
         session.setAttribute(InviteSessionKeys.INVITE_TOKEN, token);
     }
 
-    @Transactional
-    Invite validateInviteOrThrow(String token) {
-        Invite invite = inviteRepository.findByTokenForUpdate(token)
+    @Transactional(readOnly = true)
+    void validateInviteOrThrow(String token) {
+        Invite invite = inviteRepository.findByHashedToken(sha256Hex(token))
                 .orElseThrow(() ->
                         new InviteNotFoundException("Invite not found for the provided token")
                 );
 
-        UUID inviteTenantId = requireInviteTenant(invite);
-
-        if (invite.isExpired()) {
-            onboardingAuditService.recordFailure(
-                    null,
-                    inviteTenantId,
-                    invite.getId(),
-                    "INVITE_EXPIRED"
-            );
-
-            throw new InviteNotFoundException("Invite link invalid or expired");
-        }
-
-        if (invite.getStatus() == InviteStatus.ACCEPTED) {
-            onboardingAuditService.recordFailure(
-                    null,
-                    inviteTenantId,
-                    invite.getId(),
-                    "INVITE_REPLAY"
-            );
-            throw new InviteNotFoundException("Invite link invalid or expired");
-        }
-
-        return invite;
+        validateInviteStateOrThrow(invite);
     }
 
     @Transactional
@@ -332,7 +345,7 @@ public class InviteApplicationService {
 
         tenantService.requireActiveTenant(tenantId);
 
-        Invite invite = inviteRepository.findById(inviteId)
+        Invite invite = inviteRepository.findByIdForUpdate(inviteId)
                 .orElseThrow(() ->
                         new InviteNotFoundException("Invite not found")
                 );
@@ -450,6 +463,32 @@ public class InviteApplicationService {
         }
     }
 
+    private void validateInviteStateOrThrow(Invite invite) {
+        UUID inviteTenantId = requireInviteTenant(invite);
+
+        if (invite.isExpired()) {
+            onboardingAuditService.recordFailure(
+                    null,
+                    inviteTenantId,
+                    invite.getId(),
+                    "INVITE_EXPIRED"
+            );
+
+            throw new InviteNotFoundException("Invite link invalid or expired");
+        }
+
+        if (invite.getStatus() == InviteStatus.ACCEPTED) {
+            onboardingAuditService.recordFailure(
+                    null,
+                    inviteTenantId,
+                    invite.getId(),
+                    "INVITE_REPLAY"
+            );
+
+            throw new InviteNotFoundException("Invite link invalid or expired");
+        }
+    }
+
     private static UUID requireInviteTenant(Invite invite) {
         UUID tenantId = invite.getTenantId();
         if (tenantId == null) {
@@ -464,17 +503,6 @@ public class InviteApplicationService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    private static String sha256Hex(String value) {
-        if (value == null || value.isBlank()) return "UNKNOWN";
-        try {
-            var md = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            return java.util.HexFormat.of().formatHex(digest);
-        } catch (Exception e) {
-            return "UNKNOWN";
-        }
-    }
-
     private void expireSessionsForSubject(String subjectId) {
         if (subjectId == null || subjectId.isBlank()) return;
 
@@ -486,9 +514,7 @@ public class InviteApplicationService {
                 principalSubject = oidc.getSubject();
             }
 
-            if (!subjectId.equals(principalSubject)) {
-                continue;
-            }
+            if (!subjectId.equals(principalSubject)) continue;
 
             List<SessionInformation> sessions =
                     sessionRegistry.getAllSessions(principal, false);
@@ -500,5 +526,4 @@ public class InviteApplicationService {
             }
         }
     }
-
 }

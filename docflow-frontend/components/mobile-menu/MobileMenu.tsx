@@ -35,7 +35,7 @@ function MobileMenuComponent({
           <Link
             href="/console/users"
             onClick={onNavigate}
-            className="block rounded-md px-3 py-2 text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+            className="block rounded-md px-3 py-2 text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
           >
             Users
           </Link>
@@ -43,7 +43,7 @@ function MobileMenuComponent({
           <Link
             href="/console/invites"
             onClick={onNavigate}
-            className="block rounded-md px-3 py-2 text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+            className="block rounded-md px-3 py-2 text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
           >
             Invites
           </Link>
@@ -51,7 +51,7 @@ function MobileMenuComponent({
           <Link
             href="/console/tenants"
             onClick={onNavigate}
-            className="block rounded-md px-3 py-2 text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+            className="block rounded-md px-3 py-2 text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
           >
             Tenants
           </Link>
@@ -62,7 +62,7 @@ function MobileMenuComponent({
         <Link
           href="/console/audit"
           onClick={onNavigate}
-          className="block rounded-md px-3 py-2 text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+          className="block rounded-md px-3 py-2 text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
         >
           Audit
         </Link>
@@ -74,7 +74,7 @@ function MobileMenuComponent({
             onNavigate();
             logout();
           }}
-          className="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+          className="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
         >
           Logout
         </button>
@@ -86,7 +86,7 @@ function MobileMenuComponent({
             onNavigate();
             login();
           }}
-          className="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+          className="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
         >
           Login
         </button>

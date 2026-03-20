@@ -43,30 +43,29 @@ public class TenantSpecification {
             }
 
             if (filter.dataRegion() != null && !filter.dataRegion().isBlank()) {
-                predicates.add(cb.equal(root.get("dataRegion"), filter.dataRegion()));
+                predicates.add(
+                        cb.equal(
+                                cb.lower(root.get("dataRegion")),
+                                filter.dataRegion().toLowerCase(Locale.ROOT)
+                        )
+                );
             }
 
             if (filter.createdAfter() != null) {
-                predicates.add(
-                        cb.greaterThanOrEqualTo(
-                                root.get("createdAt"),
-                                filter.createdAfter()
-                                        .atStartOfDay()
-                                        .toInstant(ZoneOffset.UTC)
-                        )
-                );
+                Instant from = filter.createdAfter()
+                        .atStartOfDay(ZoneOffset.UTC)
+                        .toInstant();
+
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), from));
             }
 
             if (filter.createdBefore() != null) {
-                predicates.add(
-                        cb.lessThan(
-                                root.get("createdAt"),
-                                filter.createdBefore()
-                                        .plusDays(1)
-                                        .atStartOfDay()
-                                        .toInstant(ZoneOffset.UTC)
-                        )
-                );
+                Instant to = filter.createdBefore()
+                        .plusDays(1)
+                        .atStartOfDay(ZoneOffset.UTC)
+                        .toInstant();
+
+                predicates.add(cb.lessThan(root.get("createdAt"), to));
             }
 
             if (hasManagerFilter) {

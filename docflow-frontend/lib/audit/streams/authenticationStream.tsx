@@ -42,7 +42,5 @@ export const authenticationStream: AuditStreamDefinition<
     textColumn("ip", r => r.ip),
 
     pivotColumn("correlationId", "correlationId", r => r.correlationId, "font-mono"),
-
-    textColumn("fingerprint", r => r.eventFingerprint, "font-mono"),
   ],
 };

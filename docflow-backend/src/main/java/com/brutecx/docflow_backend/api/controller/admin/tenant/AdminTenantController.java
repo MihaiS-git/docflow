@@ -26,7 +26,6 @@ public class AdminTenantController {
             "status",
             "dataRegion",
             "retentionDays",
-            "createdAt",
             "updatedAt"
     );
 

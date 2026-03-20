@@ -12,7 +12,7 @@ export default function MobileMenuButton({
   return (
     <button
       onClick={() => setMobileOpen((prev) => !prev)}
-      className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+      className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
       aria-label={mobileOpen ? "Close menu" : "Open menu"}
       aria-expanded={mobileOpen}
       aria-controls="mobile-menu"

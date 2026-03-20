@@ -446,7 +446,7 @@ export default function TenantsPage() {
           className="w-full sm:w-40"
         />
 
-        <Button type="button" variant="ghost" onClick={resetFilters}>
+        <Button type="button" variant="outline" onClick={resetFilters}>
           Reset
         </Button>
       </form>

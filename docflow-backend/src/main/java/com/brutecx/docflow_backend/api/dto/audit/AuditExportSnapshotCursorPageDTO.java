@@ -7,7 +7,7 @@ import java.util.UUID;
 public record AuditExportSnapshotCursorPageDTO(
         List<AuditExportSnapshotDTO> items,
         boolean hasMore,
-        Instant nextCursorCreatedAt,
+        Instant nextCursorTimestamp,
         UUID nextCursorId
 ) {
 }

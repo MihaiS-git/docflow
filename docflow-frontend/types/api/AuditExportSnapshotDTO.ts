@@ -10,7 +10,7 @@ export type AuditExportSnapshotDTO = {
   sha256DigestHex: string;
   rowCount: number;
 
-  createdAt: string; // ISO Instant
+  timestamp: string; // ISO Instant
   createdBy: string; // UUID
 
   signatureB64: string;

@@ -3,103 +3,168 @@
 import { AUDIT_STREAMS } from "@/lib/audit/auditStreams";
 import { useAuth } from "@/lib/auth/useAuth";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
+import PageContainer from "@/components/layout/PageContainer";
+import PageHeader from "@/components/layout/PageHeader";
+import Card from "@/components/ui/Card";
+import Input from "@/components/ui/Input";
+import { DataBlockHeader } from "@/components/ui/DataBlockHeader";
 
 export default function AuditConsolePage() {
   const { identity } = useAuth();
   const [query, setQuery] = useState("");
 
-  if (!identity?.roles.includes("AUDITOR")) return null;
-/* 
-  const streams = AUDIT_STREAMS.filter((s) =>
-    s.name.toLowerCase().includes(query.toLowerCase()),
-  ); */
+  const isAuditor = identity?.roles.includes("AUDITOR");
 
-  const grouped = AUDIT_STREAMS.reduce<Record<string, typeof AUDIT_STREAMS>>(
-    (acc, stream) => {
-      acc[stream.category] ??= [];
-      acc[stream.category].push(stream);
-      return acc;
-    },
-    {},
-  );
+  const filteredStreams = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return AUDIT_STREAMS;
+
+    return AUDIT_STREAMS.filter((s) =>
+      s.name.toLowerCase().includes(q),
+    );
+  }, [query]);
+
+  const grouped = useMemo(() => {
+    return filteredStreams.reduce<Record<string, typeof filteredStreams>>(
+      (acc, stream) => {
+        acc[stream.category] ??= [];
+        acc[stream.category].push(stream);
+        return acc;
+      },
+      {},
+    );
+  }, [filteredStreams]);
+
+  if (!isAuditor) {
+    return (
+      <PageContainer>
+        <p className="text-(--color-text-secondary)">Access denied</p>
+      </PageContainer>
+    );
+  }
 
   return (
-    <div className="p-6 space-y-10">
-      <header>
-        <h1 className="text-2xl font-semibold">Audit Console</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Browse system audit streams and validate forensic export artifacts.
-        </p>
-      </header>
-
-      <input
-        type="text"
-        placeholder="Search audit streams..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className="w-full max-w-sm border rounded-md px-3 py-2 text-sm"
+    <PageContainer>
+      <PageHeader
+        title="Audit Console"
+        description="Browse audit streams and manage audit integrity, exports, and retention."
       />
 
-      {/* Audit Streams */}
-      {Object.entries(grouped).map(([category, streams]) => (
-        <section key={category} className="space-y-4">
-          <h3 className="text-md font-semibold text-gray-700">{category}</h3>
+      {/* Search */}
+      <div className="max-w-sm">
+        <Input
+          placeholder="Search audit streams..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {streams.map((stream) => (
-              <Link
-                key={stream.path}
-                href={`/console/audit/streams/${stream.path}`}
-                className="border rounded-lg p-4 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-              >
-                <div className="font-semibold">{stream.name}</div>
-                <div className="text-sm text-gray-500">
-                  Inspect events recorded in the {stream.name} audit stream.
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ))}
-
-      {/* Audit Governance */}
-      <section className="space-y-4 border rounded-xl p-6 bg-zinc-50 dark:bg-zinc-900">
-        <h2 className="text-lg font-semibold">Audit Integrity & Governance</h2>
-
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <Link
-            href="/console/audit/retention"
-            className="border rounded-lg p-4 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-          >
-            <div className="font-semibold">Retention Policies</div>
-            <div className="text-sm text-gray-500">
-              Configure retention periods and cleanup policies for audit data.
-            </div>
-          </Link>
-
-          <Link
-            href="/console/audit/exports"
-            className="border rounded-lg p-4 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-          >
-            <div className="font-semibold">Audit Export Snapshots</div>
-            <div className="text-sm text-gray-500">
-              Registry and verification of sealed JSONL forensic exports.
-            </div>
-          </Link>
-
-          <Link
-            href="/console/security/audit-keys"
-            className="border rounded-lg p-4 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition border-red-200"
-          >
-            <div className="font-semibold">Export Signing Keys</div>
-            <div className="text-sm text-gray-500">
-              Download public keys used to verify signed JSONL audit export
-              snapshots.
-            </div>
-          </Link>
+      {/* Sections */}
+      <div className="space-y-4 mt-4">
+        {/* Streams label */}
+        <div className="text-sm font-medium text-(--color-text-secondary)">
+          Streams
         </div>
-      </section>
-    </div>
+
+        {/* Audit Streams */}
+        {Object.entries(grouped).map(([category, streams]) => (
+          <Card key={category} className="p-0 overflow-hidden" padding="none">
+            <DataBlockHeader title={category} />
+
+            <div className="p-3 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+              {streams.map((stream) => (
+                <Link
+                  key={stream.path}
+                  href={`/console/audit/streams/${stream.path}`}
+                  className="
+                    block h-full rounded-md
+                    bg-(--color-surface-alt)
+                    px-3 py-2
+                    transition
+                    hover:bg-(--color-surface)
+                  "
+                >
+                  <div className="text-sm font-medium text-(--color-text-primary)">
+                    {stream.name}
+                  </div>
+
+                  <div className="text-xs text-(--color-text-secondary)">
+                    Inspect events in this audit stream.
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </Card>
+        ))}
+
+        {/* Governance label */}
+        <div className="text-sm font-medium text-(--color-text-secondary)">
+          Governance
+        </div>
+
+        {/* Governance */}
+        <Card className="p-0 overflow-hidden" padding="none">
+          <DataBlockHeader title="Audit Integrity & Governance" />
+
+          <div className="p-3 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+            <Link
+              href="/console/audit/retention"
+              className="
+                block h-full rounded-md
+                bg-(--color-surface-alt)
+                px-3 py-2
+                transition
+                hover:bg-(--color-surface)
+              "
+            >
+              <div className="text-sm font-medium text-(--color-text-primary)">
+                Retention Policies
+              </div>
+              <div className="text-xs text-(--color-text-secondary)">
+                Configure retention and cleanup rules.
+              </div>
+            </Link>
+
+            <Link
+              href="/console/audit/exports"
+              className="
+                block h-full rounded-md
+                bg-(--color-surface-alt)
+                px-3 py-2
+                transition
+                hover:bg-(--color-surface)
+              "
+            >
+              <div className="text-sm font-medium text-(--color-text-primary)">
+                Export Snapshots
+              </div>
+              <div className="text-xs text-(--color-text-secondary)">
+                Verify and manage sealed audit exports.
+              </div>
+            </Link>
+
+            <Link
+              href="/console/security/audit-keys"
+              className="
+                block h-full rounded-md
+                bg-(--color-surface-alt)
+                px-3 py-2
+                transition
+                hover:bg-(--color-surface)
+              "
+            >
+              <div className="text-sm font-medium text-(--color-text-primary)">
+                Signing Keys
+              </div>
+              <div className="text-xs text-(--color-text-secondary)">
+                Access public keys for verification.
+              </div>
+            </Link>
+          </div>
+        </Card>
+      </div>
+    </PageContainer>
   );
 }

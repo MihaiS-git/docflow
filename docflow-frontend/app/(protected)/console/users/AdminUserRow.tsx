@@ -26,9 +26,6 @@ type Props = {
 };
 
 function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
-  console.count("AdminUserRowComponent renders");
-
-
   const [selectedRole, setSelectedRole] = useState("");
   const [revokingRole, setRevokingRole] = useState<string | null>(null);
 
@@ -145,7 +142,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
                       setRevokingRole(null);
                     }
                   }}
-                  className="ml-1 flex items-center justify-center text-(--color-error) hover:opacity-80 disabled:opacity-40"
+                  className="ml-1 flex items-center justify-center text-(--color-error) hover:opacity-80 disabled:opacity-40 cursor-pointer disabled:pointer-events-none"
                   aria-label={`Revoke ${role}`}
                 >
                   <X size={12} strokeWidth={2.5} />
@@ -159,7 +156,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
           <Select
             value={selectedRole}
             onChange={(e) => setSelectedRole(e.target.value)}
-            disabled={!selectedRole}
+            disabled={availableRoles.length === 0}
           >
             <option value="">Add role…</option>
 
@@ -187,7 +184,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
                   close();
                 }}
                 disabled={user.status === "ACTIVE"}
-                className="block w-full px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:opacity-50"
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
               >
                 Activate
               </button>
@@ -199,7 +196,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
                   close();
                 }}
                 disabled={user.status === "LOCKED"}
-                className="block w-full px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:opacity-50"
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
               >
                 Lock
               </button>
@@ -211,7 +208,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
                   close();
                 }}
                 disabled={user.status === "DISABLED"}
-                className="block w-full px-3 py-2 text-left text-sm text-(--color-error) hover:bg-(--color-surface-alt) disabled:opacity-50"
+                className="block w-full px-3 py-2 text-left text-sm text-(--color-error) hover:bg-(--color-surface-alt) disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
               >
                 Disable
               </button>

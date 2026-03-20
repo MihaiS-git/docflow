@@ -1,20 +1,31 @@
 import { ReactNode } from "react";
 
+type Padding = "default" | "none";
+
 type Props = {
   children: ReactNode;
   title?: ReactNode;
   className?: string;
+  padding?: Padding;
 };
 
-export default function Card({ children, title, className = "" }: Props) {
+export default function Card({
+  children,
+  title,
+  className = "",
+  padding = "default",
+}: Props) {
+  const paddingClass =
+    padding === "none" ? "p-0" : "p-4";
+
   return (
     <section
       className={`
         bg-(--color-surface)
         border border-(--color-border)
         rounded-lg
-        p-4
         w-full
+        ${paddingClass}
         ${className}
       `}
     >

@@ -80,34 +80,34 @@ CREATE TABLE public.user_tenant_memberships
 
 CREATE TABLE public.invites
 (
-    id          uuid PRIMARY KEY,
+    id           uuid PRIMARY KEY,
 
-    created_at  timestamptz  NOT NULL,
-    expires_at  timestamptz  NOT NULL,
+    created_at   timestamptz  NOT NULL,
+    expires_at   timestamptz  NOT NULL,
 
-    email       varchar(320) NOT NULL,
+    email        varchar(320) NOT NULL,
 
-    first_name  varchar(255) NOT NULL,
-    last_name   varchar(255) NOT NULL,
+    first_name   varchar(255) NOT NULL,
+    last_name    varchar(255) NOT NULL,
 
-    job_title   varchar(255),
-    department  varchar(255),
+    job_title    varchar(255),
+    department   varchar(255),
 
-    status      varchar(16)  NOT NULL,
-    tenant_role varchar(32),
+    status       varchar(16)  NOT NULL,
+    tenant_role  varchar(32),
 
-    token       varchar(64)  NOT NULL,
+    hashed_token varchar(64)  NOT NULL,
 
-    tenant_id   uuid         NOT NULL REFERENCES tenants (id),
-    user_id     uuid REFERENCES users (id),
+    tenant_id    uuid         NOT NULL REFERENCES tenants (id),
+    user_id      uuid REFERENCES users (id),
 
-    CONSTRAINT uk_invites_token UNIQUE (token),
+    CONSTRAINT uk_invites_hashed_token UNIQUE (hashed_token),
 
     CONSTRAINT invites_status_check
         CHECK (status IN ('PENDING', 'ACCEPTED')),
 
     CONSTRAINT invites_tenant_role_check
-        CHECK (tenant_role IN ('MEMBER', 'EXECUTOR', 'REVIEWER', 'MANAGER'))
+        CHECK (tenant_role IN ('MEMBER', 'EXECUTOR', 'EXECUTOR', 'MANAGER'))
 );
 
 CREATE TABLE public.audit_signing_keys
@@ -131,7 +131,7 @@ CREATE TABLE public.audit_export_snapshot
 (
     id                uuid PRIMARY KEY,
 
-    created_at        timestamptz   NOT NULL,
+    timestamp         timestamptz   NOT NULL,
     created_by        uuid          NOT NULL REFERENCES users (id),
 
     stream            varchar(128)  NOT NULL,
@@ -758,20 +758,17 @@ CREATE INDEX idx_users_last_name_trgm
    TENANTS
    ========================================================= */
 
-CREATE INDEX idx_tenants_status
-    ON tenants (status);
+CREATE INDEX idx_tenants_status_region_created_at
+    ON tenants (status, LOWER(data_region), created_at DESC);
 
-CREATE INDEX idx_tenants_data_region
-    ON tenants (data_region);
+CREATE INDEX idx_tenants_data_region_lower
+    ON tenants (LOWER(data_region));
 
 CREATE INDEX idx_tenants_created_at
     ON tenants (created_at DESC);
 
-CREATE INDEX idx_tenants_updated_at
-    ON tenants (updated_at DESC);
-
 CREATE INDEX idx_tenants_name_lower
-    ON tenants (lower(name));
+    ON tenants (LOWER(name));
 
 /* =========================================================
    MEMBERSHIPS
@@ -803,6 +800,9 @@ CREATE INDEX idx_invites_expired_pending
 
 CREATE UNIQUE INDEX ux_invites_pending_email
     ON invites (tenant_id, lower(email)) WHERE status = 'PENDING';
+
+CREATE UNIQUE INDEX ux_invites_hashed_token
+    ON invites (hashed_token);
 
 
 /* =========================================================
@@ -1019,6 +1019,17 @@ CREATE INDEX idx_unauth_access_event_hash
 
 CREATE INDEX brin_unauth_access_timestamp
     ON unauthenticated_access_audit_events USING BRIN (timestamp);
+
+
+/* =========================================================
+   EXPORT SNAPSHOTS
+   ========================================================= */
+
+CREATE INDEX idx_audit_export_snapshot_ts_id
+    ON audit_export_snapshot ("timestamp" DESC, id DESC);
+
+CREATE INDEX idx_audit_export_snapshot_ts_id
+    ON audit_export_snapshot (stream, "timestamp" DESC, id DESC);
 
 
 /* =========================================================

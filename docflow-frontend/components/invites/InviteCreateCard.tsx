@@ -1,68 +1,74 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 
 import { apiFetch } from "@/lib/apiFetch";
 import { ApiError } from "@/lib/apiErrors";
 
 import type { AdminTenant } from "@/types/admin/Tenant";
-import type { TenantRole } from "@/types/invites/types";
 
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import FormField from "@/components/ui/FormField";
+import Button from "../ui/Button";
+import { TENANT_ROLES } from "@/types/invites/types";
 
 type Props = {
   tenants: AdminTenant[];
 };
 
+const schema = z.object({
+  tenantId: z.string().min(1, "Tenant is required"),
+  email: z.email("Invalid email"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  jobTitle: z.string().optional(),
+  department: z.string().optional(),
+  tenantRole: z.enum(TENANT_ROLES),
+});
+
+type FormValues = z.infer<typeof schema>;
+
 export default function InviteCreateCard({ tenants }: Props) {
-  const [selectedTenantId, setSelectedTenantId] = useState("");
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting, isValid },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    mode: "onChange",
+    defaultValues: {
+      tenantId: "",
+      email: "",
+      firstName: "",
+      lastName: "",
+      jobTitle: "",
+      department: "",
+      tenantRole: "MEMBER",
+    },
+  });
 
-  const [email, setEmail] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [department, setDepartment] = useState("");
-  const [tenantRole, setTenantRole] = useState<TenantRole>("MEMBER");
-
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {}, []);
-
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    if (!selectedTenantId) {
-      toast.error("Select a tenant first.");
-      return;
-    }
-
-    setLoading(true);
-
+  const onSubmit = async (values: FormValues) => {
     try {
-      await apiFetch<void>(`/api/tenants/${selectedTenantId}/invites`, {
+      await apiFetch<void>(`/api/tenants/${values.tenantId}/invites`, {
         method: "POST",
         body: JSON.stringify({
-          email,
-          firstName,
-          lastName,
-          jobTitle: jobTitle || null,
-          department: department || null,
-          tenantRole,
+          email: values.email,
+          firstName: values.firstName,
+          lastName: values.lastName,
+          jobTitle: values.jobTitle || null,
+          department: values.department || null,
+          tenantRole: values.tenantRole,
         }),
       });
 
       toast.success("Invite sent successfully.");
-
-      setEmail("");
-      setFirstName("");
-      setLastName("");
-      setJobTitle("");
-      setDepartment("");
-      setTenantRole("MEMBER");
+      reset();
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 409) {
@@ -77,10 +83,8 @@ export default function InviteCreateCard({ tenants }: Props) {
       } else {
         toast.error("Unexpected error occurred.");
       }
-    } finally {
-      setLoading(false);
     }
-  }
+  };
 
   return (
     <Card>
@@ -95,19 +99,12 @@ export default function InviteCreateCard({ tenants }: Props) {
       </div>
 
       <form
-        onSubmit={onSubmit}
+        onSubmit={handleSubmit(onSubmit)}
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
       >
-        <FormField label="Tenant">
-          <Select
-            required
-            value={selectedTenantId}
-            onChange={(e) => setSelectedTenantId(e.target.value)}
-          >
-            <option value="" disabled>
-              Select a tenant
-            </option>
-
+        <FormField label="Tenant" error={errors.tenantId?.message}>
+          <Select {...register("tenantId")}>
+            <option value="">Select a tenant</option>
             {tenants.map((tenant) => (
               <option key={tenant.id} value={tenant.id}>
                 {tenant.name}
@@ -116,65 +113,44 @@ export default function InviteCreateCard({ tenants }: Props) {
           </Select>
         </FormField>
 
-        <FormField label="Email">
-          <Input
-            required
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
+        <FormField label="Email" error={errors.email?.message}>
+          <Input type="email" {...register("email")} />
         </FormField>
 
-        <FormField label="First name">
-          <Input
-            required
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-          />
+        <FormField label="First name" error={errors.firstName?.message}>
+          <Input {...register("firstName")} />
         </FormField>
 
-        <FormField label="Last name">
-          <Input
-            required
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-          />
+        <FormField label="Last name" error={errors.lastName?.message}>
+          <Input {...register("lastName")} />
         </FormField>
 
         <FormField label="Job title">
-          <Input
-            value={jobTitle}
-            onChange={(e) => setJobTitle(e.target.value)}
-          />
+          <Input {...register("jobTitle")} />
         </FormField>
 
         <FormField label="Department">
-          <Input
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-          />
+          <Input {...register("department")} />
         </FormField>
 
-        <FormField label="Tenant role">
-          <Select
-            value={tenantRole}
-            onChange={(e) => setTenantRole(e.target.value as TenantRole)}
-          >
-            <option value="MEMBER">Member</option>
-            <option value="EXECUTOR">Executor</option>
-            <option value="REVIEWER">Reviewer</option>
-            <option value="MANAGER">Manager</option>
+        <FormField label="Tenant role" error={errors.tenantRole?.message}>
+          <Select {...register("tenantRole")}>
+            {TENANT_ROLES.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
           </Select>
         </FormField>
 
         <div className="col-span-full flex justify-end pt-2">
-          <button
+          <Button
             type="submit"
-            disabled={loading || !selectedTenantId}
-            className="rounded-md bg-(--color-primary) px-4 py-2 text-(--color-text-inverse) hover:opacity-90 disabled:opacity-50"
+            loading={isSubmitting}
+            disabled={isSubmitting || !isValid}
           >
-            {loading ? "Sending…" : "Send Invite"}
-          </button>
+            Send Invite
+          </Button>
         </div>
       </form>
     </Card>

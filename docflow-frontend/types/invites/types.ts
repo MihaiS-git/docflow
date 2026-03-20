@@ -1,4 +1,10 @@
-export type TenantRole = "MEMBER" | "EXECUTOR" | "REVIEWER" | "MANAGER";
+export const TENANT_ROLES = [
+  "MEMBER",
+  "EXECUTOR",
+  "REVIEWER",
+  "MANAGER",
+] as const;
+export type TenantRole = (typeof TENANT_ROLES)[number];
 
 export type InviteStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
 export type InviteStatusFilter = "" | InviteStatus;

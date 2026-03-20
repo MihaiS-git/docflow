@@ -16,7 +16,10 @@ function isBodyBinary(body: BodyInit | null | undefined): boolean {
 
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit & { csrfMode?: "default" | "anonymous" } = {},
+  init: RequestInit & {
+    csrfMode?: "default" | "anonymous";
+    allow401?: boolean;
+  } = {},
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
 
@@ -45,12 +48,18 @@ export async function apiFetch<T>(
     headers: {
       ...(init.headers ?? {}),
       ...(csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
-      ...(shouldSetJsonContentType ? { "Content-Type": "application/json" } : {}),
+      ...(shouldSetJsonContentType
+        ? { "Content-Type": "application/json" }
+        : {}),
     },
     body: body ?? undefined,
   });
 
   if (res.status === 401) {
+    if (init.allow401) {
+      return undefined as T;
+    }
+
     emitAuthError({ type: "401" });
     throw new UnauthenticatedError();
   }

@@ -28,7 +28,7 @@ public class TenantUserController {
             @RequestParam(required = false) MembershipStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "createdAt") String sort,
+            @RequestParam(defaultValue = "timestamp") String sort,
             @RequestParam(defaultValue = "DESC") Sort.Direction direction
     ) {
         return ResponseEntity.ok(

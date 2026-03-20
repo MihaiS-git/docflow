@@ -1,5 +1,8 @@
 "use client";
 
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+
 type Props = {
   from: string;
   to: string;
@@ -22,51 +25,43 @@ export function AuditRangePanel({
   loading,
 }: Props) {
   return (
-    <div className="border rounded p-3 space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <label className="text-sm font-medium">From</label>
-          <input
-            type="datetime-local"
-            step={1}
-            className="border rounded px-2 py-1 w-full"
-            value={from}
-            onChange={(e) => onFromChange(e.target.value)}
-          />
-        </div>
+    <div className="flex flex-wrap items-end gap-4">
+      <Input
+        label="From"
+        type="datetime-local"
+        step={1}
+        value={from}
+        onChange={(e) => onFromChange(e.target.value)}
+        className="w-full sm:w-56"
+      />
 
-        <div className="space-y-1">
-          <label className="text-sm font-medium">To</label>
-          <input
-            type="datetime-local"
-            step={1}
-            className="border rounded px-2 py-1 w-full"
-            value={to}
-            onChange={(e) => onToChange(e.target.value)}
-          />
-        </div>
+      <Input
+        label="To"
+        type="datetime-local"
+        step={1}
+        value={to}
+        onChange={(e) => onToChange(e.target.value)}
+        className="w-full sm:w-56"
+      />
 
-        <div className="space-y-1">
-          <label className="text-sm font-medium">Size</label>
-          <input
-            type="number"
-            min={1}
-            max={500}
-            className="border rounded px-2 py-1 w-full"
-            value={size}
-            onChange={(e) => onSizeChange(Number(e.target.value))}
-          />
-        </div>
-      </div>
+      <Input
+        label="Size"
+        type="number"
+        min={1}
+        max={500}
+        value={String(size)}
+        onChange={(e) => onSizeChange(Number(e.target.value))}
+        className="w-full sm:w-32"
+      />
 
-      <button
-        type="button"
-        onClick={onQuery}
-        disabled={loading}
-        className="px-3 py-1 rounded border disabled:opacity-50"
+      <Button 
+      variant="outline"
+      type="button" 
+      loading={loading} 
+      onClick={onQuery}
       >
-        {loading ? "Loading…" : "Query"}
-      </button>
+        Query
+      </Button>
     </div>
   );
 }

@@ -223,45 +223,36 @@ export default function InvitesTableCard({ tenants }: Props) {
 
   const filters = (
     <div className="flex flex-wrap items-end gap-3">
-      <div className="w-56">
-        <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
-          <span>Tenant</span>
+      <Select
+        label="Tenant"
+        value={selectedTenantId}
+        size={6}
+        className="min-h-20 max-h-40 overflow-y-auto w-56"
+        onChange={(e) => {
+          setSelectedTenantId(e.target.value);
+          setInvitePage(0);
+        }}
+      >
+        <option value="">Select tenant</option>
+        {tenants.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </Select>
 
-          <Select
-            value={selectedTenantId}
-            size={6}
-            className="max-h-40 overflow-y-auto"
-            onChange={(e) => {
-              setSelectedTenantId(e.target.value);
-              setInvitePage(0);
-            }}
-          >
-            <option value="">Select tenant</option>
-
-            {tenants.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </Select>
-        </label>
-      </div>
-
-      <div className="w-56">
-        <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
-          <span>Status</span>
-          <Select
-            value={filterStatus}
-            onChange={(e) =>
-              setFilterStatus(e.target.value as InviteStatusFilter)
-            }
-          >
-            <option value="">All statuses</option>
-            <option value="PENDING">Pending</option>
-            <option value="ACCEPTED">Accepted</option>
-          </Select>
-        </label>
-      </div>
+      <Select
+        label="Status"
+        value={filterStatus}
+        className="w-56"
+        onChange={(e) =>
+          setFilterStatus(e.target.value as InviteStatusFilter)
+        }
+      >
+        <option value="">All statuses</option>
+        <option value="PENDING">Pending</option>
+        <option value="ACCEPTED">Accepted</option>
+      </Select>
 
       <Input
         label="Email"
@@ -297,80 +288,91 @@ export default function InvitesTableCard({ tenants }: Props) {
         <TableToolbar filters={filters} actions={actions} />
       </Card>
 
-      <Card title="Existing invites">
-        <DataTable
-          loading={invitesLoading && invites.length === 0}
-          empty={!invitesLoading && invites.length === 0}
-          emptyMessage="No invites found"
-          footer={
-            <DataTableFooter
-              page={invitePage}
-              pageSize={PAGE_SIZE}
-              totalPages={inviteTotalPages}
-              totalElements={inviteTotalElements}
-              onPageChange={(p) => setInvitePage(p)}
-            />
-          }
-        >
-          {columnWidths}
-
-          <thead className="sticky top-0 bg-(--color-table-header)">
-            <tr>
-              <SortableHeader
-                label="Email"
-                field="email"
-                activeSort={sort}
-                direction={direction}
-                onSortChange={handleSort}
+      <Card
+        title={
+          selectedTenantId
+            ? `Invites (${tenants.find((t) => t.id === selectedTenantId)?.name ?? "Tenant"})`
+            : "Invites"
+        }
+      >
+        {selectedTenantId ? (
+          <DataTable
+            loading={invitesLoading && invites.length === 0}
+            empty={!invitesLoading && invites.length === 0}
+            emptyMessage="No invites found"
+            footer={
+              <DataTableFooter
+                page={invitePage}
+                pageSize={PAGE_SIZE}
+                totalPages={inviteTotalPages}
+                totalElements={inviteTotalElements}
+                onPageChange={(p) => setInvitePage(p)}
               />
+            }
+          >
+            {columnWidths}
 
-              <SortableHeader
-                label="Name"
-                field="firstName"
-                activeSort={sort}
-                direction={direction}
-                onSortChange={handleSort}
-              />
+            <thead className="sticky top-0 bg-(--color-table-header)">
+              <tr>
+                <SortableHeader
+                  label="Email"
+                  field="email"
+                  activeSort={sort}
+                  direction={direction}
+                  onSortChange={handleSort}
+                />
+                <SortableHeader
+                  label="Name"
+                  field="firstName"
+                  activeSort={sort}
+                  direction={direction}
+                  onSortChange={handleSort}
+                />
+                <SortableHeader
+                  label="Role"
+                  field="tenantRole"
+                  activeSort={sort}
+                  direction={direction}
+                  onSortChange={handleSort}
+                />
+                <SortableHeader
+                  label="Status"
+                  field="status"
+                  activeSort={sort}
+                  direction={direction}
+                  onSortChange={handleSort}
+                />
+                <SortableHeader
+                  label="Expires"
+                  field="expiresAt"
+                  activeSort={sort}
+                  direction={direction}
+                  onSortChange={handleSort}
+                />
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide">
+                  Actions
+                </th>
+              </tr>
+            </thead>
 
-              <SortableHeader
-                label="Role"
-                field="tenantRole"
-                activeSort={sort}
-                direction={direction}
-                onSortChange={handleSort}
-              />
-
-              <SortableHeader
-                label="Status"
-                field="status"
-                activeSort={sort}
-                direction={direction}
-                onSortChange={handleSort}
-              />
-
-              <SortableHeader
-                label="Expires"
-                field="expiresAt"
-                activeSort={sort}
-                direction={direction}
-                onSortChange={handleSort}
-              />
-
-              <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide">
-                Actions
-              </th>
-            </tr>
-          </thead>
-
-          <tbody>{rows}</tbody>
-        </DataTable>
+            <tbody>{rows}</tbody>
+          </DataTable>
+        ) : (
+          <p className="text-sm text-(--color-text-muted)">
+            Select a tenant to view invites.
+          </p>
+        )}
 
         {tableSuccess && (
-          <p className="mt-4 text-sm text-(--color-success)">{tableSuccess}</p>
+          <p className="mt-4 text-sm text-(--color-success)">
+            {tableSuccess}
+          </p>
         )}
 
         {invitesError && (
-          <p className="mt-4 text-sm text-(--color-error)">{invitesError}</p>
+          <p className="mt-4 text-sm text-(--color-error)">
+            {invitesError}
+          </p>
         )}
       </Card>
     </div>

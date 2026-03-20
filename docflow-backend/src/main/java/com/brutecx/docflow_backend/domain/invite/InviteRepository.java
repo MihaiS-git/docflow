@@ -15,17 +15,26 @@ import java.util.UUID;
 
 public interface InviteRepository extends JpaRepository<Invite, UUID>, JpaSpecificationExecutor<Invite> {
 
-    // ---------- Locking variants ----------
+    // ---------- Lock for token consumption ----------
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select i from Invite i where i.token = :token")
+    @Query("select i from Invite i where i.hashedToken = :token")
     Optional<Invite> findByTokenForUpdate(@Param("token") String token);
 
+    // ---------- Read-only lookup ----------
+    Optional<Invite> findByHashedToken(String hashedToken);
+
+    // ---------- Cleanup locking ----------
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Invite> findByTenantIdAndStatusAndExpiresAtBefore(
             UUID tenantId,
             InviteStatus status,
             Instant expiresAt
     );
+
+    // ---------- Revoke locking ----------
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from Invite i where i.id = :id")
+    Optional<Invite> findByIdForUpdate(@Param("id") UUID id);
 
     boolean existsByTenantIdAndEmailIgnoreCaseAndStatus(
             UUID tenantId,

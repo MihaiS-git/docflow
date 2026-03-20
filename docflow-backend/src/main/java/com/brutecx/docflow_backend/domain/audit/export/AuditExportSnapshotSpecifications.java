@@ -22,11 +22,11 @@ public final class AuditExportSnapshotSpecifications {
     }
 
     public static Specification<AuditExportSnapshot> createdFrom(Instant from) {
-        return (root, q, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), from);
+        return (root, q, cb) -> cb.greaterThanOrEqualTo(root.get("timestamp"), from);
     }
 
     public static Specification<AuditExportSnapshot> createdTo(Instant to) {
-        return (root, q, cb) -> cb.lessThanOrEqualTo(root.get("createdAt"), to);
+        return (root, q, cb) -> cb.lessThanOrEqualTo(root.get("timestamp"), to);
     }
 
     public static Specification<AuditExportSnapshot> exportRangeFrom(Instant fromTs) {
@@ -39,17 +39,18 @@ public final class AuditExportSnapshotSpecifications {
 
     /**
      * Cursor pagination for DESC ordering:
-     * Order: createdAt DESC, id DESC
-     * For next page after cursor (createdAt,id):
+     * Order: timestamp DESC, id DESC
+     *
+     * For next page after cursor (timestamp,id):
      *  return items where:
-     *    createdAt < cursorCreatedAt
-     *    OR (createdAt == cursorCreatedAt AND id < cursorId)
+     *    timestamp < cursorTimestamp
+     *    OR (timestamp == cursorTimestamp AND id < cursorId)
      */
-    public static Specification<AuditExportSnapshot> cursorAfterDesc(Instant cursorCreatedAt, UUID cursorId) {
+    public static Specification<AuditExportSnapshot> cursorAfterDesc(Instant cursorTimestamp, UUID cursorId) {
         return (root, q, cb) -> cb.or(
-                cb.lessThan(root.get("createdAt"), cursorCreatedAt),
+                cb.lessThan(root.get("timestamp"), cursorTimestamp),
                 cb.and(
-                        cb.equal(root.get("createdAt"), cursorCreatedAt),
+                        cb.equal(root.get("timestamp"), cursorTimestamp),
                         cb.lessThan(root.get("id"), cursorId)
                 )
         );

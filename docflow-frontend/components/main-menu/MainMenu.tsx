@@ -20,21 +20,21 @@ function MainMenuComponent({ identity }: MenuProps) {
         <>
           <Link
             href="/console/users"
-            className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+            className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
           >
             Users
           </Link>
 
           <Link
             href="/console/invites"
-            className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+            className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
           >
             Invites
           </Link>
 
           <Link
             href="/console/tenants"
-            className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+            className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
           >
             Tenants
           </Link>
@@ -44,7 +44,7 @@ function MainMenuComponent({ identity }: MenuProps) {
       {isAuditor && (
         <Link
           href="/console/audit"
-          className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary)"
+          className="rounded-md px-3 py-2 text-sm font-medium text-(--color-text-secondary) hover:bg-(--color-surface-alt) hover:text-(--color-text-primary) cursor-pointer"
         >
           Audit
         </Link>

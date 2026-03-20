@@ -3,8 +3,14 @@
 import { useMemo, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { formatAuditTimestamp } from "@/lib/date/dateTimeLocal";
+
 import type { AuditExportSnapshotDTO } from "@/types/api/AuditExportSnapshotDTO";
 import type { AuditExportVerificationResultDTO } from "@/types/api/AuditExportVerificationResultDTO";
+
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import Input from "@/components/ui/Input";
+import { DataBlockHeader } from "@/components/ui/DataBlockHeader";
 
 type Props = {
   open: boolean;
@@ -15,19 +21,15 @@ type Props = {
 type SubmitState = "idle" | "uploading" | "done";
 
 function boolClass(v: boolean) {
-  return v ? "text-green-700 font-semibold" : "text-red-700 font-semibold";
+  return v
+    ? "text-(--color-success) font-semibold"
+    : "text-(--color-error) font-semibold";
 }
 
-function BoolRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: boolean;
-}) {
+function BoolRow({ label, value }: { label: string; value: boolean }) {
   return (
-    <div className="flex justify-between">
-      <span>{label}</span>
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-(--color-text-secondary) truncate">{label}</span>
       <span className={boolClass(value)}>{String(value)}</span>
     </div>
   );
@@ -40,8 +42,9 @@ export function AuditExportVerificationModal({
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
-  const [result, setResult] =
-    useState<AuditExportVerificationResultDTO | null>(null);
+  const [result, setResult] = useState<AuditExportVerificationResultDTO | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const disabled = submitState === "uploading";
@@ -116,136 +119,221 @@ export function AuditExportVerificationModal({
         if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <div className="w-full max-w-3xl rounded border bg-white shadow">
-        <div className="flex items-start justify-between gap-3 border-b p-3">
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold">{title}</h2>
-            <p className="text-xs text-neutral-600">
-              Snapshot ID: <span className="font-mono">{snapshot.id}</span>
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={disabled}
-            className="rounded border px-2 py-1 text-sm disabled:opacity-50"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="space-y-6 p-4 text-sm">
-
-          {/* Snapshot Context */}
-          <section className="rounded border p-4 space-y-2">
-            <h3 className="font-semibold">Snapshot Context</h3>
-
-            <div>
-              <span className="text-neutral-600">Created:</span>{" "}
-              {formatAuditTimestamp(snapshot.createdAt)}
-            </div>
-
-            <div>
-              <span className="text-neutral-600">Stream:</span>{" "}
-              {snapshot.stream}
-            </div>
-
-            <div>
-              <span className="text-neutral-600">Tenant:</span>{" "}
-              {snapshot.tenantId ?? "GLOBAL"}
-            </div>
-
-            <div>
-              <span className="text-neutral-600">Export range:</span>{" "}
-              {formatAuditTimestamp(snapshot.fromTs)} →{" "}
-              {formatAuditTimestamp(snapshot.toTs)}
-            </div>
-
-            <div>
-              <span className="text-neutral-600">Row count:</span>{" "}
-              {snapshot.rowCount}
-            </div>
-
-            <div>
-              <span className="text-neutral-600">Key ID:</span>{" "}
-              {snapshot.keyId ?? "—"}
-            </div>
-
-            <div>
-              <span className="text-neutral-600">Signature algorithm:</span>{" "}
-              {snapshot.signatureAlg}
-            </div>
-          </section>
-
-          {/* Upload */}
-          <section className="space-y-3">
-            <h3 className="font-semibold">Upload JSONL</h3>
-
-            <input
-              type="file"
-              accept=".jsonl,application/x-ndjson"
-              disabled={disabled}
-              className="block w-full rounded border px-2 py-2 disabled:opacity-50"
-              onChange={(e) =>
-                setFile(e.target.files?.item(0) ?? null)
-              }
-            />
-
-            <button
-              type="button"
-              onClick={onSubmit}
-              disabled={disabled}
-              className="rounded bg-black px-3 py-1.5 text-white disabled:opacity-50"
-            >
-              {submitState === "uploading"
-                ? "Verifying…"
-                : "Submit verification"}
-            </button>
-
-            {error && (
-              <p role="alert" className="text-red-700">
-                {error}
+      <div className="w-full max-w-3xl">
+        <Card
+          padding="none"
+          className="flex max-h-[85vh] flex-col overflow-hidden"
+        >
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3 border-b border-(--color-border) p-4">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-(--color-text-primary)">
+                {title}
+              </h2>
+              <p className="text-xs text-(--color-text-muted)">
+                Snapshot ID: <span className="font-mono">{snapshot.id}</span>
               </p>
-            )}
-          </section>
+            </div>
 
-          {/* Result */}
-          {result && (
-            <section className="rounded border p-4 space-y-3">
-              <div className="flex justify-between items-center">
-                <h3 className="font-semibold">Verification Result</h3>
-                <span className={boolClass(result.ok)}>
-                  {result.ok ? "OK" : "FAILED"}
-                </span>
-              </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClose}
+              disabled={disabled}
+            >
+              Close
+            </Button>
+          </div>
 
-              <div className="grid gap-1">
-                <BoolRow label="digestMatches" value={result.digestMatches} />
-                <BoolRow label="keyIdExists" value={result.keyIdExists} />
-                <BoolRow label="signatureValid" value={result.signatureValid} />
+          {/* Scrollable Body */}
+          <div className="flex-1 overflow-y-auto space-y-6 p-4 text-sm">
+            {/* Snapshot Context */}
+            <section className="space-y-3">
+              <DataBlockHeader title="Snapshot Context" />
 
-                <BoolRow label="metaPresent" value={result.metaPresent} />
-                <BoolRow label="metaParsed" value={result.metaParsed} />
-                <BoolRow label="metaSnapshotIdMatches" value={result.metaSnapshotIdMatches} />
-                <BoolRow label="metaDigestMatches" value={result.metaDigestMatches} />
-                <BoolRow label="metaSignatureMatches" value={result.metaSignatureMatches} />
-                <BoolRow label="metaKeyIdMatches" value={result.metaKeyIdMatches} />
-                <BoolRow label="metaAlgorithmMatches" value={result.metaAlgorithmMatches} />
-                <BoolRow label="metaDigestAlgorithmMatches" value={result.metaDigestAlgorithmMatches} />
-                <BoolRow label="metaSignatureInputMatches" value={result.metaSignatureInputMatches} />
-                <BoolRow label="metaStreamMatches" value={result.metaStreamMatches} />
-                <BoolRow label="metaRangeMatches" value={result.metaRangeMatches} />
-                <BoolRow label="metaTenantMatches" value={result.metaTenantMatches} />
-                <BoolRow label="metaRowCountMatches" value={result.metaRowCountMatches} />
-              </div>
+              <Card className="space-y-2">
+                <div>
+                  <span className="text-(--color-text-muted)">Timestamp:</span>{" "}
+                  {formatAuditTimestamp(snapshot.timestamp)}
+                </div>
 
-              <div>
-                <span className="font-medium">Message:</span>{" "}
-                {result.message}
-              </div>
+                <div>
+                  <span className="text-(--color-text-muted)">Stream:</span>{" "}
+                  {snapshot.stream}
+                </div>
+
+                <div>
+                  <span className="text-(--color-text-muted)">Tenant:</span>{" "}
+                  {snapshot.tenantId ?? "GLOBAL"}
+                </div>
+
+                <div>
+                  <span className="text-(--color-text-muted)">
+                    Export range:
+                  </span>{" "}
+                  {formatAuditTimestamp(snapshot.fromTs)} →{" "}
+                  {formatAuditTimestamp(snapshot.toTs)}
+                </div>
+
+                <div>
+                  <span className="text-(--color-text-muted)">Row count:</span>{" "}
+                  {snapshot.rowCount}
+                </div>
+
+                <div>
+                  <span className="text-(--color-text-muted)">Key ID:</span>{" "}
+                  {snapshot.keyId ?? "—"}
+                </div>
+
+                <div>
+                  <span className="text-(--color-text-muted)">
+                    Signature algorithm:
+                  </span>{" "}
+                  {snapshot.signatureAlg}
+                </div>
+              </Card>
             </section>
-          )}
-        </div>
+
+            {/* Upload */}
+            <section className="space-y-3">
+              <DataBlockHeader title="Upload JSONL" />
+
+              <Input
+                type="file"
+                accept=".jsonl,application/x-ndjson"
+                disabled={disabled}
+                onChange={(e) => setFile(e.target.files?.item(0) ?? null)}
+              />
+
+              <div className="flex justify-end">
+                <Button
+                  onClick={onSubmit}
+                  loading={submitState === "uploading"}
+                  disabled={disabled}
+                >
+                  Submit verification
+                </Button>
+              </div>
+
+              {error && (
+                <p role="alert" className="text-(--color-error)">
+                  {error}
+                </p>
+              )}
+            </section>
+
+            {/* Result */}
+            {result && (
+              <section className="space-y-3">
+                <DataBlockHeader title="Verification Result" />
+
+                <Card className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-(--color-text-primary)">
+                      Status
+                    </span>
+                    <span className={boolClass(result.ok)}>
+                      {result.ok ? "OK" : "FAILED"}
+                    </span>
+                  </div>
+
+                  {/* ✅ GROUPED + SEPARATED */}
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {/* Core integrity */}
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-(--color-text-muted)">
+                        Core integrity
+                      </div>
+
+                      <div className="space-y-1">
+                        <BoolRow
+                          label="digestMatches"
+                          value={result.digestMatches}
+                        />
+                        <BoolRow
+                          label="keyIdExists"
+                          value={result.keyIdExists}
+                        />
+                        <BoolRow
+                          label="signatureValid"
+                          value={result.signatureValid}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Metadata validation */}
+                    <div className="space-y-2 border-l border-(--color-border) pl-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-(--color-text-muted)">
+                        Metadata validation
+                      </div>
+
+                      <div className="space-y-1">
+                        <BoolRow
+                          label="metaPresent"
+                          value={result.metaPresent}
+                        />
+                        <BoolRow label="metaParsed" value={result.metaParsed} />
+                        <BoolRow
+                          label="metaSnapshotIdMatches"
+                          value={result.metaSnapshotIdMatches}
+                        />
+                        <BoolRow
+                          label="metaDigestMatches"
+                          value={result.metaDigestMatches}
+                        />
+                        <BoolRow
+                          label="metaSignatureMatches"
+                          value={result.metaSignatureMatches}
+                        />
+                        <BoolRow
+                          label="metaKeyIdMatches"
+                          value={result.metaKeyIdMatches}
+                        />
+                        <BoolRow
+                          label="metaAlgorithmMatches"
+                          value={result.metaAlgorithmMatches}
+                        />
+                        <BoolRow
+                          label="metaDigestAlgorithmMatches"
+                          value={result.metaDigestAlgorithmMatches}
+                        />
+                        <BoolRow
+                          label="metaSignatureInputMatches"
+                          value={result.metaSignatureInputMatches}
+                        />
+                        <BoolRow
+                          label="metaStreamMatches"
+                          value={result.metaStreamMatches}
+                        />
+                        <BoolRow
+                          label="metaRangeMatches"
+                          value={result.metaRangeMatches}
+                        />
+                        <BoolRow
+                          label="metaTenantMatches"
+                          value={result.metaTenantMatches}
+                        />
+                        <BoolRow
+                          label="metaRowCountMatches"
+                          value={result.metaRowCountMatches}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="font-medium text-(--color-text-primary)">
+                      Message:
+                    </span>{" "}
+                    <span className="text-(--color-text-secondary)">
+                      {result.message}
+                    </span>
+                  </div>
+                </Card>
+              </section>
+            )}
+          </div>
+        </Card>
       </div>
     </div>
   );

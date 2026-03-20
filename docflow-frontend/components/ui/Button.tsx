@@ -1,8 +1,4 @@
-import {
-  ButtonHTMLAttributes,
-  ReactNode,
-  forwardRef,
-} from "react";
+import { ButtonHTMLAttributes, ReactNode, forwardRef } from "react";
 
 type Variant =
   | "primary"
@@ -30,12 +26,13 @@ const Button = forwardRef<HTMLButtonElement, Props>(
       loading = false,
       className = "",
       disabled,
+      type = "button",
       ...props
     },
     ref,
   ) => {
     const base =
-      "inline-flex items-center justify-center gap-2 rounded-md font-medium select-none transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-focus-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--color-focus-ring-offset) disabled:opacity-60 disabled:pointer-events-none disabled:cursor-not-allowed active:translate-y-[1px] cursor-pointer";
+      "inline-flex items-center justify-center gap-2 rounded-md font-medium select-none transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-focus-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-(--color-focus-ring-offset) disabled:opacity-60 disabled:pointer-events-none disabled:cursor-not-allowed active:translate-y-[1px]";
 
     const variants: Record<Variant, string> = {
       primary:
@@ -48,13 +45,12 @@ const Button = forwardRef<HTMLButtonElement, Props>(
         "bg-(--color-error) text-(--color-text-inverse) hover:bg-(--color-error-hover)",
 
       outline:
-        "border border-(--color-border) text-(--color-text-primary) hover:bg-(--color-surface-alt)",
+        "border border-(--color-text-primary)/30 text-(--color-text-primary) bg-(--color-surface) hover:bg-(--color-surface-alt)",
 
       ghost:
         "text-(--color-text-primary) hover:bg-(--color-surface-alt) hover:ring-1 hover:ring-(--color-border)",
 
-      link:
-        "text-(--color-primary) hover:underline px-0 py-0 h-auto",
+      link: "text-(--color-primary) hover:underline px-0 py-0 h-auto",
     };
 
     const sizes: Record<Size, string> = {
@@ -67,14 +63,24 @@ const Button = forwardRef<HTMLButtonElement, Props>(
     return (
       <button
         ref={ref}
-        className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+        className={`
+          ${base}
+          ${variants[variant]}
+          ${sizes[size]}
+          ${!disabled && !loading ? "cursor-pointer" : ""}
+          ${className}
+        `}
         disabled={disabled || loading}
+        type={type}
         {...props}
       >
-        {loading && (
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        )}
-        {children}
+        <span className="relative flex items-center justify-center">
+          {loading && (
+            <span className="absolute h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          )}
+
+          <span className={loading ? "opacity-0" : ""}>{children}</span>
+        </span>
       </button>
     );
   },
