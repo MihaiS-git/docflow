@@ -17,7 +17,7 @@ public record TenantResponseDTO(
         TenantStatus status,
         TenantType tenantType,
         String dataRegion,
-        Long retentionDays,
+        Integer retentionDays,
         boolean bootstrapEnabled,
         Instant createdAt,
         Instant updatedAt

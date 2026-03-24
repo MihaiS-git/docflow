@@ -18,6 +18,7 @@ import com.brutecx.docflow_backend.domain.user.UserService;
 import com.brutecx.docflow_backend.logging.InfraEventActions;
 import com.brutecx.docflow_backend.logging.InfraEventLogger;
 import com.brutecx.docflow_backend.logging.InfraEventType;
+import jakarta.annotation.Nonnull;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -32,11 +33,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static net.logstash.logback.argument.StructuredArguments.entries;
@@ -219,9 +216,7 @@ public class TenantService {
             order.put(ids.get(i), i);
         }
 
-        rows.sort((a, b) ->
-                Integer.compare(order.get(a.id()), order.get(b.id()))
-        );
+        rows.sort(Comparator.comparingInt(a -> order.get(a.id())));
 
         Map<UUID, TenantListItemDTO> rowMap =
                 rows.stream()
@@ -249,6 +244,7 @@ public class TenantService {
     @Transactional
     public void assignOwner(UUID tenantId, UUID userId) {
         Tenant tenant = getRequired(tenantId);
+
         User user = userService.getRequired(userId);
         assignOwnerInvariant(tenant, user);
         tenantRepository.save(tenant);
@@ -256,27 +252,14 @@ public class TenantService {
 
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
-    public Tenant create(String name, String description) {
-        if (name == null || name.trim().isBlank()) {
-            recordCreateFailureAudit(name);
-            throw new TenantValidationException("Tenant name is required");
-        }
-
-        assertNameUnique(name);
-
+    public Tenant create(String name, String description, String dataRegion, Integer retentionDays) {
         boolean success = false;
         RuntimeException failure = null;
         Tenant created = null;
 
         try {
             try {
-                Tenant tenant = new Tenant(name);
-                if (description != null) {
-                    String normalized = description.trim();
-                    if (!normalized.isEmpty()) {
-                        tenant.updateDescription(normalized);
-                    }
-                }
+                Tenant tenant = buildTenant(name, description, dataRegion, retentionDays);
                 created = tenantRepository.save(tenant);
             } catch (DataIntegrityViolationException ex) {
                 String constraint = extractConstraintName(ex);
@@ -331,13 +314,15 @@ public class TenantService {
         }
     }
 
-
     @Transactional
     public void suspendTenant(UUID tenantId, String comment) {
         Objects.requireNonNull(tenantId, "tenantId");
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new TenantNotFoundException("Tenant not found: " + tenantId));
+
+        User actor = userService.getRequiredCurrentUser();
+        requireOwner(tenant, actor);
 
         try {
             tenant.suspend();
@@ -378,6 +363,9 @@ public class TenantService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new TenantNotFoundException("Tenant not found: " + tenantId));
 
+        User actor = userService.getRequiredCurrentUser();
+        requireOwner(tenant, actor);
+
         try {
             tenant.reactivate();
             try {
@@ -416,6 +404,9 @@ public class TenantService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new TenantNotFoundException("Tenant not found: " + tenantId));
 
+        User actor = userService.getRequiredCurrentUser();
+        requireOwner(tenant, actor);
+
         try {
             tenant.terminate();
             try {
@@ -453,7 +444,7 @@ public class TenantService {
             String newName,
             String description,
             String newDataRegion,
-            Long newRetentionDays,
+            Integer newRetentionDays,
             Boolean disableBootstrap,
             String comment
     ) {
@@ -461,6 +452,9 @@ public class TenantService {
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new TenantNotFoundException("Tenant not found: " + tenantId));
+
+        User actor = userService.getRequiredCurrentUser();
+        requireOwner(tenant, actor);
 
         try {
             boolean changed = false;
@@ -599,17 +593,6 @@ public class TenantService {
         );
     }
 
-    @Transactional(readOnly = true)
-    public void requireActiveTenant(UUID tenantId) {
-        TenantStatus status = getRequiredTenantStatus(tenantId);
-
-        if (status != TenantStatus.ACTIVE) {
-            throw new LifecycleAccessDeniedException(
-                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                    "Tenant is not active: " + tenantId
-            );
-        }
-    }
 
     /**
      * ========HELPERS===========
@@ -697,22 +680,6 @@ public class TenantService {
         );
     }
 
-    private void recordCreateFailureAudit(String name) {
-        TenantAuditMetadata metadata = new TenantAuditMetadata(
-                null,
-                "CREATE_TENANT",
-                "VALIDATION_FAILED"
-        );
-
-        adminAuditEventService.record(
-                AdminAuditActionType.TENANT_CREATE_FAILED,
-                null,
-                "TENANT_CREATE:" + (name == null ? "NULL" : name.trim()),
-                null,
-                metadata
-        );
-    }
-
     private void ensureNotLastActiveManager(UUID tenantId) {
         final List<UUID> locked;
 
@@ -778,9 +745,45 @@ public class TenantService {
         boolean isOwner = tenant.getOwner() != null
                 && tenant.getOwner().getId().equals(targetUserId);
 
-        // self protection
+        /*
+         * OWNER INVARIANTS
+         * Only enforce when field is being changed
+         */
+        if (isOwner) {
+            if (newRole != null && newRole != TenantRole.MANAGER) {
+                securityWarnDenied(
+                        "TENANT_OWNER_ROLE_CHANGE_DENIED",
+                        tenant.getId(),
+                        actor,
+                        targetUserId,
+                        "OWNER_ROLE_CHANGE_DENIED"
+                );
+                throw new TenantException(
+                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                        "Owner role cannot be changed"
+                );
+            }
+
+            if (newStatus != null && newStatus != MembershipStatus.ACTIVE) {
+                securityWarnDenied(
+                        "TENANT_OWNER_STATUS_CHANGE_DENIED",
+                        tenant.getId(),
+                        actor,
+                        targetUserId,
+                        "OWNER_STATUS_CHANGE_DENIED"
+                );
+                throw new TenantException(
+                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                        "Owner must remain ACTIVE"
+                );
+            }
+        }
+
+        /*
+         * SELF PROTECTION
+         */
         if (actorIsTarget) {
-            if (newRole != TenantRole.MANAGER) {
+            if (newRole != null && newRole != TenantRole.MANAGER) {
                 securityWarnDenied(
                         "TENANT_MEMBERSHIP_SELF_DEMOTION_DENIED",
                         tenant.getId(),
@@ -800,37 +803,6 @@ public class TenantService {
                         "SELF_SUSPEND_DENIED"
                 );
                 throw new SelfActionForbiddenException("Self-suspension is not allowed");
-            }
-        }
-
-        // owner protection
-        if (isOwner) {
-            if (newRole != TenantRole.MANAGER) {
-                securityWarnDenied(
-                        "TENANT_OWNER_ROLE_CHANGE_DENIED",
-                        tenant.getId(),
-                        actor,
-                        targetUserId,
-                        "OWNER_ROLE_CHANGE_DENIED"
-                );
-                throw new TenantException(
-                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                        "Owner role cannot be changed"
-                );
-            }
-
-            if (newStatus == MembershipStatus.SUSPENDED) {
-                securityWarnDenied(
-                        "TENANT_OWNER_SUSPEND_DENIED",
-                        tenant.getId(),
-                        actor,
-                        targetUserId,
-                        "OWNER_SUSPEND_DENIED"
-                );
-                throw new TenantException(
-                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                        "Owner cannot be suspended"
-                );
             }
         }
     }
@@ -1060,15 +1032,6 @@ public class TenantService {
         SECURITY_LOG.info("security_event {}", entries(fields));
     }
 
-    private void assertNameUnique(String name) {
-        if (tenantRepository.existsByNameIgnoreCase(name)) {
-            throw new TenantException(
-                    ErrorCode.TENANT_ALREADY_EXISTS,
-                    "Tenant name already exists"
-            );
-        }
-    }
-
     private void safeAuditCreate(
             boolean success,
             Tenant created,
@@ -1116,4 +1079,41 @@ public class TenantService {
             );
         }
     }
+
+    @Nonnull
+    private static Tenant buildTenant(String name, String description, String dataRegion, Integer retentionDays) {
+        Tenant tenant = new Tenant(name);
+        if (description != null && !description.isBlank()) {
+            tenant.updateDescription(description);
+        }
+        if (dataRegion != null && !dataRegion.isBlank()) {
+            tenant.updateDataRegion(dataRegion);
+        }
+        if (retentionDays != null) {
+            tenant.updateRetentionDays(retentionDays);
+        }
+        return tenant;
+    }
+
+    private void requireOwner(Tenant tenant, User actor) {
+        if (!tenant.isOwner(actor)) {
+            throw new TenantException(
+                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                    "Only tenant owner can perform this operation"
+            );
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void requireActiveTenant(UUID tenantId) {
+        TenantStatus status = getRequiredTenantStatus(tenantId);
+
+        if (status != TenantStatus.ACTIVE) {
+            throw new LifecycleAccessDeniedException(
+                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                    "Tenant is not active: " + tenantId
+            );
+        }
+    }
+
 }

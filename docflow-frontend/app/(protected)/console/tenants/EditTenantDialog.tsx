@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Dialog from "@/components/ui/Dialog";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
 import type { AdminTenant } from "@/types/admin/Tenant";
 import { updateTenant } from "@/lib/admin/adminTenants";
+
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  tenantSchema,
+  type TenantFormValues,
+} from "@/lib/validation/tenant.schema";
 
 type Props = {
   tenant: AdminTenant;
@@ -21,64 +28,87 @@ export default function EditTenantDialog({
   onClose,
   onSaved,
 }: Props) {
-  const [name, setName] = useState("");
-  const [dataRegion, setDataRegion] = useState("");
-  const [retentionDays, setRetentionDays] = useState<string>("");
-
-  const [loading, setLoading] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<TenantFormValues>({
+    resolver: zodResolver(tenantSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+      dataRegion: "",
+      retentionDays: "",
+    },
+  });
 
   useEffect(() => {
     if (!open) return;
 
-    setName(tenant.name);
-    setDataRegion(tenant.dataRegion ?? "");
-    setRetentionDays(
-      tenant.retentionDays != null ? String(tenant.retentionDays) : ""
-    );
-  }, [tenant, open]);
+    reset({
+      name: tenant.name ?? "",
+      description: tenant.description ?? "",
+      dataRegion: tenant.dataRegion ?? "",
+      retentionDays:
+        tenant.retentionDays != null ? String(tenant.retentionDays) : "",
+    });
+  }, [tenant, open, reset]);
 
-  async function handleSave() {
-    setLoading(true);
+  const onSubmit = handleSubmit(async (values) => {
+    await updateTenant(tenant.id, {
+      name: values.name.trim(),
+      description: values.description?.trim() || undefined,
+      dataRegion: values.dataRegion?.trim() || undefined,
+      retentionDays:
+        values.retentionDays && values.retentionDays !== ""
+          ? Number(values.retentionDays)
+          : undefined,
+    });
 
-    try {
-      await updateTenant(tenant.id, {
-        name: name.trim(),
-        dataRegion: dataRegion || undefined,
-        retentionDays:
-          retentionDays === "" ? undefined : Number(retentionDays),
-      });
-
-      onSaved();
-      onClose();
-    } finally {
-      setLoading(false);
-    }
-  }
+    onSaved();
+    onClose();
+  });
 
   return (
     <Dialog open={open} onClose={onClose} title="Edit tenant">
       <div className="space-y-4">
-        <FormField label="Tenant name">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+        <FormField label="Tenant name" error={errors.name?.message}>
+          <Input {...register("name")} invalid={!!errors.name} />
+        </FormField>
+
+        <FormField label="Description" error={errors.description?.message}>
+          <textarea
+            {...register("description")}
+            aria-invalid={!!errors.description}
+            rows={3}
+            className={`
+              w-full
+              rounded
+              border ${errors.description ? "border-(--color-error)" : "border-(--color-border)"}
+              bg-(--color-surface)
+              px-2 py-2
+              text-(--color-text-primary)
+              resize-y
+              focus:outline-none
+              focus:ring-2
+              ${errors.description ? "focus:ring-(--color-error)" : "focus:ring-(--color-primary)"}
+            `}
           />
         </FormField>
 
-        <FormField label="Data region">
-          <Input
-            value={dataRegion}
-            onChange={(e) => setDataRegion(e.target.value)}
-            placeholder="Optional region identifier"
-          />
+        <FormField label="Data region" error={errors.dataRegion?.message}>
+          <Input {...register("dataRegion")} invalid={!!errors.dataRegion} />
         </FormField>
 
-        <FormField label="Retention days">
+        <FormField
+          label="Retention days"
+          error={errors.retentionDays?.message}
+        >
           <Input
             type="number"
-            value={retentionDays}
-            onChange={(e) => setRetentionDays(e.target.value)}
-            placeholder="Optional"
+            {...register("retentionDays")}
+            invalid={!!errors.retentionDays}
           />
         </FormField>
 
@@ -87,7 +117,7 @@ export default function EditTenantDialog({
             Cancel
           </Button>
 
-          <Button loading={loading} onClick={handleSave}>
+          <Button loading={isSubmitting} onClick={onSubmit}>
             Save
           </Button>
         </div>

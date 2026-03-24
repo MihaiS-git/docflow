@@ -7,7 +7,7 @@ export interface AdminTenant {
   id: string
   name: string
   description: string
-  ownerID: string
+  ownerId: string
   
   status: TenantStatus
 

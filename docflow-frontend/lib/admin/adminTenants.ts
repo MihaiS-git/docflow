@@ -48,12 +48,14 @@ export function fetchManagedTenants() {
   return apiFetch<AdminTenant[]>(`/api/tenants/managed`);
 }
 
-export function createTenant(name: string, description: string) {
+export function createTenant(name: string, description?: string, regionData?: string, retentionDays?: number) {
   return apiFetch<AdminTenant>(`/api/admin/tenants`, {
     method: "POST",
     body: JSON.stringify({
       name,
       description: description || undefined,
+      regionData: regionData || undefined,
+      retentionDays: retentionDays ?? undefined
     }),
     headers: {
       "Content-Type": "application/json",

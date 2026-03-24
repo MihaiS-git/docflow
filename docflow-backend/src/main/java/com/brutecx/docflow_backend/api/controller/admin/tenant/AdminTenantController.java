@@ -111,7 +111,9 @@ public class AdminTenantController {
     ) {
         Tenant tenant = tenantService.create(
                 request.name(),
-                request.description()
+                request.description(),
+                request.dataRegion(),
+                request.retentionDays()
         );
         return ResponseEntity.ok(TenantResponseDTO.from(tenant));
     }

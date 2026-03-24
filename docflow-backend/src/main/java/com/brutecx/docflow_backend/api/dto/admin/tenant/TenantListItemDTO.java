@@ -8,15 +8,19 @@ import java.util.UUID;
 public record TenantListItemDTO(
         UUID id,
         String name,
+        String description,
+
+        UUID ownerId,
+
         TenantStatus status,
 
         String managerName,
         String managerEmail,
 
-        long membersCount,
+        Long membersCount,
 
         String dataRegion,
-        Long retentionDays,
+        Integer retentionDays,
 
         Instant lastActivity,
 

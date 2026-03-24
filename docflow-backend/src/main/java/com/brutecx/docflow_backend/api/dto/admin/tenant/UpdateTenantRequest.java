@@ -4,7 +4,7 @@ public record UpdateTenantRequest(
         String name,
         String description,
         String dataRegion,
-        Long retentionDays,
+        Integer retentionDays,
         Boolean disableBootstrap,
         String comment
 ) {

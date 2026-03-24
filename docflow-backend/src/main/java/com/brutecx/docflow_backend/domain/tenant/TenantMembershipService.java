@@ -18,16 +18,6 @@ public class TenantMembershipService {
     private final UserTenantMembershipRepository membershipRepository;
 
     @Transactional
-    public void ensureRootMembership(UUID userId) {
-        Objects.requireNonNull(userId, "userId");
-
-        Tenant root = tenantRepository.findByTenantType(TenantType.ROOT)
-                .orElseThrow(() -> new IllegalStateException("ROOT tenant missing"));
-
-        ensureMembership(userId, root.getId(), TenantRole.MEMBER);
-    }
-
-    @Transactional
     public void ensureMembership(UUID userId, UUID tenantId, TenantRole role) {
 
         Objects.requireNonNull(userId, "userId");

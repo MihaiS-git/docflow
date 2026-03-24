@@ -92,9 +92,6 @@ export default function TenantsPage() {
   const isAdmin =
     status === "AUTH" && identity?.roles?.includes("ADMIN") === true;
 
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
 
@@ -108,9 +105,6 @@ export default function TenantsPage() {
     initialFilters,
   );
 
-  /**
-   * Debounced prefix filters
-   */
   const searchFilter = useDebouncedPrefixFilter(filters.search);
   const managerNameFilter = useDebouncedPrefixFilter(filters.managerName);
   const managerEmailFilter = useDebouncedPrefixFilter(filters.managerEmail);
@@ -190,21 +184,23 @@ export default function TenantsPage() {
   const tenants = useMemo(() => data?.content ?? [], [data?.content]);
 
   const handleCreate = useCallback(
-    async (e: React.FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
-
-      if (!name.trim()) {
-        setError("Tenant name is required.");
-        return;
-      }
-
+    async (data: {
+      name: string;
+      description?: string;
+      dataRegion?: string;
+      retentionDays?: number;
+    }) => {
       setCreateLoading(true);
       setError(null);
 
       try {
-        await createTenant(name.trim(), description?.trim() || "");
-        setName("");
-        setDescription("");
+        await createTenant(
+          data.name,
+          data.description,
+          data.dataRegion,
+          data.retentionDays,
+        );
+
         reload();
       } catch (err) {
         if (err instanceof ApiError) setError(err.message);
@@ -214,7 +210,7 @@ export default function TenantsPage() {
         setCreateLoading(false);
       }
     },
-    [description, name, reload],
+    [reload],
   );
 
   const handleSort = useCallback((field: string) => {
@@ -484,12 +480,8 @@ export default function TenantsPage() {
 
       <div className="flex flex-col gap-6">
         <CreateTenantCard
-          name={name}
-          description={description}
           loading={createLoading}
           error={error}
-          setName={setName}
-          setDescription={setDescription}
           onSubmit={handleCreate}
         />
 

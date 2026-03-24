@@ -25,7 +25,6 @@ CREATE TABLE public.users
     CONSTRAINT users_status_check
         CHECK (status IN ('ACTIVE', 'LOCKED', 'DISABLED')),
 
-    CONSTRAINT uk_users_email UNIQUE (email),
     CONSTRAINT uk_users_external_subject UNIQUE (external_subject_id)
 );
 
@@ -34,26 +33,32 @@ CREATE TABLE public.tenants
     id                uuid PRIMARY KEY,
 
     bootstrap_enabled boolean      NOT NULL,
-    created_at        timestamptz  NOT NULL,
+    created_at        timestamptz  NOT NULL DEFAULT now(),
 
-    data_region       varchar(512),
+    data_region       varchar(128),
 
     name              varchar(128) NOT NULL,
     description       varchar(1000),
-    owner_user_id     uuid REFERENCES users(id),
+    owner_user_id     uuid REFERENCES users (id),
 
-    retention_days    integer,
+    retention_days    integer      NOT NULL DEFAULT 90,
 
     status            varchar(16)  NOT NULL,
     tenant_type       varchar(32)  NOT NULL,
 
-    updated_at        timestamptz  NOT NULL,
+    updated_at        timestamptz  NOT NULL DEFAULT now(),
 
     CONSTRAINT tenants_status_check
         CHECK (status IN ('ACTIVE', 'SUSPENDED', 'TERMINATED')),
 
     CONSTRAINT tenants_tenant_type_check
-        CHECK (tenant_type IN ('ROOT', 'ORGANIZATION'))
+        CHECK (tenant_type IN ('ROOT', 'ORGANIZATION')),
+
+    CONSTRAINT tenants_retention_days_check
+        CHECK (
+            retention_days = 0
+                OR (retention_days BETWEEN 30 AND 3650)
+            );
 );
 
 CREATE TABLE public.user_tenant_memberships
@@ -66,10 +71,13 @@ CREATE TABLE public.user_tenant_memberships
     role       varchar(32) NOT NULL,
     status     varchar(32) NOT NULL,
 
-    tenant_id  uuid        NOT NULL REFERENCES tenants (id) CONSTRAINT fk_membership_tenant,
-    user_id    uuid        NOT NULL REFERENCES users (id) CONSTRAINT fk_membership_user,
+    tenant_id  uuid        NOT NULL,
+    user_id    uuid        NOT NULL,
 
     CONSTRAINT uk_membership_user_tenant UNIQUE (user_id, tenant_id),
+
+    CONSTRAINT fk_membership_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+    CONSTRAINT fk_membership_user FOREIGN KEY (user_id) REFERENCES users (id),
 
     CONSTRAINT membership_role_check
         CHECK (role IN ('MEMBER', 'EXECUTOR', 'REVIEWER', 'MANAGER')),
@@ -107,7 +115,7 @@ CREATE TABLE public.invites
         CHECK (status IN ('PENDING', 'ACCEPTED')),
 
     CONSTRAINT invites_tenant_role_check
-        CHECK (tenant_role IN ('MEMBER', 'EXECUTOR', 'EXECUTOR', 'MANAGER'))
+        CHECK (tenant_role IN ('MEMBER', 'EXECUTOR', 'REVIEWER', 'MANAGER'))
 );
 
 CREATE TABLE public.audit_signing_keys
@@ -770,6 +778,9 @@ CREATE INDEX idx_tenants_created_at
 CREATE UNIQUE INDEX ux_tenants_name_ci
     ON tenants (LOWER(name));
 
+CREATE INDEX idx_tenants_tenant_type
+    ON tenants (tenant_type);
+
 /* =========================================================
    MEMBERSHIPS
    ========================================================= */
@@ -781,14 +792,16 @@ CREATE INDEX idx_memberships_tenant
     ON user_tenant_memberships (tenant_id);
 
 CREATE INDEX idx_memberships_active_managers
-    ON user_tenant_memberships (tenant_id, id)
-    WHERE role = 'MANAGER' AND status = 'ACTIVE';
+    ON user_tenant_memberships (tenant_id, id) WHERE role = 'MANAGER' AND status = 'ACTIVE';
 
 CREATE INDEX idx_memberships_tenant_role_status
     ON user_tenant_memberships (tenant_id, role, status, id);
 
 CREATE INDEX idx_memberships_user_role_status
     ON user_tenant_memberships (user_id, role, status, tenant_id);
+
+CREATE UNIQUE INDEX ux_tenant_single_active_manager
+    ON user_tenant_memberships (tenant_id) WHERE role = 'MANAGER' AND status = 'ACTIVE';
 
 
 /* =========================================================
@@ -803,9 +816,6 @@ CREATE INDEX idx_invites_expired_pending
 
 CREATE UNIQUE INDEX ux_invites_pending_email
     ON invites (tenant_id, lower(email)) WHERE status = 'PENDING';
-
-CREATE UNIQUE INDEX ux_invites_hashed_token
-    ON invites (hashed_token);
 
 
 /* =========================================================
