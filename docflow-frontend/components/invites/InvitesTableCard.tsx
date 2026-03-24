@@ -226,8 +226,8 @@ export default function InvitesTableCard({ tenants }: Props) {
       <Select
         label="Tenant"
         value={selectedTenantId}
-        size={6}
-        className="min-h-20 max-h-40 overflow-y-auto w-56"
+        /* size={6} */
+        className="overflow-y-auto w-56"
         onChange={(e) => {
           setSelectedTenantId(e.target.value);
           setInvitePage(0);
@@ -266,7 +266,7 @@ export default function InvitesTableCard({ tenants }: Props) {
         className="w-56"
       />
 
-      <Button type="button" variant="ghost" onClick={onResetFilters}>
+      <Button type="button" variant="outline" onClick={onResetFilters}>
         Reset
       </Button>
     </div>

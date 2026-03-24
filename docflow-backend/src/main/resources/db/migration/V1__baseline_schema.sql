@@ -39,6 +39,8 @@ CREATE TABLE public.tenants
     data_region       varchar(512),
 
     name              varchar(128) NOT NULL,
+    description       varchar(1000),
+    owner_user_id     uuid REFERENCES users(id),
 
     retention_days    integer,
 
@@ -46,8 +48,6 @@ CREATE TABLE public.tenants
     tenant_type       varchar(32)  NOT NULL,
 
     updated_at        timestamptz  NOT NULL,
-
-    CONSTRAINT uk_tenants_name UNIQUE (name),
 
     CONSTRAINT tenants_status_check
         CHECK (status IN ('ACTIVE', 'SUSPENDED', 'TERMINATED')),
@@ -64,10 +64,10 @@ CREATE TABLE public.user_tenant_memberships
     updated_at timestamptz NOT NULL,
 
     role       varchar(32) NOT NULL,
-    status     varchar(16) NOT NULL,
+    status     varchar(32) NOT NULL,
 
-    tenant_id  uuid        NOT NULL REFERENCES tenants (id),
-    user_id    uuid        NOT NULL REFERENCES users (id),
+    tenant_id  uuid        NOT NULL REFERENCES tenants (id) CONSTRAINT fk_membership_tenant,
+    user_id    uuid        NOT NULL REFERENCES users (id) CONSTRAINT fk_membership_user,
 
     CONSTRAINT uk_membership_user_tenant UNIQUE (user_id, tenant_id),
 
@@ -767,7 +767,7 @@ CREATE INDEX idx_tenants_data_region_lower
 CREATE INDEX idx_tenants_created_at
     ON tenants (created_at DESC);
 
-CREATE INDEX idx_tenants_name_lower
+CREATE UNIQUE INDEX ux_tenants_name_ci
     ON tenants (LOWER(name));
 
 /* =========================================================
@@ -780,12 +780,15 @@ CREATE INDEX idx_memberships_user
 CREATE INDEX idx_memberships_tenant
     ON user_tenant_memberships (tenant_id);
 
-CREATE INDEX idx_memberships_manager_lookup
-    ON user_tenant_memberships (tenant_id, role, status, user_id);
-
 CREATE INDEX idx_memberships_active_managers
-    ON user_tenant_memberships (tenant_id, user_id) WHERE role = 'MANAGER'
-  AND status = 'ACTIVE';
+    ON user_tenant_memberships (tenant_id, id)
+    WHERE role = 'MANAGER' AND status = 'ACTIVE';
+
+CREATE INDEX idx_memberships_tenant_role_status
+    ON user_tenant_memberships (tenant_id, role, status, id);
+
+CREATE INDEX idx_memberships_user_role_status
+    ON user_tenant_memberships (user_id, role, status, tenant_id);
 
 
 /* =========================================================
@@ -1028,7 +1031,7 @@ CREATE INDEX brin_unauth_access_timestamp
 CREATE INDEX idx_audit_export_snapshot_ts_id
     ON audit_export_snapshot ("timestamp" DESC, id DESC);
 
-CREATE INDEX idx_audit_export_snapshot_ts_id
+CREATE INDEX idx_audit_export_snapshot_stream_ts_id
     ON audit_export_snapshot (stream, "timestamp" DESC, id DESC);
 
 

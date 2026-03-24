@@ -12,6 +12,7 @@ import {
   reactivateTenant,
   terminateTenant,
 } from "@/lib/admin/adminTenants";
+import { useRouter } from "next/navigation";
 
 type Props = {
   tenant: AdminTenant;
@@ -19,6 +20,7 @@ type Props = {
 };
 
 function TenantRowComponent({ tenant, onUpdated }: Props) {
+  const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
 
   const [suspendOpen, setSuspendOpen] = useState(false);
@@ -68,13 +70,16 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
     tenant.status === "ACTIVE"
       ? "bg-(--color-success) text-(--color-text-inverse)"
       : tenant.status === "SUSPENDED"
-      ? "bg-(--color-warning) text-(--color-text-inverse)"
-      : "bg-(--color-error) text-(--color-text-inverse)";
+        ? "bg-(--color-warning) text-(--color-text-inverse)"
+        : "bg-(--color-error) text-(--color-text-inverse)";
 
   return (
     <>
       <tr className="border-b border-(--color-table-border) hover:bg-(--color-table-row-hover) h-13 text-sm">
-        <td className="px-4 font-medium text-(--color-text-primary)">
+        <td
+          className="px-4 font-medium text-(--color-text-primary) text-left hover:underline hover:cursor-pointer"
+          onClick={() => router.push(`/console/tenants/${tenant.id}`)}
+        >
           {tenant.name}
         </td>
 

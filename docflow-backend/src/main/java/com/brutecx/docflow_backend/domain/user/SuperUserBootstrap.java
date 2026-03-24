@@ -1,9 +1,6 @@
 package com.brutecx.docflow_backend.domain.user;
 
-import com.brutecx.docflow_backend.domain.tenant.Tenant;
-import com.brutecx.docflow_backend.domain.tenant.TenantMembershipService;
-import com.brutecx.docflow_backend.domain.tenant.TenantRole;
-import com.brutecx.docflow_backend.domain.tenant.TenantService;
+import com.brutecx.docflow_backend.domain.tenant.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -69,6 +66,8 @@ public class SuperUserBootstrap implements ApplicationRunner {
                 root.getId(),
                 TenantRole.MANAGER
         );
+
+        tenantService.assignOwner(root.getId(), admin.getId());
 
         log.info(
                 "Bootstrapped superuser (LOCKED) rootTenantId={} email={}",

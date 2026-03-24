@@ -28,6 +28,7 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
             where m.tenant.id = :tenantId
               and m.role = :role
               and m.status = :status
+            order by m.id
             """)
     List<UUID> lockActiveManagers(
             @Param("tenantId") UUID tenantId,
@@ -35,11 +36,13 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
             @Param("status") MembershipStatus status
     );
 
+
+
     @Query(
             value = """
                     select m
                     from UserTenantMembership m
-                    join m.user u
+                    join fetch m.user
                     where m.tenant.id = :tenantId
                       and (:role is null or m.role = :role)
                       and (:status is null or m.status = :status)
@@ -47,6 +50,7 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
             countQuery = """
                     select count(m)
                     from UserTenantMembership m
+                    join m.user u
                     where m.tenant.id = :tenantId
                       and (:role is null or m.role = :role)
                       and (:status is null or m.status = :status)
@@ -59,20 +63,81 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
             Pageable pageable
     );
 
+
+
+
+
+
+    // 1. No filters
     @Query("""
-    select new com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO(
-        t.id,
-        t.name,
-        t.status
-    )
+    select m
     from UserTenantMembership m
-    join m.tenant t
-    where m.user.id = :userId
-      and m.role = :role
-      and m.status = :membershipStatus
-      and t.status = :tenantStatus
-    order by t.name asc
+    join fetch m.user
+    where m.tenant.id = :tenantId
 """)
+    Page<UserTenantMembership> findByTenantIdWithUser(
+            @Param("tenantId") UUID tenantId,
+            Pageable pageable
+    );
+
+    // 2. Role only
+    @Query("""
+    select m
+    from UserTenantMembership m
+    join fetch m.user
+    where m.tenant.id = :tenantId
+      and m.role = :role
+""")
+    Page<UserTenantMembership> findByTenantIdAndRoleWithUser(
+            @Param("tenantId") UUID tenantId,
+            @Param("role") TenantRole role,
+            Pageable pageable
+    );
+
+    // 3. Status only
+    @Query("""
+    select m
+    from UserTenantMembership m
+    join fetch m.user
+    where m.tenant.id = :tenantId
+      and m.status = :status
+""")
+    Page<UserTenantMembership> findByTenantIdAndStatusWithUser(
+            @Param("tenantId") UUID tenantId,
+            @Param("status") MembershipStatus status,
+            Pageable pageable
+    );
+
+    // 4. Role + Status
+    @Query("""
+    select m
+    from UserTenantMembership m
+    join fetch m.user
+    where m.tenant.id = :tenantId
+      and m.role = :role
+      and m.status = :status
+""")
+    Page<UserTenantMembership> findByTenantIdAndRoleAndStatusWithUser(
+            @Param("tenantId") UUID tenantId,
+            @Param("role") TenantRole role,
+            @Param("status") MembershipStatus status,
+            Pageable pageable
+    );
+
+    @Query("""
+                select new com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO(
+                    t.id,
+                    t.name,
+                    t.status
+                )
+                from UserTenantMembership m
+                join m.tenant t
+                where m.user.id = :userId
+                  and m.role = :role
+                  and m.status = :membershipStatus
+                  and t.status = :tenantStatus
+                order by t.name asc
+            """)
     List<TenantLookupDTO> findActiveManagedTenantLookup(
             @Param("userId") UUID userId,
             @Param("role") TenantRole role,
@@ -80,5 +145,5 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
             @Param("tenantStatus") TenantStatus tenantStatus
     );
 
-    boolean existsByUserIdAndTenantId(UUID id, UUID id1);
+    boolean existsByUserIdAndTenantId(UUID userId, UUID tenantId);
 }

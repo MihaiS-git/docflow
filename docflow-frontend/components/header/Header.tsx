@@ -39,9 +39,9 @@ export default function Header() {
           <div className="flex items-center gap-3">
             <ThemeToggleButton />
 
-            {isAuthenticated && <Button variant="outline" size="lg" onClick={logout}>Logout</Button>}
+            {isAuthenticated && <Button variant="outline" onClick={logout}>Logout</Button>}
 
-            {status === "ANON" && <Button variant="outline" size="lg"  onClick={login}>Login</Button>}
+            {status === "ANON" && <Button variant="outline" onClick={login}>Login</Button>}
 
             <MobileMenuButton
               mobileOpen={mobileOpen}

@@ -6,6 +6,9 @@ export type TenantStatus =
 export interface AdminTenant {
   id: string
   name: string
+  description: string
+  ownerID: string
+  
   status: TenantStatus
 
   managerName?: string

@@ -7,19 +7,15 @@ import Button from "@/components/ui/Button";
 
 type Props = {
   name: string;
+  description?: string;
   loading: boolean;
   error: string | null;
   setName: (v: string) => void;
+  setDescription: (v: string) => void;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
 };
 
-function CreateTenantCard({
-  name,
-  loading,
-  error,
-  setName,
-  onSubmit,
-}: Props) {
+function CreateTenantCard({ name, description, loading, error, setName, setDescription, onSubmit }: Props) {
   return (
     <Card title="Create tenant">
       <form
@@ -34,17 +30,21 @@ function CreateTenantCard({
             disabled={loading}
           />
         </div>
+        <div className="flex-1">
+          <Input
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            disabled={loading}
+          />
+        </div>
 
         <Button type="submit" loading={loading}>
           Create
         </Button>
       </form>
 
-      {error && (
-        <p className="mt-3 text-sm text-(--color-error)">
-          {error}
-        </p>
-      )}
+      {error && <p className="mt-3 text-sm text-(--color-error)">{error}</p>}
     </Card>
   );
 }

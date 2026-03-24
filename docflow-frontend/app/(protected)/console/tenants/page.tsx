@@ -93,6 +93,8 @@ export default function TenantsPage() {
     status === "AUTH" && identity?.roles?.includes("ADMIN") === true;
 
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
 
@@ -200,8 +202,9 @@ export default function TenantsPage() {
       setError(null);
 
       try {
-        await createTenant(name.trim());
+        await createTenant(name.trim(), description?.trim() || "");
         setName("");
+        setDescription("");
         reload();
       } catch (err) {
         if (err instanceof ApiError) setError(err.message);
@@ -211,7 +214,7 @@ export default function TenantsPage() {
         setCreateLoading(false);
       }
     },
-    [name, reload],
+    [description, name, reload],
   );
 
   const handleSort = useCallback((field: string) => {
@@ -482,9 +485,11 @@ export default function TenantsPage() {
       <div className="flex flex-col gap-6">
         <CreateTenantCard
           name={name}
+          description={description}
           loading={createLoading}
           error={error}
           setName={setName}
+          setDescription={setDescription}
           onSubmit={handleCreate}
         />
 

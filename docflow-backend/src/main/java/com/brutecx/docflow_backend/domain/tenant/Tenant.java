@@ -1,5 +1,7 @@
 package com.brutecx.docflow_backend.domain.tenant;
 
+import com.brutecx.docflow_backend.api.error.TenantInvalidArgumentException;
+import com.brutecx.docflow_backend.domain.user.User;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -9,18 +11,12 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(
-        name = "tenants",
-        uniqueConstraints = {
-                @UniqueConstraint(name = "uk_tenants_name", columnNames = {"name"})
-        }
-)
+@Table(name = "tenants")
 public class Tenant {
 
     @Id
@@ -33,6 +29,13 @@ public class Tenant {
     @Column(nullable = false, length = 128)
     private String name;
 
+    @Column(name = "description", length = 1000)
+    private String description;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_user_id", foreignKey = @ForeignKey(name = "fk_tenant_owner"))
+    private User owner;
+
     @NotNull
     @Enumerated(EnumType.STRING)
     private TenantStatus status;
@@ -43,11 +46,11 @@ public class Tenant {
     private TenantType tenantType;
 
     @NotNull
-    @Column(name="created_at")
+    @Column(name = "created_at")
     private Instant createdAt;
 
     @NotNull
-    @Column(name="updated_at")
+    @Column(name = "updated_at")
     private Instant updatedAt;
 
     @Column(name = "data_region", length = 512)
@@ -58,9 +61,6 @@ public class Tenant {
 
     @Column(name = "bootstrap_enabled", nullable = false)
     private Boolean bootstrapEnabled;
-
-    @OneToMany(mappedBy = "tenant", fetch = FetchType.LAZY)
-    private Set<UserTenantMembership> memberships;
 
     public Tenant(String name) {
         this(name, TenantType.ORGANIZATION, false);
@@ -94,16 +94,52 @@ public class Tenant {
 
     private static String canonicalize(String name) {
         Objects.requireNonNull(name);
+
         String normalized = name.trim().replaceAll("\\s+", " ");
+
+        normalized = java.text.Normalizer.normalize(
+                normalized,
+                java.text.Normalizer.Form.NFC
+        );
+
         if (normalized.isBlank()) {
-            throw new IllegalArgumentException("Tenant name is required");
+            throw new TenantInvalidArgumentException("Tenant name is required");
         }
+
+        if (normalized.length() > 128) {
+            throw new TenantInvalidArgumentException("Tenant name too long");
+        }
+
+        if (!normalized.matches("^[\\p{L}0-9](?:[\\p{L}0-9 &.,'()\\/+\\-_#]*[\\p{L}0-9])?$")) {
+            throw new TenantInvalidArgumentException("Invalid tenant name format");
+        }
+
         return normalized;
     }
 
     public void updateName(String name) {
         requireActive("UPDATE_NAME");
         this.name = canonicalize(name);
+    }
+
+    public void updateDescription(String description) {
+        requireActive("UPDATE_DESCRIPTION");
+        if (description != null) {
+            String normalized = description.trim();
+
+            if (normalized.length() > 1000) {
+                throw new TenantInvalidArgumentException("Description too long");
+            }
+
+            this.description = normalized.isBlank() ? null : normalized;
+        } else {
+            this.description = null;
+        }
+    }
+
+    public void assignOwner(User user) {
+        requireActive("ASSIGN_OWNER");
+        this.owner = Objects.requireNonNull(user);
     }
 
     public void updateDataRegion(String dataRegion) {
@@ -156,5 +192,9 @@ public class Tenant {
                     "Tenant must be ACTIVE to perform operation: " + op
             );
         }
+    }
+
+    public boolean isOwner(User user) {
+        return owner != null && owner.equals(user);
     }
 }

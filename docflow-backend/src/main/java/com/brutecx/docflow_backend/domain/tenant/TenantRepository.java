@@ -62,5 +62,13 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID>, JpaSpecif
             """)
     List<TenantListItemDTO> fetchAdminRows(@Param("ids") List<UUID> ids);
 
-    List<Tenant> findByStatus(TenantStatus tenantStatus);
+    boolean existsByNameIgnoreCase(String name);
+
+    @Query("""
+        select t
+        from Tenant t
+        left join fetch t.owner
+        where t.id = :tenantId
+    """)
+    Optional<Tenant> findByIdWithOwner(@Param("tenantId") UUID tenantId);
 }

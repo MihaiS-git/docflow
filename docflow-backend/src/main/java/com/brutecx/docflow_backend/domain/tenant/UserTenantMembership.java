@@ -84,7 +84,9 @@ public class UserTenantMembership {
     }
 
     public void changeRole(TenantRole newRole) {
-        this.role = Objects.requireNonNull(newRole, "newRole");
+        TenantRole tr = Objects.requireNonNull(newRole, "newRole");
+        if (this.role == tr) return;
+        this.role = tr;
     }
 
     public void suspend() {
