@@ -83,16 +83,6 @@ public class InviteApplicationService {
         String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
         var actor = userService.getRequiredCurrentUser();
 
-        if (inviteRepository.existsByTenantIdAndEmailIgnoreCaseAndStatus(
-                targetTenantId,
-                normalizedEmail,
-                InviteStatus.PENDING
-        )) {
-            throw new DuplicateInviteException(
-                    "A pending invite already exists for this email in this tenant."
-            );
-        }
-
         userService.findByEmailIgnoreCase(normalizedEmail)
                 .ifPresent(existingUser -> {
                     if (membershipRepository.existsByUserIdAndTenantId(

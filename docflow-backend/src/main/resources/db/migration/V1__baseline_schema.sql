@@ -93,7 +93,7 @@ CREATE TABLE public.invites
     created_at   timestamptz  NOT NULL,
     expires_at   timestamptz  NOT NULL,
 
-    email        varchar(320) NOT NULL,
+    email        varchar(254) NOT NULL,
 
     first_name   varchar(255) NOT NULL,
     last_name    varchar(255) NOT NULL,

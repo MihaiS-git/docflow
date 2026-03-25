@@ -13,18 +13,21 @@ import jakarta.validation.constraints.Size;
 public record CreateTenantInviteRequest(
         @NotBlank
         @Email
+        @Size(max = 254)
         String email,
 
         @NotBlank
+        @Size(max = 255)
         String firstName,
 
         @NotBlank
+        @Size(max = 255)
         String lastName,
 
-        @Size(max = 100)
+        @Size(max = 255)
         String jobTitle,
 
-        @Size(max = 100)
+        @Size(max = 255)
         String department,
 
         @NotNull

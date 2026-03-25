@@ -35,10 +35,4 @@ public interface InviteRepository extends JpaRepository<Invite, UUID>, JpaSpecif
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from Invite i where i.id = :id")
     Optional<Invite> findByIdForUpdate(@Param("id") UUID id);
-
-    boolean existsByTenantIdAndEmailIgnoreCaseAndStatus(
-            UUID tenantId,
-            String email,
-            InviteStatus status
-    );
 }

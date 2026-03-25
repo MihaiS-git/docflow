@@ -37,21 +37,21 @@ public class Invite {
     @Column(name = "hashed_token", updatable = false, nullable = false, unique = true, length = 64)
     private String hashedToken;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 254)
     private String email;
 
     /* identity snapshot from invite request */
 
-    @Column(name = "first_name", nullable = false)
+    @Column(name = "first_name", nullable = false, length = 255)
     private String firstName;
 
-    @Column(name = "last_name", nullable = false)
+    @Column(name = "last_name", nullable = false, length = 255)
     private String lastName;
 
-    @Column(name = "job_title")
+    @Column(name = "job_title", length = 255)
     private String jobTitle;
 
-    @Column(name = "department")
+    @Column(name = "department", length = 255)
     private String department;
 
     @Column(nullable = false, name = "expires_at")
@@ -84,18 +84,17 @@ public class Invite {
             UUID tenantId,
             TenantRole tenantRole
     ) {
-
         if (tenantRole != null && tenantId == null) {
             throw new IllegalArgumentException("tenantRole cannot be set without tenantId");
         }
 
         Invite invite = new Invite();
 
-        invite.email = Objects.requireNonNull(email);
-        invite.firstName = Objects.requireNonNull(firstName);
-        invite.lastName = Objects.requireNonNull(lastName);
-        invite.jobTitle = jobTitle;
-        invite.department = department;
+        invite.email = requireValidEmail(email);
+        invite.firstName = requireNonBlank(firstName, "firstName");
+        invite.lastName = requireNonBlank(lastName, "lastName");
+        invite.jobTitle = normalizeOptional(jobTitle, 255);
+        invite.department = normalizeOptional(department, 255);
 
         String rawToken = TokenGenerator.generate();
         invite.hashedToken = sha256Hex(rawToken);
@@ -128,5 +127,42 @@ public class Invite {
     @PrePersist
     public void prePersist() {
         this.createdAt = Instant.now();
+    }
+
+    private static String requireValidEmail(String value) {
+        Objects.requireNonNull(value, "email");
+        String v = value.trim();
+        if (v.isEmpty()) {
+            throw new IllegalArgumentException("email must not be blank");
+        }
+        if (v.length() > 254) {
+            throw new IllegalArgumentException("email too long");
+        }
+        return v;
+    }
+
+    private static String requireNonBlank(String value, String field) {
+        Objects.requireNonNull(value, field);
+        String v = value.trim();
+        if (v.isEmpty()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+        if (v.length() > 255) {
+            throw new IllegalArgumentException(field + " too long");
+        }
+        return v;
+    }
+
+    private static String normalizeOptional(String value, int max) {
+        if (value == null) return null;
+
+        String v = value.trim();
+        if (v.isEmpty()) return null;
+
+        if (v.length() > max) {
+            throw new IllegalArgumentException("value too long");
+        }
+
+        return v;
     }
 }

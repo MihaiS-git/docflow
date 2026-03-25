@@ -2,8 +2,6 @@
 
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
 
 import { apiFetch } from "@/lib/apiFetch";
 import { ApiError } from "@/lib/apiErrors";
@@ -16,32 +14,23 @@ import Select from "@/components/ui/Select";
 import FormField from "@/components/ui/FormField";
 import Button from "../ui/Button";
 import { TENANT_ROLES } from "@/types/invites/types";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { InviteFormValues, inviteSchema } from "@/lib/validation/invite.schema";
 
 type Props = {
   tenants: AdminTenant[];
 };
 
-const schema = z.object({
-  tenantId: z.string().min(1, "Tenant is required"),
-  email: z.email("Invalid email"),
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  jobTitle: z.string().optional(),
-  department: z.string().optional(),
-  tenantRole: z.enum(TENANT_ROLES),
-});
-
-type FormValues = z.infer<typeof schema>;
-
 export default function InviteCreateCard({ tenants }: Props) {
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting, isValid },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    mode: "onChange",
+const {
+  register,
+  handleSubmit,
+  reset,
+  formState: { errors, isSubmitting, isValid },
+} = useForm<InviteFormValues>({
+  resolver: zodResolver(inviteSchema),
+    mode: "onBlur",
+    reValidateMode: "onChange",
     defaultValues: {
       tenantId: "",
       email: "",
@@ -53,7 +42,7 @@ export default function InviteCreateCard({ tenants }: Props) {
     },
   });
 
-  const onSubmit = async (values: FormValues) => {
+  const submit = handleSubmit(async (values) => {
     try {
       await apiFetch<void>(`/api/tenants/${values.tenantId}/invites`, {
         method: "POST",
@@ -84,7 +73,7 @@ export default function InviteCreateCard({ tenants }: Props) {
         toast.error("Unexpected error occurred.");
       }
     }
-  };
+  });
 
   return (
     <Card>
@@ -99,7 +88,7 @@ export default function InviteCreateCard({ tenants }: Props) {
       </div>
 
       <form
-        onSubmit={handleSubmit(onSubmit)}
+        onSubmit={submit}
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
       >
         <FormField label="Tenant" error={errors.tenantId?.message}>
@@ -147,7 +136,7 @@ export default function InviteCreateCard({ tenants }: Props) {
           <Button
             type="submit"
             loading={isSubmitting}
-            disabled={isSubmitting || !isValid}
+            variant={isValid ? "primary" : "secondary"}
           >
             Send Invite
           </Button>
