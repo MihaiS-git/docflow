@@ -63,7 +63,6 @@ public class AuthenticationSuccessListener {
 
             successCounter().increment();
 
-            // ---- Structured success event (SIEM) ----
             InfraEventLogger.log(
                     InfraEventType.AUTHENTICATION,
                     InfraEventActions.AUTHN_LAST_LOGIN_UPDATE,
@@ -74,7 +73,6 @@ public class AuthenticationSuccessListener {
             );
 
         } catch (Exception ex) {
-
             failureCounter().increment();
 
             InfraEventLogger.log(

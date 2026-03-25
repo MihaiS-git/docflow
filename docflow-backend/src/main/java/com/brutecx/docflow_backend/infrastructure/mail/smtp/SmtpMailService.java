@@ -96,10 +96,8 @@ public class SmtpMailService implements IMailService {
             String lastName,
             String jobTitle,
             String department,
-            String inviteLink,
-            String temporaryPassword
+            String inviteLink
     ) {
-
         String body = """
                 
                 Hello %s %s,
@@ -108,7 +106,6 @@ public class SmtpMailService implements IMailService {
 
                 Login details (temporary):
                 Email: %s
-                Temporary password: %s
 
                 Accept the invitation using the link below:
                 %s
@@ -121,7 +118,6 @@ public class SmtpMailService implements IMailService {
                 tenant.getName(),
                 department,
                 to,
-                temporaryPassword,
                 inviteLink
         );
 

@@ -16,7 +16,6 @@ public interface IMailService {
             String lastName,
             String jobTitle,
             String department,
-            String inviteLink,
-            String temporaryPassword
+            String inviteLink
     );
 }

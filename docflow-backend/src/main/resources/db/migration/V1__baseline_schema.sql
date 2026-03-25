@@ -7,7 +7,8 @@ CREATE TABLE public.users
     department            varchar(255),
 
     display_name          varchar(255) NOT NULL,
-    email                 varchar(320) NOT NULL,
+
+    email                 varchar(254) NOT NULL,
 
     external_subject_id   varchar(128),
 
@@ -25,7 +26,10 @@ CREATE TABLE public.users
     CONSTRAINT users_status_check
         CHECK (status IN ('ACTIVE', 'LOCKED', 'DISABLED')),
 
-    CONSTRAINT uk_users_external_subject UNIQUE (external_subject_id)
+    CONSTRAINT uk_users_external_subject UNIQUE (external_subject_id),
+
+    CONSTRAINT chk_users_email_lowercase
+        CHECK (email = lower(email))
 );
 
 CREATE TABLE public.tenants
@@ -54,11 +58,17 @@ CREATE TABLE public.tenants
     CONSTRAINT tenants_tenant_type_check
         CHECK (tenant_type IN ('ROOT', 'ORGANIZATION')),
 
+    CONSTRAINT chk_tenant_owner_required_after_bootstrap
+        CHECK (
+            bootstrap_enabled = true
+                OR owner_user_id IS NOT NULL
+            ),
+
     CONSTRAINT tenants_retention_days_check
         CHECK (
             retention_days = 0
                 OR (retention_days BETWEEN 30 AND 3650)
-            );
+            )
 );
 
 CREATE TABLE public.user_tenant_memberships
@@ -90,7 +100,7 @@ CREATE TABLE public.invites
 (
     id           uuid PRIMARY KEY,
 
-    created_at   timestamptz  NOT NULL,
+    created_at   timestamptz  NOT NULL DEFAULT now(),
     expires_at   timestamptz  NOT NULL,
 
     email        varchar(254) NOT NULL,
@@ -102,20 +112,24 @@ CREATE TABLE public.invites
     department   varchar(255),
 
     status       varchar(16)  NOT NULL,
-    tenant_role  varchar(32),
+    tenant_role  varchar(32)  NOT NULL,
 
     hashed_token varchar(64)  NOT NULL,
 
-    tenant_id    uuid         NOT NULL REFERENCES tenants (id),
-    user_id      uuid REFERENCES users (id),
+    tenant_id    uuid         NOT NULL
+        REFERENCES tenants (id)
+            ON DELETE RESTRICT,
 
     CONSTRAINT uk_invites_hashed_token UNIQUE (hashed_token),
 
     CONSTRAINT invites_status_check
-        CHECK (status IN ('PENDING', 'ACCEPTED')),
+        CHECK (status IN ('PENDING', 'ACTIVATED', 'ACCEPTED', 'REVOKED', 'EXPIRED')),
 
     CONSTRAINT invites_tenant_role_check
-        CHECK (tenant_role IN ('MEMBER', 'EXECUTOR', 'REVIEWER', 'MANAGER'))
+        CHECK (tenant_role IN ('MEMBER', 'EXECUTOR', 'REVIEWER', 'MANAGER')),
+
+    CONSTRAINT chk_invites_email_lowercase
+        CHECK (email = lower(email));
 );
 
 CREATE TABLE public.audit_signing_keys
@@ -250,13 +264,16 @@ CREATE TABLE public.user_identity_projection
     subject_id     varchar(255) PRIMARY KEY,
 
     display_name   varchar(255),
-    email          varchar(255),
+    email          varchar(254),
 
     username       varchar(255),
 
     source         varchar(255) NOT NULL,
 
-    last_synced_at timestamptz  NOT NULL
+    last_synced_at timestamptz  NOT NULL,
+
+    CONSTRAINT chk_uip_email_lowercase
+        CHECK (email IS NULL OR email = lower(email));
 );
 
 CREATE TABLE public.authentication_events
@@ -814,8 +831,21 @@ CREATE INDEX idx_invites_tenant
 CREATE INDEX idx_invites_expired_pending
     ON invites (expires_at) WHERE status = 'PENDING';
 
-CREATE UNIQUE INDEX ux_invites_pending_email
-    ON invites (tenant_id, lower(email)) WHERE status = 'PENDING';
+CREATE UNIQUE INDEX ux_invites_active_email
+    ON invites (tenant_id, lower(email)) WHERE status IN ('PENDING', 'ACTIVATED');
+
+CREATE INDEX idx_invites_email_status_created
+    ON invites (lower(email), status, created_at DESC);
+
+/* =========================================================
+   IDENTITY PROJECTION
+   ========================================================= */
+
+CREATE INDEX idx_uip_email_lower
+    ON user_identity_projection (lower(email));
+
+CREATE UNIQUE INDEX ux_uip_email_lower
+    ON user_identity_projection (lower(email)) WHERE email IS NOT NULL;
 
 
 /* =========================================================

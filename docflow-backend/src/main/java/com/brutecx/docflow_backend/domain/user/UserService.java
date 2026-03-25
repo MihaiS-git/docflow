@@ -2,6 +2,8 @@ package com.brutecx.docflow_backend.domain.user;
 
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.provenance.ExecutionContext;
+import com.brutecx.docflow_backend.domain.tenant.MembershipStatus;
+import com.brutecx.docflow_backend.domain.tenant.UserTenantMembershipRepository;
 import lombok.RequiredArgsConstructor;
 import net.logstash.logback.argument.StructuredArgument;
 import org.slf4j.Logger;
@@ -11,10 +13,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,6 +32,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final AuditRequestContextExtractor contextExtractor;
+    private final UserTenantMembershipRepository membershipRepository;
 
     public User getRequiredCurrentUser() {
         Authentication authentication = SecurityContextHolder
@@ -39,7 +42,6 @@ public class UserService {
         if (authentication == null || !authentication.isAuthenticated()
                 || authentication instanceof AnonymousAuthenticationToken) {
             emitSecurityEvent(
-                    false,
                     "user_current_resolve_unauthenticated",
                     "No authenticated user in security context",
                     kv("execution.context", resolveExecutionContext()),
@@ -52,7 +54,6 @@ public class UserService {
 
         if (!(principal instanceof OidcUser oidcUser)) {
             emitSecurityEvent(
-                    false,
                     "user_current_principal_unexpected",
                     "Authenticated principal is not an OIDC user",
                     kv("execution.context", resolveExecutionContext()),
@@ -67,7 +68,6 @@ public class UserService {
         return userRepository.findByExternalSubjectId(externalSubjectId)
                 .orElseThrow(() -> {
                     emitSecurityEvent(
-                            false,
                             "user_subject_unmapped",
                             "Authenticated subject not mapped to local user",
                             kv("execution.context", resolveExecutionContext()),
@@ -81,6 +81,19 @@ public class UserService {
 
     public User getRequired(UUID userId) {
         return userRepository.getRequired(userId);
+    }
+
+    public Optional<User> findByEmailIgnoreCase(String email) {
+        if (email == null) {
+            return Optional.empty();
+        }
+
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return Optional.empty();
+        }
+
+        return userRepository.findByEmailIgnoreCase(normalized);
     }
 
     public CurrentUserResult resolveCurrentUser() {
@@ -103,43 +116,16 @@ public class UserService {
 
         return userRepository.findByExternalSubjectId(subject)
                 .map(user -> switch (user.getStatus()) {
-                    case ACTIVE -> new CurrentUserResult(CurrentUserState.ACTIVE, user);
+                    case ACTIVE -> hasAnyActiveMembership(user)
+                            ? new CurrentUserResult(CurrentUserState.ACTIVE, user)
+                            : new CurrentUserResult(CurrentUserState.DISABLED, null);
                     case LOCKED -> new CurrentUserResult(CurrentUserState.LOCKED, null);
                     case DISABLED -> new CurrentUserResult(CurrentUserState.DISABLED, null);
                 })
                 .orElseGet(() -> new CurrentUserResult(CurrentUserState.BOOTSTRAP, null));
     }
 
-    @Transactional
-    public int deleteUnactivatedInvitedUsers(List<UUID> userIds) {
-        if (userIds == null || userIds.isEmpty()) return 0;
-
-        List<User> users = userRepository.findByStatusAndIdIn(UserStatus.LOCKED, userIds);
-
-        int deleted = 0;
-        for (User user : users) {
-            if (user.getExternalSubjectId() != null) continue;
-            userRepository.delete(user);
-            deleted++;
-        }
-
-        emitSecurityEvent(
-                true,
-                "invited_users_purged",
-                "Purged unactivated invited users",
-                kv("execution.context", resolveExecutionContext()),
-                kv("candidate.count", userIds.size()),
-                kv("matched.locked.count", users.size()),
-                kv("deleted.count", deleted),
-                kv("actor.name", resolveActorName()),
-                kv("actor.roles", resolveActorRoles())
-        );
-
-        return deleted;
-    }
-
     private void emitSecurityEvent(
-            boolean ok,
             String eventAction,
             String message,
             StructuredArgument... extra
@@ -153,7 +139,7 @@ public class UserService {
         args.add(kv("event.category", "security"));
         args.add(kv("event.type", "identity"));
         args.add(kv("event.action", eventAction));
-        args.add(kv("event.outcome", ok ? "success" : "failure"));
+        args.add(kv("event.outcome", "failure"));
         args.add(kv("audit.stream", STREAM));
         args.add(kv("correlation.id", correlationId));
         args.add(kv("message", message));
@@ -164,8 +150,7 @@ public class UserService {
             }
         }
 
-        if (ok) log.info("security_event {}", args.toArray());
-        else log.warn("security_event {}", args.toArray());
+        log.warn("security_event {}", args.toArray());
     }
 
     private String resolveExecutionContext() {
@@ -176,40 +161,10 @@ public class UserService {
                 : ExecutionContext.SYSTEM.name();
     }
 
-    private static String resolveActorName() {
-        Authentication auth = SecurityContextHolder.getContext() != null
-                ? SecurityContextHolder.getContext().getAuthentication()
-                : null;
-
-        if (auth == null || auth instanceof AnonymousAuthenticationToken || !auth.isAuthenticated()) {
-            return "anonymous";
-        }
-
-        String name = auth.getName();
-        return (name == null || name.isBlank()) ? "unknown" : name;
-    }
-
-    private static List<String> resolveActorRoles() {
-        Authentication auth = SecurityContextHolder.getContext() != null
-                ? SecurityContextHolder.getContext().getAuthentication()
-                : null;
-
-        if (auth == null || auth instanceof AnonymousAuthenticationToken || !auth.isAuthenticated()) {
-            return List.of();
-        }
-
-        List<String> roles = new ArrayList<>();
-        if (auth.getAuthorities() != null) {
-            auth.getAuthorities().forEach(a -> {
-                if (a != null && a.getAuthority() != null && !a.getAuthority().isBlank()) {
-                    roles.add(a.getAuthority());
-                }
-            });
-        }
-        return roles;
-    }
-
-    public Optional<User> findByEmailIgnoreCase(String normalizedEmail) {
-        return userRepository.findByEmailIgnoreCase(normalizedEmail);
+    private boolean hasAnyActiveMembership(User user) {
+        return membershipRepository.existsByUserIdAndStatus(
+                user.getId(),
+                MembershipStatus.ACTIVE
+        );
     }
 }

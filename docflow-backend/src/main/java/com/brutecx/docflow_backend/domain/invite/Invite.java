@@ -1,7 +1,6 @@
 package com.brutecx.docflow_backend.domain.invite;
 
 import com.brutecx.docflow_backend.domain.tenant.TenantRole;
-import com.brutecx.docflow_backend.domain.user.User;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -34,24 +33,22 @@ public class Invite {
     @UuidGenerator
     private UUID id;
 
-    @Column(name = "hashed_token", updatable = false, nullable = false, unique = true, length = 64)
+    @Column(name = "hashed_token", nullable = false, unique = true, length = 64)
     private String hashedToken;
 
     @Column(nullable = false, length = 254)
     private String email;
 
-    /* identity snapshot from invite request */
-
-    @Column(name = "first_name", nullable = false, length = 255)
+    @Column(name = "first_name", nullable = false)
     private String firstName;
 
-    @Column(name = "last_name", nullable = false, length = 255)
+    @Column(name = "last_name", nullable = false)
     private String lastName;
 
-    @Column(name = "job_title", length = 255)
+    @Column(name = "job_title")
     private String jobTitle;
 
-    @Column(name = "department", length = 255)
+    @Column(name = "department")
     private String department;
 
     @Column(nullable = false, name = "expires_at")
@@ -65,12 +62,8 @@ public class Invite {
     private UUID tenantId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "tenant_role", updatable = false, length = 32)
+    @Column(name = "tenant_role", length = 32)
     private TenantRole tenantRole;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
-    private User user;
 
     @Column(nullable = false, updatable = false, name = "created_at")
     private Instant createdAt;
@@ -84,13 +77,9 @@ public class Invite {
             UUID tenantId,
             TenantRole tenantRole
     ) {
-        if (tenantRole != null && tenantId == null) {
-            throw new IllegalArgumentException("tenantRole cannot be set without tenantId");
-        }
-
         Invite invite = new Invite();
 
-        invite.email = requireValidEmail(email);
+        invite.email = normalizeEmail(email);
         invite.firstName = requireNonBlank(firstName, "firstName");
         invite.lastName = requireNonBlank(lastName, "lastName");
         invite.jobTitle = normalizeOptional(jobTitle, 255);
@@ -102,67 +91,121 @@ public class Invite {
         invite.status = InviteStatus.PENDING;
 
         invite.tenantId = tenantId;
-
-        if (tenantId != null) {
-            invite.tenantRole = (tenantRole != null)
-                    ? tenantRole
-                    : TenantRole.MEMBER;
-        }
+        invite.tenantRole = tenantRole != null ? tenantRole : TenantRole.MEMBER;
 
         return new CreatedInvite(invite, rawToken);
+    }
+
+    public String resetForResend(
+            String firstName,
+            String lastName,
+            String jobTitle,
+            String department,
+            TenantRole tenantRole
+    ) {
+        if (!isTerminal()) {
+            throw new IllegalStateException("Only terminal invites can be reset");
+        }
+
+        this.firstName = requireNonBlank(firstName, "firstName");
+        this.lastName = requireNonBlank(lastName, "lastName");
+        this.jobTitle = normalizeOptional(jobTitle, 255);
+        this.department = normalizeOptional(department, 255);
+
+        String rawToken = TokenGenerator.generate();
+        this.hashedToken = sha256Hex(rawToken);
+
+        this.expiresAt = Instant.now().plus(7, ChronoUnit.DAYS);
+        this.status = InviteStatus.PENDING;
+        this.tenantRole = tenantRole != null ? tenantRole : TenantRole.MEMBER;
+
+        return rawToken;
+    }
+
+    // ======================
+    // STATE TRANSITIONS
+    // ======================
+    public void markActivated() {
+        if (this.status != InviteStatus.PENDING) {
+            throw new IllegalStateException("Only PENDING invites can be activated");
+        }
+        this.status = InviteStatus.ACTIVATED;
+    }
+
+    public void markAccepted() {
+        if (this.status != InviteStatus.ACTIVATED) {
+            throw new IllegalStateException("Only ACTIVATED invites can be accepted");
+        }
+        this.status = InviteStatus.ACCEPTED;
+    }
+
+    public void markRevoked() {
+        if (isTerminal()) {
+            throw new IllegalStateException("Cannot revoke terminal invite");
+        }
+        this.status = InviteStatus.REVOKED;
+    }
+
+    public void markExpired() {
+        if (isTerminal()) {
+            throw new IllegalStateException("Cannot expire terminal invite");
+        }
+        this.status = InviteStatus.EXPIRED;
+    }
+
+    // ======================
+    // STATE HELPERS
+    // ======================
+    public boolean isPending() {
+        return this.status == InviteStatus.PENDING;
+    }
+
+    public boolean isActivated() {
+        return this.status == InviteStatus.ACTIVATED;
+    }
+
+    public boolean isAccepted() {
+        return this.status == InviteStatus.ACCEPTED;
+    }
+
+    public boolean isTerminal() {
+        return this.status == InviteStatus.ACCEPTED
+                || this.status == InviteStatus.REVOKED
+                || this.status == InviteStatus.EXPIRED;
     }
 
     public boolean isExpired() {
         return Instant.now().isAfter(expiresAt);
     }
 
-    public void markAccepted() {
-        this.status = InviteStatus.ACCEPTED;
-    }
 
-    public void linkUser(User user) {
-        this.user = user;
-    }
 
     @PrePersist
     public void prePersist() {
         this.createdAt = Instant.now();
     }
 
-    private static String requireValidEmail(String value) {
+    private static String normalizeEmail(String value) {
         Objects.requireNonNull(value, "email");
-        String v = value.trim();
-        if (v.isEmpty()) {
-            throw new IllegalArgumentException("email must not be blank");
-        }
-        if (v.length() > 254) {
-            throw new IllegalArgumentException("email too long");
-        }
+        String v = value.trim().toLowerCase();
+        if (v.isEmpty()) throw new IllegalArgumentException("email must not be blank");
+        if (v.length() > 254) throw new IllegalArgumentException("email too long");
         return v;
     }
 
     private static String requireNonBlank(String value, String field) {
         Objects.requireNonNull(value, field);
         String v = value.trim();
-        if (v.isEmpty()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-        if (v.length() > 255) {
-            throw new IllegalArgumentException(field + " too long");
-        }
+        if (v.isEmpty()) throw new IllegalArgumentException(field + " must not be blank");
+        if (v.length() > 255) throw new IllegalArgumentException(field + " too long");
         return v;
     }
 
     private static String normalizeOptional(String value, int max) {
         if (value == null) return null;
-
         String v = value.trim();
         if (v.isEmpty()) return null;
-
-        if (v.length() > max) {
-            throw new IllegalArgumentException("value too long");
-        }
-
+        if (v.length() > max) throw new IllegalArgumentException("value too long");
         return v;
     }
 }

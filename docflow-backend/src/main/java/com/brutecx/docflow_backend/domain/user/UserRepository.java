@@ -4,7 +4,6 @@ import com.brutecx.docflow_backend.api.error.UserNotFoundException;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +21,4 @@ public interface UserRepository
     }
 
     boolean existsByEmailIgnoreCase(String normalizedEmail);
-
-    List<User> findByStatusAndIdIn(UserStatus userStatus, List<UUID> userIds);
 }

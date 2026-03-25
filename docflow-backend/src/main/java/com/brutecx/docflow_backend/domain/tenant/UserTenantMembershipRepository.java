@@ -37,44 +37,13 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
     );
 
 
-
-    @Query(
-            value = """
-                    select m
-                    from UserTenantMembership m
-                    join fetch m.user
-                    where m.tenant.id = :tenantId
-                      and (:role is null or m.role = :role)
-                      and (:status is null or m.status = :status)
-                    """,
-            countQuery = """
-                    select count(m)
-                    from UserTenantMembership m
-                    join m.user u
-                    where m.tenant.id = :tenantId
-                      and (:role is null or m.role = :role)
-                      and (:status is null or m.status = :status)
-                    """
-    )
-    Page<UserTenantMembership> findFilteredWithUser(
-            @Param("tenantId") UUID tenantId,
-            @Param("role") TenantRole role,
-            @Param("status") MembershipStatus status,
-            Pageable pageable
-    );
-
-
-
-
-
-
     // 1. No filters
     @Query("""
-    select m
-    from UserTenantMembership m
-    join fetch m.user
-    where m.tenant.id = :tenantId
-""")
+                select m
+                from UserTenantMembership m
+                join fetch m.user
+                where m.tenant.id = :tenantId
+            """)
     Page<UserTenantMembership> findByTenantIdWithUser(
             @Param("tenantId") UUID tenantId,
             Pageable pageable
@@ -82,12 +51,12 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
 
     // 2. Role only
     @Query("""
-    select m
-    from UserTenantMembership m
-    join fetch m.user
-    where m.tenant.id = :tenantId
-      and m.role = :role
-""")
+                select m
+                from UserTenantMembership m
+                join fetch m.user
+                where m.tenant.id = :tenantId
+                  and m.role = :role
+            """)
     Page<UserTenantMembership> findByTenantIdAndRoleWithUser(
             @Param("tenantId") UUID tenantId,
             @Param("role") TenantRole role,
@@ -96,12 +65,12 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
 
     // 3. Status only
     @Query("""
-    select m
-    from UserTenantMembership m
-    join fetch m.user
-    where m.tenant.id = :tenantId
-      and m.status = :status
-""")
+                select m
+                from UserTenantMembership m
+                join fetch m.user
+                where m.tenant.id = :tenantId
+                  and m.status = :status
+            """)
     Page<UserTenantMembership> findByTenantIdAndStatusWithUser(
             @Param("tenantId") UUID tenantId,
             @Param("status") MembershipStatus status,
@@ -110,13 +79,13 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
 
     // 4. Role + Status
     @Query("""
-    select m
-    from UserTenantMembership m
-    join fetch m.user
-    where m.tenant.id = :tenantId
-      and m.role = :role
-      and m.status = :status
-""")
+                select m
+                from UserTenantMembership m
+                join fetch m.user
+                where m.tenant.id = :tenantId
+                  and m.role = :role
+                  and m.status = :status
+            """)
     Page<UserTenantMembership> findByTenantIdAndRoleAndStatusWithUser(
             @Param("tenantId") UUID tenantId,
             @Param("role") TenantRole role,
@@ -145,5 +114,18 @@ public interface UserTenantMembershipRepository extends JpaRepository<UserTenant
             @Param("tenantStatus") TenantStatus tenantStatus
     );
 
-    boolean existsByUserIdAndTenantId(UUID userId, UUID tenantId);
+    boolean existsByUserIdAndStatus(UUID userId, MembershipStatus status);
+
+    @Query("""
+                select count(m) > 0
+                from UserTenantMembership m
+                where lower(m.user.email) = lower(:email)
+                  and m.tenant.id = :tenantId
+                  and m.status = :status
+            """)
+    boolean existsActiveMembershipByEmailAndTenantId(
+            @Param("email") String email,
+            @Param("tenantId") UUID tenantId,
+            @Param("status") MembershipStatus status
+    );
 }

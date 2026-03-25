@@ -8,8 +8,8 @@ import com.brutecx.docflow_backend.security.enforcement.LifecycleAuthorizationMa
 import com.brutecx.docflow_backend.security.enforcement.TenantAuthorizationManagerFactory;
 import com.brutecx.docflow_backend.security.handler.ApiAuthenticationEntryPoint;
 import com.brutecx.docflow_backend.security.handler.RestAccessDeniedHandler;
-import com.brutecx.docflow_backend.security.session.filter.AbsoluteSessionTimeoutFilter;
 import com.brutecx.docflow_backend.security.session.SessionSecurityProperties;
+import com.brutecx.docflow_backend.security.session.filter.AbsoluteSessionTimeoutFilter;
 import com.brutecx.docflow_backend.web.filter.RequestCorrelationIdFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.ServletContextInitializer;
@@ -94,7 +94,7 @@ public class SecurityConfig {
                         .ignoringRequestMatchers(
                                 "/api/auth/logout",
                                 "/api/csrf",
-                                "/api/invites/validate"
+                                "/api/invites/activate"
                         )
                 )
 
@@ -125,7 +125,6 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
-                        // -------- PUBLIC --------
                         .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/prometheus",
@@ -133,44 +132,37 @@ public class SecurityConfig {
                                 "/oauth2/**"
                         ).permitAll()
 
-                        // -------- AUTH --------
-                        .requestMatchers(HttpMethod.POST, "/api/invites/validate").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/invites/activate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
 
-                        // -------- SAFE IDENTITY --------
                         .requestMatchers(HttpMethod.GET, "/api/auth/me")
                         .access(authenticatedAuthorizationManager)
 
                         .requestMatchers(HttpMethod.GET, "/api/users/me")
                         .access(authenticatedAuthorizationManager)
 
-                        // -------- BOOTSTRAP --------
                         .requestMatchers("/api/bootstrap/**")
                         .access(AuthorityAuthorizationManager.hasRole("ADMIN"))
 
-                        // -------- ADMIN --------
                         .requestMatchers("/api/admin/**")
                         .access(AuthorizationManagers.allOf(
                                 lifecycleAuthorizationManager,
                                 AuthorityAuthorizationManager.hasRole("ADMIN")
                         ))
 
-                        // -------- AUDIT --------
                         .requestMatchers("/api/audit/**")
                         .access(AuthorizationManagers.allOf(
                                 lifecycleAuthorizationManager,
                                 AuthorityAuthorizationManager.hasAnyRole("AUDITOR")
                         ))
 
-                        // -------- AUDIT KEY DISTRIBUTION (AUTHENTICATED) --------
                         .requestMatchers("/api/security/audit-keys/**")
                         .access(AuthorizationManagers.allOf(
                                 lifecycleAuthorizationManager,
                                 AuthorityAuthorizationManager.hasAnyRole("AUDITOR", "ADMIN")
                         ))
 
-                        // -------- TENANT INVITES (MANAGER) --------
                         .requestMatchers("/api/tenants/*/invites/**")
                         .access(AuthorizationManagers.allOf(
                                 authenticatedAuthorizationManager,
@@ -178,7 +170,6 @@ public class SecurityConfig {
                                 tenantAuthorizationManagerFactory.atLeast(TenantRole.MANAGER)
                         ))
 
-                        // -------- TENANT DATA (MANDATORY SCOPE) --------
                         .requestMatchers("/api/tenants/**")
                         .access(AuthorizationManagers.allOf(
                                 authenticatedAuthorizationManager,
@@ -186,7 +177,6 @@ public class SecurityConfig {
                                 tenantAuthorizationManagerFactory.atLeast(TenantRole.MEMBER)
                         ))
 
-                        // -------- HARD DENY FALLBACK --------
                         .requestMatchers("/api/**").denyAll()
 
                         .anyRequest().authenticated()
@@ -199,6 +189,7 @@ public class SecurityConfig {
                                 apiAuthenticationEntryPoint.commence(req, res, authEx);
                                 return;
                             }
+
                             new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/keycloak")
                                     .commence(req, res, authEx);
                         })
@@ -223,11 +214,12 @@ public class SecurityConfig {
                                         req.getSession(false)
                                 );
                             }
+
                             res.sendRedirect(frontendBaseUrl);
                         })
-                        .failureHandler((req, res, ex) -> {
-                            res.sendRedirect(frontendBaseUrl);
-                        })
+                        .failureHandler((req, res, ex) ->
+                                res.sendRedirect(frontendBaseUrl)
+                        )
                 )
 
                 .logout(logout -> logout
@@ -252,6 +244,7 @@ public class SecurityConfig {
                                 res.sendRedirect(redirect);
                                 return;
                             }
+
                             res.sendRedirect(postLogoutRedirectUri);
                         })
                         .invalidateHttpSession(true)

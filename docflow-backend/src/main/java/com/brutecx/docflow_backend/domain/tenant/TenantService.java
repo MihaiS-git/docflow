@@ -24,11 +24,7 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,6 +50,8 @@ public class TenantService {
             "role",
             "status"
     );
+
+    private static final String TENANT_NAME_UNIQUE_CONSTRAINT = "ux_tenants_name_ci";
 
     private final TenantRepository tenantRepository;
     private final UserTenantMembershipRepository membershipRepository;
@@ -158,8 +156,20 @@ public class TenantService {
     public Tenant getOrCreateBootstrapTenant() {
         return tenantRepository.findFirstByTenantType(TenantType.ROOT)
                 .orElseGet(() -> {
+                    final String bootstrapName = Tenant.normalizeName("Company");
+
                     try {
-                        return tenantRepository.save(Tenant.bootstrapTenant("Company"));
+                        Tenant existingByName = tenantRepository.findFirstByTenantType(TenantType.ROOT)
+                                .orElse(null);
+                        if (existingByName != null) {
+                            return existingByName;
+                        }
+
+                        if (tenantRepository.existsByNameIgnoreCase(bootstrapName)) {
+                            throw new TenantAlreadyExistsException("Tenant name already exists");
+                        }
+
+                        return tenantRepository.save(Tenant.bootstrapTenant(bootstrapName));
                     } catch (RuntimeException ex) {
                         InfraEventLogger.failure(
                                 InfraEventType.DATABASE,
@@ -258,12 +268,14 @@ public class TenantService {
         Tenant created = null;
 
         try {
+            final String normalizedName = Tenant.normalizeName(name);
+            requireUniqueTenantNameForCreate(normalizedName);
+
             try {
-                Tenant tenant = buildTenant(name, description, dataRegion, retentionDays);
+                Tenant tenant = buildTenant(normalizedName, description, dataRegion, retentionDays);
                 created = tenantRepository.save(tenant);
             } catch (DataIntegrityViolationException ex) {
-                String constraint = extractConstraintName(ex);
-                if ("ux_tenants_name_ci".equalsIgnoreCase(constraint)) {
+                if (isTenantNameUniqueViolation(ex)) {
                     throw new TenantAlreadyExistsException("Tenant name already exists");
                 }
                 InfraEventLogger.failure(
@@ -459,9 +471,14 @@ public class TenantService {
         try {
             boolean changed = false;
 
-            if (newName != null && !newName.isBlank() && !newName.equals(tenant.getName())) {
-                tenant.updateName(newName);
-                changed = true;
+            if (newName != null && !newName.isBlank()) {
+                String normalizedNewName = Tenant.normalizeName(newName);
+
+                if (!normalizedNewName.equals(tenant.getName())) {
+                    requireUniqueTenantNameForUpdate(tenantId, normalizedNewName);
+                    tenant.updateName(normalizedNewName);
+                    changed = true;
+                }
             }
 
             if (description != null && !Objects.equals(description, tenant.getDescription())) {
@@ -488,8 +505,7 @@ public class TenantService {
                 try {
                     tenantRepository.save(tenant);
                 } catch (DataIntegrityViolationException ex) {
-                    String constraint = extractConstraintName(ex);
-                    if ("ux_tenants_name_ci".equalsIgnoreCase(constraint)) {
+                    if (isTenantNameUniqueViolation(ex)) {
                         throw new TenantAlreadyExistsException("Tenant name already exists");
                     }
                     InfraEventLogger.failure(
@@ -593,10 +609,6 @@ public class TenantService {
         );
     }
 
-
-    /**
-     * ========HELPERS===========
-     */
     private static String mapSortField(String field) {
         return switch (field) {
             case "role" -> "role";
@@ -632,6 +644,23 @@ public class TenantService {
         }
 
         return failure.getClass().getSimpleName();
+    }
+
+    private static boolean isTenantNameUniqueViolation(DataIntegrityViolationException ex) {
+        String constraint = extractConstraintName(ex);
+        return TENANT_NAME_UNIQUE_CONSTRAINT.equalsIgnoreCase(constraint);
+    }
+
+    private void requireUniqueTenantNameForCreate(String normalizedName) {
+        if (tenantRepository.existsByNameIgnoreCase(normalizedName)) {
+            throw new TenantAlreadyExistsException("Tenant name already exists");
+        }
+    }
+
+    private void requireUniqueTenantNameForUpdate(UUID tenantId, String normalizedName) {
+        if (tenantRepository.existsByNameIgnoreCaseAndIdNot(normalizedName, tenantId)) {
+            throw new TenantAlreadyExistsException("Tenant name already exists");
+        }
     }
 
     private void securityWarnDenied(
@@ -745,10 +774,6 @@ public class TenantService {
         boolean isOwner = tenant.getOwner() != null
                 && tenant.getOwner().getId().equals(targetUserId);
 
-        /*
-         * OWNER INVARIANTS
-         * Only enforce when field is being changed
-         */
         if (isOwner) {
             if (newRole != null && newRole != TenantRole.MANAGER) {
                 securityWarnDenied(
@@ -779,9 +804,6 @@ public class TenantService {
             }
         }
 
-        /*
-         * SELF PROTECTION
-         */
         if (actorIsTarget) {
             if (newRole != null && newRole != TenantRole.MANAGER) {
                 securityWarnDenied(
@@ -1081,17 +1103,21 @@ public class TenantService {
     }
 
     @Nonnull
-    private static Tenant buildTenant(String name, String description, String dataRegion, Integer retentionDays) {
-        Tenant tenant = new Tenant(name);
+    private static Tenant buildTenant(String normalizedName, String description, String dataRegion, Integer retentionDays) {
+        Tenant tenant = new Tenant(normalizedName);
+
         if (description != null && !description.isBlank()) {
             tenant.updateDescription(description);
         }
+
         if (dataRegion != null && !dataRegion.isBlank()) {
             tenant.updateDataRegion(dataRegion);
         }
+
         if (retentionDays != null) {
             tenant.updateRetentionDays(retentionDays);
         }
+
         return tenant;
     }
 
@@ -1115,5 +1141,4 @@ public class TenantService {
             );
         }
     }
-
 }

@@ -23,36 +23,35 @@ public class UserProvisioningService implements IUserProvisioningService {
     @Override
     @Transactional
     public User provisionInvitedUser(
-            Tenant tenant,
+            String externalSubjectId,
             String email,
             String firstName,
             String lastName,
             String jobTitle,
             String department
     ) {
+        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
 
-        String normalizedEmail = email.toLowerCase(Locale.ROOT);
+        User user = userRepository.findByExternalSubjectId(externalSubjectId)
+                .orElseGet(() -> userRepository.findByEmailIgnoreCase(normalizedEmail)
+                        .orElseGet(() -> userRepository.save(new User(
+                                normalizedEmail,
+                                firstName,
+                                lastName,
+                                jobTitle,
+                                department
+                        ))));
 
-        User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
-                .orElseGet(() -> userRepository.save(new User(
-                        normalizedEmail,
-                        firstName,
-                        lastName,
-                        jobTitle,
-                        department
-                )));
+        user.bindExternalSubjectId(externalSubjectId);
+
+        if (user.getStatus() == UserStatus.LOCKED) {
+            user.activate();
+        }
 
         // Every user must belong to ROOT tenant (baseline MEMBER)
         tenantMembershipService.ensureMembership(
                 user.getId(),
                 tenantService.getRootTenant().getId(),
-                TenantRole.MEMBER
-        );
-
-        // Ensure invited tenant membership (baseline MEMBER)
-        tenantMembershipService.ensureMembership(
-                user.getId(),
-                tenant.getId(),
                 TenantRole.MEMBER
         );
 

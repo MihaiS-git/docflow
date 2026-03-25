@@ -5,10 +5,7 @@ import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
@@ -18,8 +15,11 @@ public class InviteValidationController {
 
     private final InviteApplicationService inviteService;
 
-    @PostMapping("/validate")
-    public ResponseEntity<Void> validate(@RequestParam String token, HttpSession session) {
+    @PostMapping("/activate")
+    public ResponseEntity<Void> activate(
+            @RequestParam String token,
+            HttpSession session
+    ) {
         inviteService.validateAndStoreInviteToken(token, session);
         return ResponseEntity.noContent().build();
     }

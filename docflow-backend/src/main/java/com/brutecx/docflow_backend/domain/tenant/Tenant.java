@@ -3,9 +3,12 @@ package com.brutecx.docflow_backend.domain.tenant;
 import com.brutecx.docflow_backend.api.error.TenantInvalidArgumentException;
 import com.brutecx.docflow_backend.domain.user.User;
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.text.Normalizer;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -67,9 +70,9 @@ public class Tenant {
             TenantType type,
             boolean bootstrapEnabled
     ) {
-        this.name = canonicalize(name);
+        this.name = normalizeName(name);
         this.status = TenantStatus.ACTIVE;
-        this.tenantType = Objects.requireNonNull(type);
+        this.tenantType = Objects.requireNonNull(type, "type");
         this.bootstrapEnabled = bootstrapEnabled;
     }
 
@@ -84,70 +87,84 @@ public class Tenant {
         updatedAt = Instant.now();
     }
 
-    private static String canonicalize(String name) {
-        Objects.requireNonNull(name);
+    public static String normalizeName(String name) {
+        Objects.requireNonNull(name, "name");
+
         String normalized = name.trim().replaceAll("\\s+", " ");
-        normalized = java.text.Normalizer.normalize(
-                normalized,
-                java.text.Normalizer.Form.NFC
-        );
+        normalized = Normalizer.normalize(normalized, Normalizer.Form.NFC);
+
         if (normalized.isBlank()) {
             throw new TenantInvalidArgumentException("Tenant name is required");
         }
+
         if (normalized.length() > 128) {
             throw new TenantInvalidArgumentException("Tenant name too long");
         }
+
         if (!normalized.matches("^[\\p{L}0-9](?:[\\p{L}0-9 &.,'()\\/+\\-_#]*[\\p{L}0-9])?$")) {
             throw new TenantInvalidArgumentException("Invalid tenant name format");
         }
+
         return normalized;
     }
 
     public void updateName(String name) {
         requireActive("UPDATE_NAME");
-        this.name = canonicalize(name);
+        this.name = normalizeName(name);
     }
 
     public void updateDescription(String description) {
         requireActive("UPDATE_DESCRIPTION");
-        if (description != null) {
-            String normalized = description.trim();
-            if (normalized.length() > 1000) {
-                throw new TenantInvalidArgumentException("Description too long");
-            }
-            this.description = normalized.isBlank() ? null : normalized;
-        } else {
+
+        if (description == null) {
             this.description = null;
+            return;
         }
+
+        String normalized = description.trim();
+        if (normalized.length() > 1000) {
+            throw new TenantInvalidArgumentException("Description too long");
+        }
+
+        this.description = normalized.isBlank() ? null : normalized;
     }
 
     public void assignOwner(User user) {
         requireActive("ASSIGN_OWNER");
-        this.owner = Objects.requireNonNull(user);
+        this.owner = Objects.requireNonNull(user, "user");
     }
 
     public void updateDataRegion(String dataRegion) {
         requireActive("UPDATE_DATA_REGION");
-        if (dataRegion != null) {
-            String normalized = dataRegion.trim();
-            if (normalized.length() > 128) {
-                throw new TenantInvalidArgumentException("Data region too long");
-            }
-            this.dataRegion = normalized.isBlank() ? null : normalized;
-        } else {
+
+        if (dataRegion == null) {
             this.dataRegion = null;
+            return;
         }
+
+        String normalized = dataRegion.trim();
+        if (normalized.length() > 128) {
+            throw new TenantInvalidArgumentException("Data region too long");
+        }
+
+        this.dataRegion = normalized.isBlank() ? null : normalized;
     }
 
     public void updateRetentionDays(Integer retentionDays) {
         requireActive("UPDATE_RETENTION_DAYS");
+
         if (retentionDays == null) {
             throw new TenantInvalidArgumentException("Retention cannot be null");
-        } else if (retentionDays != 0 && retentionDays < 30) {
+        }
+
+        if (retentionDays != 0 && retentionDays < 30) {
             throw new TenantInvalidArgumentException("Retention must be >= 30 days or 0 (unlimited)");
-        } else if (retentionDays > 3650) {
+        }
+
+        if (retentionDays > 3650) {
             throw new TenantInvalidArgumentException("Retention too large (max 3650 days)");
         }
+
         this.retentionDays = retentionDays;
     }
 

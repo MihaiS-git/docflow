@@ -17,6 +17,10 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID>, JpaSpecif
 
     Optional<Tenant> findFirstByTenantType(TenantType tenantType);
 
+    boolean existsByNameIgnoreCase(String name);
+
+    boolean existsByNameIgnoreCaseAndIdNot(String name, UUID id);
+
     @Query("""
             SELECT new com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO(
                 t.id,
@@ -24,17 +28,17 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID>, JpaSpecif
                 t.description,
                 t.owner.id,
                 t.status,
-            
+
                 CONCAT(u.firstName,' ',u.lastName),
                 u.email,
-            
+
                 COUNT(m2.id),
-            
+
                 t.dataRegion,
                 t.retentionDays,
-            
+
                 MAX(m.updatedAt),
-            
+
                 t.createdAt,
                 t.updatedAt
             )
@@ -52,6 +56,7 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID>, JpaSpecif
                 t.id,
                 t.name,
                 t.description,
+                t.owner.id,
                 t.status,
                 u.firstName,
                 u.lastName,

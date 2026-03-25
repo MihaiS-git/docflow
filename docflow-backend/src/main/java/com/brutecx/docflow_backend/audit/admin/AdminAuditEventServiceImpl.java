@@ -226,7 +226,7 @@ public class AdminAuditEventServiceImpl implements IAdminAuditEventService {
             case TENANT_MUTATION_DENIED -> AuditResult.DENIED;
             case TENANT_CREATE_FAILED, RETENTION_POLICY_UPSERT_FAILED, INVITE_FAILED, USER_LOCK_FAILED,
                  USER_DISABLE_FAILED, USER_ACTIVATE_FAILED, ROLE_ASSIGN_FAILED, ROLE_REVOKE_FAILED,
-                 INVITE_SUBJECT_BIND_FAILED, INVITE_PURGE_FAILED -> AuditResult.FAILED;
+                 INVITE_SUBJECT_BIND_FAILED, INVITE_EXPIRE_FAILED -> AuditResult.FAILED;
             default -> AuditResult.SUCCESS;
         };
     }

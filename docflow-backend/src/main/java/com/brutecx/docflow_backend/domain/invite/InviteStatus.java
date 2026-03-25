@@ -2,5 +2,8 @@ package com.brutecx.docflow_backend.domain.invite;
 
 public enum InviteStatus {
     PENDING,
-    ACCEPTED
+    ACTIVATED,
+    ACCEPTED,
+    REVOKED,
+    EXPIRED
 }

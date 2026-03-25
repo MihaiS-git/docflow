@@ -26,8 +26,7 @@ public class NoopMailService implements IMailService {
             String lastName,
             String jobTitle,
             String department,
-            String inviteLink,
-            String temporaryPassword
+            String inviteLink
     ) {
 
     }
