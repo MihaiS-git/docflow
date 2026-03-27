@@ -11,6 +11,7 @@ import java.util.UUID;
 public record TenantUserResponseDTO(
         UUID userId,
         String email,
+        String businessPhone,
         String firstName,
         String lastName,
         String displayName,
@@ -18,15 +19,44 @@ public record TenantUserResponseDTO(
         String department,
         TenantRole role,
         MembershipStatus status,
-        Instant membershipCreatedAt,
-        Instant membershipUpdatedAt
+        Instant createdAt,
+        Instant updatedAt
 ) {
+
+    public TenantUserResponseDTO(
+            UUID userId,
+            String email,
+            String businessPhone,
+            String firstName,
+            String lastName,
+            String displayName,
+            String jobTitle,
+            String department,
+            TenantRole role,
+            MembershipStatus status,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this.userId = userId;
+        this.email = email;
+        this.businessPhone = businessPhone;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.displayName = displayName;
+        this.jobTitle = jobTitle;
+        this.department = department;
+        this.role = role;
+        this.status = status;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
 
     public static TenantUserResponseDTO from(UserTenantMembership m) {
         User u = m.getUser();
         return new TenantUserResponseDTO(
                 u.getId(),
                 u.getEmail(),
+                u.getBusinessPhone(),
                 u.getFirstName(),
                 u.getLastName(),
                 u.getDisplayName(),

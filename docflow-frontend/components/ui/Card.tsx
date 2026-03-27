@@ -30,9 +30,9 @@ export default function Card({
       `}
     >
       {title && (
-        <div className="mb-3 text-sm font-semibold text-(--color-text-secondary)">
+        <h2 className="mb-3 text-md font-bold text-(--color-text-secondary)">
           {title}
-        </div>
+        </h2>
       )}
 
       {children}

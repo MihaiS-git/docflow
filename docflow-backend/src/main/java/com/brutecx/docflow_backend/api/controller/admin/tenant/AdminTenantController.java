@@ -6,6 +6,7 @@ import com.brutecx.docflow_backend.domain.tenant.*;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -39,8 +40,8 @@ public class AdminTenantController {
             @RequestParam(required = false) String dataRegion,
             @RequestParam(required = false) String managerName,
             @RequestParam(required = false) String managerEmail,
-            @RequestParam(required = false) LocalDate createdAfter,
-            @RequestParam(required = false) LocalDate createdBefore,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdAfter,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdBefore,
 
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -84,6 +85,11 @@ public class AdminTenantController {
             @PathVariable UUID tenantId,
             @RequestParam(required = false) TenantRole role,
             @RequestParam(required = false) MembershipStatus status,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String jobTitle,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) LocalDate createdAfter,
+            @RequestParam(required = false) LocalDate createdBefore,
 
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -96,6 +102,11 @@ public class AdminTenantController {
                         tenantId,
                         role,
                         status,
+                        search,
+                        jobTitle,
+                        department,
+                        createdAfter,
+                        createdBefore,
                         page,
                         size,
                         sort,

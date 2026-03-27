@@ -1,34 +1,38 @@
-export type TenantStatus =
-  | "ACTIVE"
-  | "SUSPENDED"
-  | "TERMINATED";
+export type TenantStatus = "ACTIVE" | "SUSPENDED" | "TERMINATED";
 
 export interface AdminTenant {
-  id: string
-  name: string
-  description: string
-  ownerId: string
-  
-  status: TenantStatus
+  id: string;
+  name: string;
+  description: string;
+  ownerId: string;
 
-  managerName?: string
-  managerEmail?: string
+  status: TenantStatus;
 
-  membersCount: number
+  managerName?: string;
+  managerEmail?: string;
 
-  dataRegion?: string
-  retentionDays?: number
+  membersCount: number;
 
-  lastActivity?: string
+  dataRegion?: string;
+  retentionDays?: number;
 
-  createdAt: string
-  updatedAt: string
+  lastActivity?: string;
+
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface Page<T> {
-  content: T[];
-  totalElements: number;
-  totalPages: number;
-  number: number;
-  size: number;
+export interface TenantResponseDTO {
+  id: string;
+  name: string;
+  description: string;
+  ownerId: string;
+  ownerDisplayName: string;
+  status: TenantStatus;
+  tenantType: string;
+  dataRegion: string;
+  retentionDays: number;
+  bootstrapEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
 }

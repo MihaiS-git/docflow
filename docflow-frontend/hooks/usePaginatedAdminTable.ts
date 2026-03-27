@@ -26,7 +26,6 @@ export function usePaginatedAdminTable<T>(
   const [isPending, startTransition] = useTransition();
 
   const requestIdRef = useRef(0);
-  const requestInFlightRef = useRef(false);
   const lastRequestedQueryKeyRef = useRef<string | null>(null);
   const loadRef = useRef<((force?: boolean) => Promise<void>) | null>(null);
 
@@ -35,7 +34,6 @@ export function usePaginatedAdminTable<T>(
   const load = useCallback(
     async (force = false) => {
       if (!enabled) return;
-      if (requestInFlightRef.current) return;
 
       if (!force && lastRequestedQueryKeyRef.current === queryKey) {
         return;
@@ -43,7 +41,6 @@ export function usePaginatedAdminTable<T>(
 
       lastRequestedQueryKeyRef.current = queryKey;
 
-      requestInFlightRef.current = true;
       const requestId = ++requestIdRef.current;
 
       setLoading(true);
@@ -61,9 +58,7 @@ export function usePaginatedAdminTable<T>(
       } catch (err) {
         setLoading(false);
         throw err;
-      } finally {
-        requestInFlightRef.current = false;
-      }
+      } 
     },
     [enabled, loader, queryKey],
   );
@@ -73,8 +68,19 @@ export function usePaginatedAdminTable<T>(
   }, [load]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+  let mounted = true;
+
+  const run = async () => {
+    if (!mounted) return;
+    await load();
+  };
+
+  void run();
+
+  return () => {
+    mounted = false;
+  };
+}, [load]);
 
   useEffect(() => {
     lastRequestedQueryKeyRef.current = null;

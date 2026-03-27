@@ -1,6 +1,5 @@
 package com.brutecx.docflow_backend.api.controller.user.tenant;
 
-import com.brutecx.docflow_backend.api.dto.common.PageDTO;
 import com.brutecx.docflow_backend.api.dto.invite.CreateTenantInviteRequest;
 import com.brutecx.docflow_backend.api.dto.invite.InviteAdminViewDTO;
 import com.brutecx.docflow_backend.api.dto.invite.InviteQueryRequest;
@@ -9,6 +8,7 @@ import com.brutecx.docflow_backend.application.invite.InviteApplicationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
@@ -52,7 +52,7 @@ public class TenantInviteController {
     }
 
     @GetMapping
-    public ResponseEntity<PageDTO<InviteAdminViewDTO>> listInvites(
+    public ResponseEntity<Page<InviteAdminViewDTO>> listInvites(
             @PathVariable UUID tenantId,
             @Valid InviteQueryRequest query
     ) {
@@ -68,13 +68,11 @@ public class TenantInviteController {
                 PageRequest.of(query.resolvedPage(), query.resolvedSize(), sort);
 
         return ResponseEntity.ok(
-                PageDTO.from(
-                        inviteAdminQueryService.listInvites(
-                                tenantId,
-                                query.email(),
-                                query.status(),
-                                pageRequest
-                        )
+                inviteAdminQueryService.listInvites(
+                        tenantId,
+                        query.email(),
+                        query.status(),
+                        pageRequest
                 )
         );
     }

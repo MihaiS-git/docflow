@@ -1,16 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/apiFetch";
 import { ApiError } from "@/lib/apiErrors";
 
 import type { AdminTenant } from "@/types/admin/Tenant";
-import {
-  InvitePage,
-  InviteRow,
-  InviteStatusFilter,
-} from "@/types/invites/types";
+import type { SpringPage } from "@/types/api/SpringPage";
+import type { InviteRow, InviteStatusFilter } from "@/types/invites/types";
 
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -24,6 +21,7 @@ import TableColumnWidths from "@/components/ui/TableColumnWidths";
 import SortableHeader from "@/components/ui/SortableHeader";
 
 import { useDebouncedPrefixFilter } from "@/hooks/useDebouncedPrefixFilter";
+import { usePaginatedAdminTable } from "@/hooks/usePaginatedAdminTable";
 
 const PAGE_SIZE = 20;
 
@@ -43,79 +41,91 @@ export default function InvitesTableCard({ tenants }: Props) {
 
   const emailFilter = useDebouncedPrefixFilter(filterEmail);
 
-  const [invites, setInvites] = useState<InviteRow[]>([]);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
 
-  const [invitePage, setInvitePage] = useState(0);
-  const [inviteTotalPages, setInviteTotalPages] = useState(0);
-  const [inviteTotalElements, setInviteTotalElements] = useState(0);
+  const [sort, setSort] = useState("createdAt");
+  const [direction, setDirection] = useState<"ASC" | "DESC">("DESC");
 
-  const [invitesLoading, setInvitesLoading] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
 
   const [tableSuccess, setTableSuccess] = useState<string | null>(null);
   const [invitesError, setInvitesError] = useState<string | null>(null);
 
-  const [sort, setSort] = useState("createdAt");
-  const [direction, setDirection] = useState<"ASC" | "DESC">("DESC");
+  const [reloadNonce, setReloadNonce] = useState(0);
 
-  useEffect(() => {
-    if (!selectedTenantId) return;
-
-    void loadInvites();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    selectedTenantId,
-    invitePage,
-    emailFilter.debounced,
-    filterStatus,
+  const queryKey = JSON.stringify({
+    tenantId: selectedTenantId,
+    page,
+    pageSize,
     sort,
     direction,
-  ]);
+    email: emailFilter.debounced,
+    status: filterStatus,
+    reloadNonce,
+  });
 
-  async function loadInvites() {
-    if (emailFilter.shouldBlock()) {
-      setInvites([]);
-      setInviteTotalPages(0);
-      setInviteTotalElements(0);
-      return;
+  const loader = useCallback(async (): Promise<SpringPage<InviteRow>> => {
+    const empty: SpringPage<InviteRow> = {
+      content: [],
+      page: {
+        number: page,
+        size: pageSize,
+        totalElements: 0,
+        totalPages: 0,
+      },
+    };
+
+    if (!selectedTenantId || emailFilter.shouldBlock()) {
+      return empty;
     }
 
-    setInvitesLoading(true);
-    setInvitesError(null);
+    const query = new URLSearchParams({
+      page: String(page),
+      size: String(pageSize),
+      sort,
+      direction,
+    });
+
+    if (emailFilter.debounced) query.set("email", emailFilter.debounced);
+    if (filterStatus) query.set("status", filterStatus);
 
     try {
-      const query = new URLSearchParams({
-        page: String(invitePage),
-        size: String(PAGE_SIZE),
-        sort,
-        direction,
-      });
-
-      if (emailFilter.debounced) query.set("email", emailFilter.debounced);
-      if (filterStatus) query.set("status", filterStatus);
-
-      const res = await apiFetch<InvitePage>(
+      const res = await apiFetch<SpringPage<InviteRow>>(
         `/api/tenants/${selectedTenantId}/invites?${query.toString()}`,
       );
 
-      setInvites(res.content);
-      setInviteTotalPages(res.totalPages);
-      setInviteTotalElements(res.totalElements);
+      emailFilter.registerResult(res.content.length);
 
-      emailFilter.registerResult(res.totalElements);
+      return res;
     } catch (err) {
       if (err instanceof ApiError) setInvitesError(err.message);
       else setInvitesError("Failed to load invites.");
-    } finally {
-      setInvitesLoading(false);
+      return empty;
     }
-  }
+  }, [
+    selectedTenantId,
+    page,
+    pageSize,
+    sort,
+    direction,
+    emailFilter,
+    filterStatus,
+  ]);
 
-  function handleSort(field: string) {
+  const { data, loading, isPending } = usePaginatedAdminTable(loader, {
+    enabled: Boolean(selectedTenantId),
+    queryKey,
+    resetKeys: [emailFilter.debounced, filterStatus],
+  });
+
+  const invites = useMemo(() => data?.content ?? [], [data?.content]);
+
+  const handleSort = useCallback((field: string) => {
     setSort((prev) => {
       if (prev === field) {
-        setDirection((d) => (d === "ASC" ? "DESC" : "ASC"));
+        setDirection((current) => (current === "ASC" ? "DESC" : "ASC"));
         return prev;
       }
 
@@ -123,10 +133,10 @@ export default function InvitesTableCard({ tenants }: Props) {
       return field;
     });
 
-    setInvitePage(0);
-  }
+    setPage(0);
+  }, []);
 
-  async function onCleanupInvites() {
+  async function onExpireInvites() {
     if (!selectedTenantId) return;
 
     setCleanupLoading(true);
@@ -134,17 +144,13 @@ export default function InvitesTableCard({ tenants }: Props) {
 
     try {
       const result = await apiFetch<{
-        deletedInvites: number;
-        deletedUsers: number;
-      }>(`/api/tenants/${selectedTenantId}/invites/cleanup`, {
+        expiredInvites: number;
+      }>(`/api/tenants/${selectedTenantId}/invites/expire`, {
         method: "POST",
       });
 
-      setTableSuccess(
-        `Cleanup completed. Deleted ${result.deletedInvites} expired invites and ${result.deletedUsers} orphaned users.`,
-      );
-
-      await loadInvites();
+      setTableSuccess(`Expired ${result.expiredInvites} pending invites.`);
+      setReloadNonce((n) => n + 1);
     } catch (err) {
       if (err instanceof ApiError) setInvitesError(err.message);
       else setInvitesError("Cleanup failed.");
@@ -163,8 +169,6 @@ export default function InvitesTableCard({ tenants }: Props) {
       );
 
       setTableSuccess("Invite revoked successfully.");
-
-      await loadInvites();
     } catch (err) {
       if (err instanceof ApiError) setInvitesError(err.message);
       else setInvitesError("Failed to revoke invite.");
@@ -176,7 +180,7 @@ export default function InvitesTableCard({ tenants }: Props) {
   function onResetFilters() {
     setFilterEmail("");
     setFilterStatus("");
-    setInvitePage(0);
+    setPage(0);
     emailFilter.reset();
   }
 
@@ -226,11 +230,10 @@ export default function InvitesTableCard({ tenants }: Props) {
       <Select
         label="Tenant"
         value={selectedTenantId}
-        /* size={6} */
-        className="overflow-y-auto w-56"
+        className="w-56"
         onChange={(e) => {
           setSelectedTenantId(e.target.value);
-          setInvitePage(0);
+          setPage(0);
         }}
       >
         <option value="">Select tenant</option>
@@ -245,9 +248,7 @@ export default function InvitesTableCard({ tenants }: Props) {
         label="Status"
         value={filterStatus}
         className="w-56"
-        onChange={(e) =>
-          setFilterStatus(e.target.value as InviteStatusFilter)
-        }
+        onChange={(e) => setFilterStatus(e.target.value as InviteStatusFilter)}
       >
         <option value="">All statuses</option>
         <option value="PENDING">Pending</option>
@@ -261,7 +262,7 @@ export default function InvitesTableCard({ tenants }: Props) {
         value={filterEmail}
         onChange={(e) => {
           setFilterEmail(e.target.value);
-          setInvitePage(0);
+          setPage(0);
         }}
         className="w-56"
       />
@@ -274,12 +275,60 @@ export default function InvitesTableCard({ tenants }: Props) {
 
   const actions = (
     <Button
-      onClick={onCleanupInvites}
+      onClick={onExpireInvites}
       disabled={!selectedTenantId}
       variant="secondary"
     >
-      {cleanupLoading ? "Cleaning…" : "Cleanup Expired Invites"}
+      {cleanupLoading ? "Expiring…" : "Expire Pending Invites"}
     </Button>
+  );
+
+  const tableHeader = useMemo(
+    () => (
+      <thead className="sticky top-0 bg-(--color-table-header)">
+        <tr>
+          <SortableHeader
+            label="Email"
+            field="email"
+            activeSort={sort}
+            direction={direction}
+            onSortChange={handleSort}
+          />
+          <SortableHeader
+            label="Name"
+            field="firstName"
+            activeSort={sort}
+            direction={direction}
+            onSortChange={handleSort}
+          />
+          <SortableHeader
+            label="Role"
+            field="tenantRole"
+            activeSort={sort}
+            direction={direction}
+            onSortChange={handleSort}
+          />
+          <SortableHeader
+            label="Status"
+            field="status"
+            activeSort={sort}
+            direction={direction}
+            onSortChange={handleSort}
+          />
+          <SortableHeader
+            label="Expires"
+            field="expiresAt"
+            activeSort={sort}
+            direction={direction}
+            onSortChange={handleSort}
+          />
+          <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide">
+            Actions
+          </th>
+        </tr>
+      </thead>
+    ),
+    [sort, direction, handleSort],
   );
 
   return (
@@ -297,64 +346,32 @@ export default function InvitesTableCard({ tenants }: Props) {
       >
         {selectedTenantId ? (
           <DataTable
-            loading={invitesLoading && invites.length === 0}
-            empty={!invitesLoading && invites.length === 0}
+            loading={loading && invites.length === 0}
+            empty={!loading && invites.length === 0}
             emptyMessage="No invites found"
+            className={
+              (loading || isPending) && invites.length > 0
+                ? "pointer-events-none opacity-70 transition-opacity"
+                : ""
+            }
             footer={
-              <DataTableFooter
-                page={invitePage}
-                pageSize={PAGE_SIZE}
-                totalPages={inviteTotalPages}
-                totalElements={inviteTotalElements}
-                onPageChange={(p) => setInvitePage(p)}
-              />
+              data ? (
+                <DataTableFooter
+                  page={page}
+                  pageSize={pageSize}
+                  totalPages={data.page.totalPages}
+                  totalElements={data.page.totalElements}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(0);
+                  }}
+                />
+              ) : null
             }
           >
             {columnWidths}
-
-            <thead className="sticky top-0 bg-(--color-table-header)">
-              <tr>
-                <SortableHeader
-                  label="Email"
-                  field="email"
-                  activeSort={sort}
-                  direction={direction}
-                  onSortChange={handleSort}
-                />
-                <SortableHeader
-                  label="Name"
-                  field="firstName"
-                  activeSort={sort}
-                  direction={direction}
-                  onSortChange={handleSort}
-                />
-                <SortableHeader
-                  label="Role"
-                  field="tenantRole"
-                  activeSort={sort}
-                  direction={direction}
-                  onSortChange={handleSort}
-                />
-                <SortableHeader
-                  label="Status"
-                  field="status"
-                  activeSort={sort}
-                  direction={direction}
-                  onSortChange={handleSort}
-                />
-                <SortableHeader
-                  label="Expires"
-                  field="expiresAt"
-                  activeSort={sort}
-                  direction={direction}
-                  onSortChange={handleSort}
-                />
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-
+            {tableHeader}
             <tbody>{rows}</tbody>
           </DataTable>
         ) : (
@@ -364,15 +381,11 @@ export default function InvitesTableCard({ tenants }: Props) {
         )}
 
         {tableSuccess && (
-          <p className="mt-4 text-sm text-(--color-success)">
-            {tableSuccess}
-          </p>
+          <p className="mt-4 text-sm text-(--color-success)">{tableSuccess}</p>
         )}
 
         {invitesError && (
-          <p className="mt-4 text-sm text-(--color-error)">
-            {invitesError}
-          </p>
+          <p className="mt-4 text-sm text-(--color-error)">{invitesError}</p>
         )}
       </Card>
     </div>

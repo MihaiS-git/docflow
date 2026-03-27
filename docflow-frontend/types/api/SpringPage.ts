@@ -1,7 +1,9 @@
 export type SpringPage<T> = {
   content: T[];
-  number: number;
-  size: number;
-  totalElements: number;
-  totalPages: number;
+  page: {
+    number: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+  };
 };

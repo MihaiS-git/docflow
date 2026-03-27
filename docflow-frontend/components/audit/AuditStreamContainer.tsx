@@ -20,6 +20,7 @@ import type { AuditVerificationResultDTO } from "@/lib/api/AuditVerificationResu
 import type { AuditColumn } from "./AuditColumn";
 
 import TableToolbar from "@/components/ui/TableToolbar";
+import EmptyState from "@/components/ui/EmptyState";
 
 type CursorPage<T> = {
   items: T[];
@@ -85,7 +86,6 @@ export function AuditStreamContainer<T>({
 
   const inFlightRef = useRef(false);
 
-  // compressed race-safe logic
   const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
@@ -326,6 +326,13 @@ export function AuditStreamContainer<T>({
           )}
         </div>
 
+        {!queried && !loading && (
+          <EmptyState
+            title="No data loaded"
+            description="Select a date range and run the query to view audit records."
+          />
+        )}
+
         {(rows.length > 0 || loading || queried) && (
           <>
             <div className={loading ? "opacity-60 transition-opacity" : ""}>
@@ -351,9 +358,10 @@ export function AuditStreamContainer<T>({
         )}
 
         {queried && !loading && rows.length === 0 && !error && (
-          <div className="text-sm text-(--color-text-muted)">
-            No results found.
-          </div>
+          <EmptyState
+            title="No results"
+            description="No audit records found for the selected range and filters."
+          />
         )}
       </section>
     </div>

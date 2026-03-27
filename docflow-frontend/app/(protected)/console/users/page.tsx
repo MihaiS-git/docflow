@@ -93,10 +93,12 @@ function filtersReducer(
 function emptyUsersPage(page: number): SpringPage<AdminUser> {
   return {
     content: [],
-    number: page,
-    size: PAGE_SIZE,
-    totalElements: 0,
-    totalPages: 0,
+    page: {
+      number: page,
+      size: PAGE_SIZE,
+      totalElements: 0,
+      totalPages: 0,
+    },
   };
 }
 
@@ -105,6 +107,7 @@ export default function AdminUsersPage() {
   const isAdmin =
     status === "AUTH" && identity?.roles?.includes("ADMIN") === true;
 
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [page, setPage] = useState(0);
 
   const [roles, setRoles] = useState<string[]>([]);
@@ -113,10 +116,7 @@ export default function AdminUsersPage() {
   const [sort, setSort] = useState("email");
   const [direction, setDirection] = useState<"ASC" | "DESC">("ASC");
 
-  const [filters, dispatchFilters] = useReducer(
-    filtersReducer,
-    initialFilters,
-  );
+  const [filters, dispatchFilters] = useReducer(filtersReducer, initialFilters);
 
   const [optimisticUsers, setOptimisticUsers] = useState<OptimisticUsersState>(
     initialOptimisticUsersState,
@@ -172,7 +172,7 @@ export default function AdminUsersPage() {
       return emptyUsersPage(page);
     }
 
-    const result = await fetchAdminUsers(page, PAGE_SIZE, sort, direction, {
+    const result = await fetchAdminUsers(page, pageSize, sort, direction, {
       tenantId: filters.tenantId || undefined,
       status: filters.status || undefined,
       email: emailFilter.debounced || undefined,
@@ -182,12 +182,13 @@ export default function AdminUsersPage() {
 
     return result;
   }, [
+    emailFilter,
     page,
+    pageSize,
     sort,
     direction,
     filters.tenantId,
     filters.status,
-    emailFilter,
   ]);
 
   const { data, loading, isPending } = usePaginatedAdminTable(loader, {
@@ -272,16 +273,13 @@ export default function AdminUsersPage() {
     [],
   );
 
-  const handleEmailChange = useCallback(
-    (e: ChangeEvent<HTMLInputElement>) => {
-      dispatchFilters({
-        type: "SET_FIELD",
-        field: "email",
-        value: e.target.value,
-      });
-    },
-    [],
-  );
+  const handleEmailChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    dispatchFilters({
+      type: "SET_FIELD",
+      field: "email",
+      value: e.target.value,
+    });
+  }, []);
 
   const rows = users.map((user) => (
     <AdminUserRow
@@ -332,7 +330,11 @@ export default function AdminUsersPage() {
       <form className="flex flex-wrap items-end gap-4">
         <div className="w-full sm:w-56">
           <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
-            <Select label="Tenant" value={filters.tenantId} onChange={handleTenantChange}>
+            <Select
+              label="Tenant"
+              value={filters.tenantId}
+              onChange={handleTenantChange}
+            >
               <option value="">Select tenant…</option>
               {tenants.map((tenant) => (
                 <option key={tenant.id} value={tenant.id}>
@@ -345,7 +347,11 @@ export default function AdminUsersPage() {
 
         <div className="w-full sm:w-40">
           <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
-            <Select label="Status" value={filters.status} onChange={handleStatusChange}>
+            <Select
+              label="Status"
+              value={filters.status}
+              onChange={handleStatusChange}
+            >
               <option value="">All statuses</option>
               <option value="ACTIVE">Active</option>
               <option value="LOCKED">Locked</option>
@@ -412,10 +418,14 @@ export default function AdminUsersPage() {
               data ? (
                 <DataTableFooter
                   page={page}
-                  pageSize={PAGE_SIZE}
-                  totalPages={data.totalPages}
-                  totalElements={data.totalElements}
+                  pageSize={pageSize}
+                  totalPages={data.page.totalPages}
+                  totalElements={data.page.totalElements}
                   onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(0);
+                  }}
                 />
               ) : null
             }

@@ -1,5 +1,6 @@
 import { apiFetch } from "@/lib/apiFetch";
-import type { AdminTenant, Page } from "@/types/admin/Tenant";
+import type { AdminTenant } from "@/types/admin/Tenant";
+import { SpringPage } from "@/types/api/SpringPage";
 
 export function fetchAllTenants(
   page = 0,
@@ -41,7 +42,7 @@ export function fetchAllTenants(
   if (filters?.createdBefore)
     params.append("createdBefore", filters.createdBefore);
 
-  return apiFetch<Page<AdminTenant>>(`/api/admin/tenants?${params.toString()}`);
+  return apiFetch<SpringPage<AdminTenant>>(`/api/admin/tenants?${params.toString()}`);
 }
 
 export function fetchManagedTenants() {

@@ -25,10 +25,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,13 +46,14 @@ public class TenantService {
 
     private static final int MAX_PAGE_SIZE = 100;
 
-    private static final List<String> ALLOWED_USER_SORT_FIELDS = List.of(
-            "createdAt",
-            "email",
-            "firstName",
-            "lastName",
+    private static final Set<String> ALLOWED_USER_SORT_FIELDS = Set.of(
+            "displayName",
+            "jobTitle",
+            "department",
             "role",
-            "status"
+            "status",
+            "createdAt",
+            "updatedAt"
     );
 
     private static final String TENANT_NAME_UNIQUE_CONSTRAINT = "ux_tenants_name_ci";
@@ -61,10 +66,16 @@ public class TenantService {
     private final UserService userService;
     private final AuditRequestContextExtractor contextExtractor;
 
+    @Transactional(readOnly = true)
     public Page<TenantUserResponseDTO> listUsersByTenant(
             UUID tenantId,
             TenantRole role,
             MembershipStatus status,
+            String search,
+            String jobTitle,
+            String department,
+            LocalDate createdAfter,
+            LocalDate createdBefore,
             int page,
             int size,
             String sort,
@@ -98,33 +109,19 @@ public class TenantService {
 
         Pageable pageable = PageRequest.of(safePage, safeSize, sortSpec);
 
-        Page<UserTenantMembership> memberships;
+        Specification<UserTenantMembership> spec =
+                Specification.allOf(UserTenantMembershipSpecification.fetchUser(),
+                                UserTenantMembershipSpecification.byTenant(tenantId))
+                        .and(UserTenantMembershipSpecification.hasRole(role))
+                        .and(UserTenantMembershipSpecification.hasStatus(status))
+                        .and(UserTenantMembershipSpecification.search(normalizeSearch(search)))
+                        .and(UserTenantMembershipSpecification.jobTitle(normalizePrefix(jobTitle)))
+                        .and(UserTenantMembershipSpecification.department(normalizePrefix(department)))
+                        .and(UserTenantMembershipSpecification.createdAfter(toStartOfDay(createdAfter)))
+                        .and(UserTenantMembershipSpecification.createdBefore(toExclusiveEndOfDay(createdBefore)));
 
-        if (role != null && status != null) {
-            memberships = membershipRepository.findByTenantIdAndRoleAndStatusWithUser(
-                    tenantId,
-                    role,
-                    status,
-                    pageable
-            );
-        } else if (role != null) {
-            memberships = membershipRepository.findByTenantIdAndRoleWithUser(
-                    tenantId,
-                    role,
-                    pageable
-            );
-        } else if (status != null) {
-            memberships = membershipRepository.findByTenantIdAndStatusWithUser(
-                    tenantId,
-                    status,
-                    pageable
-            );
-        } else {
-            memberships = membershipRepository.findByTenantIdWithUser(
-                    tenantId,
-                    pageable
-            );
-        }
+        Page<UserTenantMembership> memberships =
+                membershipRepository.findAll(spec, pageable);
 
         User actor = userService.getRequiredCurrentUser();
         String resourcePath = contextExtractor.fromCurrentRequest().resourcePath();
@@ -144,6 +141,19 @@ public class TenantService {
         );
 
         return memberships.map(TenantUserResponseDTO::from);
+    }
+
+    private String normalizePrefix(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        final String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        return trimmed.toLowerCase(Locale.ROOT) + "%";
     }
 
     @Transactional(readOnly = true)
@@ -611,12 +621,13 @@ public class TenantService {
 
     private static String mapSortField(String field) {
         return switch (field) {
+            case "displayName" -> "user.displayName";
+            case "jobTitle" -> "user.jobTitle";
+            case "department" -> "user.department";
             case "role" -> "role";
             case "status" -> "status";
             case "createdAt" -> "createdAt";
-            case "email" -> "user.email";
-            case "firstName" -> "user.firstName";
-            case "lastName" -> "user.lastName";
+            case "updatedAt" -> "updatedAt";
             default -> throw new TenantInvalidArgumentException("Unsupported sort field: " + field);
         };
     }
@@ -661,6 +672,14 @@ public class TenantService {
         if (tenantRepository.existsByNameIgnoreCaseAndIdNot(normalizedName, tenantId)) {
             throw new TenantAlreadyExistsException("Tenant name already exists");
         }
+    }
+
+    private Instant toStartOfDay(LocalDate date) {
+        return date == null ? null : date.atStartOfDay().toInstant(ZoneOffset.UTC);
+    }
+
+    private Instant toExclusiveEndOfDay(LocalDate date) {
+        return date == null ? null : date.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
     }
 
     private void securityWarnDenied(
@@ -1140,5 +1159,11 @@ public class TenantService {
                     "Tenant is not active: " + tenantId
             );
         }
+    }
+
+    private String normalizeSearch(String value) {
+        if (value == null) return null;
+        String v = value.trim().toLowerCase(Locale.ROOT);
+        return v.isBlank() ? null : v;
     }
 }

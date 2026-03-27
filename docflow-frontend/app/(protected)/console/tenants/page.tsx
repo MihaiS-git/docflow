@@ -95,6 +95,7 @@ export default function TenantsPage() {
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
 
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [page, setPage] = useState(0);
 
   const [sort, setSort] = useState("createdAt");
@@ -125,10 +126,12 @@ export default function TenantsPage() {
   const loader = useCallback(async (): Promise<SpringPage<AdminTenant>> => {
     const empty: SpringPage<AdminTenant> = {
       content: [],
-      number: page,
-      size: PAGE_SIZE,
-      totalElements: 0,
-      totalPages: 0,
+      page: {
+        number: page,
+        size: pageSize,
+        totalElements: 0,
+        totalPages: 0,
+      },
     };
 
     if (
@@ -139,7 +142,7 @@ export default function TenantsPage() {
       return empty;
     }
 
-    const result = await fetchAllTenants(page, PAGE_SIZE, sort, direction, {
+    const result = await fetchAllTenants(page, pageSize, sort, direction, {
       status: filters.status,
       name: searchFilter.debounced || undefined,
       dataRegion: filters.dataRegion || undefined,
@@ -156,15 +159,16 @@ export default function TenantsPage() {
     return result;
   }, [
     page,
+    pageSize,
+    searchFilter,
+    managerNameFilter,
+    managerEmailFilter,
     sort,
     direction,
     filters.status,
     filters.dataRegion,
     filters.createdAfter,
     filters.createdBefore,
-    searchFilter,
-    managerNameFilter,
-    managerEmailFilter,
   ]);
 
   const { data, loading, isPending, reload } = usePaginatedAdminTable(loader, {
@@ -503,10 +507,14 @@ export default function TenantsPage() {
               data ? (
                 <DataTableFooter
                   page={page}
-                  pageSize={PAGE_SIZE}
-                  totalPages={data.totalPages}
-                  totalElements={data.totalElements}
+                  pageSize={pageSize}
+                  totalPages={data.page.totalPages}
+                  totalElements={data.page.totalElements}
                   onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(0);
+                  }}
                 />
               ) : null
             }

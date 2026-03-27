@@ -1,6 +1,7 @@
 export type TenantUser = {
   userId: string;
   email: string;
+  businessPhone?: string;
 
   firstName: string;
   lastName: string;
@@ -12,6 +13,7 @@ export type TenantUser = {
   role: string;
   status: string;
 
-  membershipCreatedAt: string;
-  membershipUpdatedAt: string;
+  createdAt: string;
+  updatedAt: string;
 };
+

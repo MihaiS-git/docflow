@@ -16,7 +16,7 @@ export default function ProtectedLayout({
 
   useEffect(() => {
     if (status !== "LOADING" && !isAuthenticated) {
-      router.replace("/login");
+      router.replace("/");
     }
   }, [status, isAuthenticated, router]);
 
