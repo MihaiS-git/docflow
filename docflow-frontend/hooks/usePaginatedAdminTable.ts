@@ -58,7 +58,7 @@ export function usePaginatedAdminTable<T>(
       } catch (err) {
         setLoading(false);
         throw err;
-      } 
+      }
     },
     [enabled, loader, queryKey],
   );
@@ -68,19 +68,19 @@ export function usePaginatedAdminTable<T>(
   }, [load]);
 
   useEffect(() => {
-  let mounted = true;
+    let mounted = true;
 
-  const run = async () => {
-    if (!mounted) return;
-    await load();
-  };
+    const run = async () => {
+      if (!mounted) return;
+      await load();
+    };
 
-  void run();
+    void run();
 
-  return () => {
-    mounted = false;
-  };
-}, [load]);
+    return () => {
+      mounted = false;
+    };
+  }, [load]);
 
   useEffect(() => {
     lastRequestedQueryKeyRef.current = null;
@@ -96,5 +96,6 @@ export function usePaginatedAdminTable<T>(
     loading,
     isPending,
     reload,
+    refetch: reload,
   };
 }

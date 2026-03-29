@@ -1,7 +1,7 @@
 import type { AdminAuditRow } from "@/types/api/AdminAuditRow";
 import type { AuditStreamDefinition } from "@/lib/audit/AuditStreamDefinition";
 import { isValidCorrelationId } from "@/lib/audit/validators";
-import { pivotColumn } from "@/components/audit/pivotColumn";
+import { pivotColumn } from "@/components/audit/columns/pivotColumn";
 import { timestampColumn } from "@/components/audit/columns/timestampColumn";
 import { textColumn } from "@/components/audit/columns/textColumn";
 import { badgeColumn } from "@/components/audit/columns/badgeColumn";

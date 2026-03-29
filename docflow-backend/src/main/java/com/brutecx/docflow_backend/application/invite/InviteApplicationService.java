@@ -100,27 +100,32 @@ public class InviteApplicationService {
             TenantRole effectiveRole =
                     (tenantRole != null) ? tenantRole : TenantRole.MEMBER;
 
-            var existing = inviteRepository
-                    .findByTenantIdAndEmail(
+            List<Invite> existingInvites = inviteRepository
+                    .findAllByTenantIdAndEmailForUpdate(
                             targetTenantId,
                             normalizedEmail
-                    )
+                    );
+
+            Invite blockingInvite = existingInvites.stream()
+                    .filter(existing -> existing.isPending() || existing.isActivated())
+                    .findFirst()
                     .orElse(null);
 
-            if (existing != null) {
-                if (existing.isPending() || existing.isActivated()) {
-                    throw new DuplicateInviteException(
-                            "A pending invite already exists for this email in this tenant."
-                    );
-                }
+            if (blockingInvite != null) {
+                throw new DuplicateInviteException(
+                        "A pending invite already exists for this email in this tenant."
+                );
+            }
 
-                if (existing.isAccepted()) {
-                    throw new UserAlreadyTenantMemberException(
-                            "User already accepted invite."
-                    );
-                }
+            Invite reusableInvite = existingInvites.stream()
+                    .filter(existing ->
+                            existing.getStatus() == InviteStatus.REVOKED || existing.isExpired()
+                    )
+                    .findFirst()
+                    .orElse(null);
 
-                rawToken = existing.resetForResend(
+            if (reusableInvite != null) {
+                rawToken = reusableInvite.resetForResend(
                         firstName,
                         lastName,
                         jobTitle,
@@ -128,7 +133,7 @@ public class InviteApplicationService {
                         effectiveRole
                 );
 
-                invite = existing;
+                invite = reusableInvite;
             } else {
                 var created = Invite.create(
                         normalizedEmail,
@@ -190,7 +195,7 @@ public class InviteApplicationService {
         }
 
         if (session == null) {
-            throw new IllegalStateException("HTTP session is required for invite login flow");
+            throw new ApiException(ErrorCode.INVALID_ARGUMENT, "HTTP session is required for invite login flow") {};
         }
 
         Invite invite = inviteRepository.findByTokenForUpdate(sha256Hex(token))
@@ -239,7 +244,7 @@ public class InviteApplicationService {
                     "INVITE_REPLAY"
             );
 
-            throw new IllegalArgumentException("Invite link invalid or expired");
+            throw new InviteNotFoundException("Invite link invalid or expired");
         }
 
         if (!invitedEmail.equals(authenticatedEmail)) {
@@ -308,11 +313,17 @@ public class InviteApplicationService {
         UUID inviteTenantId = requireInviteTenant(invite);
 
         if (!inviteTenantId.equals(tenantId)) {
-            throw new IllegalArgumentException("Invite does not belong to tenant");
+            throw new InviteException(
+                    ErrorCode.INVITE_TENANT_MISMATCH,
+                    "Invite does not belong to tenant"
+            );
         }
 
         if (invite.isTerminal()) {
-            throw new IllegalStateException("Cannot revoke terminal invite");
+            throw new InviteException(
+                    ErrorCode.INVITE_LIFECYCLE_VIOLATION,
+                    "Cannot revoke terminal invite"
+            );
         }
 
         invite.markRevoked();
@@ -452,7 +463,10 @@ public class InviteApplicationService {
         }
 
         if (!invite.isPending()) {
-            throw new IllegalStateException("Only PENDING invites can be activated");
+            throw new InviteException(
+                    ErrorCode.INVITE_LIFECYCLE_VIOLATION,
+                    "Only PENDING invites can be activated"
+            );
         }
 
         try {
@@ -504,7 +518,10 @@ public class InviteApplicationService {
     private static UUID requireInviteTenant(Invite invite) {
         UUID tenantId = invite.getTenantId();
         if (tenantId == null) {
-            throw new IllegalStateException("Invite is missing tenantId");
+            throw new InviteException(
+                    ErrorCode.INVITE_DATA_INTEGRITY_VIOLATION,
+                    "Invite is missing tenantId"
+            );
         }
         return tenantId;
     }
@@ -513,7 +530,7 @@ public class InviteApplicationService {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || !(authentication.getPrincipal() instanceof OidcUser oidcUser)) {
-            throw new IllegalStateException("Authenticated OIDC user is required");
+            throw new ApiException(ErrorCode.UNAUTHORIZED, "Authenticated OIDC user is required") {};
         }
 
         return oidcUser;

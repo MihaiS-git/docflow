@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE TABLE public.users
 (
     id                    uuid PRIMARY KEY,
@@ -129,7 +131,7 @@ CREATE TABLE public.invites
         CHECK (tenant_role IN ('MEMBER', 'EXECUTOR', 'REVIEWER', 'MANAGER')),
 
     CONSTRAINT chk_invites_email_lowercase
-        CHECK (email = lower(email));
+        CHECK (email = lower(email))
 );
 
 CREATE TABLE public.audit_signing_keys
@@ -175,7 +177,7 @@ CREATE TABLE public.audit_export_snapshot
 
     CONSTRAINT audit_export_snapshot_stream_check
         CHECK (stream IN (
-                          'ADMIN',
+                          'ADMIN_ACTIONS',
                           'AUTHENTICATION',
                           'CREDENTIAL_LIFECYCLE',
                           'IDENTITY_PROJECTION',
@@ -204,7 +206,7 @@ CREATE TABLE public.audit_retention_policies
         UNIQUE (stream_name),
     CONSTRAINT audit_retention_policy_stream_check
         CHECK (stream_name IN (
-                               'ADMIN',
+                               'ADMIN_ACTIONS',
                                'AUTHENTICATION',
                                'CREDENTIAL_LIFECYCLE',
                                'IDENTITY_PROJECTION',
@@ -235,7 +237,7 @@ CREATE TABLE public.audit_chain_state
 
     CONSTRAINT audit_chain_state_stream_check
         CHECK (stream IN (
-                          'ADMIN',
+                          'ADMIN_ACTIONS',
                           'AUTHENTICATION',
                           'CREDENTIAL_LIFECYCLE',
                           'IDENTITY_PROJECTION',
@@ -272,8 +274,10 @@ CREATE TABLE public.user_identity_projection
 
     last_synced_at timestamptz  NOT NULL,
 
+    realm_roles    text[] NOT NULL DEFAULT '{}',
+
     CONSTRAINT chk_uip_email_lowercase
-        CHECK (email IS NULL OR email = lower(email));
+        CHECK (email IS NULL OR email = lower(email))
 );
 
 CREATE TABLE public.authentication_events

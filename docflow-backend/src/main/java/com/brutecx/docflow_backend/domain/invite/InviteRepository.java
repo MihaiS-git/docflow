@@ -14,8 +14,6 @@ import java.util.UUID;
 
 public interface InviteRepository extends JpaRepository<Invite, UUID>, JpaSpecificationExecutor<Invite> {
 
-    Optional<Invite> findByTenantIdAndEmail(UUID tenantId, String email);
-
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from Invite i where i.hashedToken = :token")
     Optional<Invite> findByTokenForUpdate(@Param("token") String token);
@@ -30,4 +28,12 @@ public interface InviteRepository extends JpaRepository<Invite, UUID>, JpaSpecif
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from Invite i where i.id = :id")
     Optional<Invite> findByIdForUpdate(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from Invite i where i.tenantId = :tenantId and i.email = :email order by i.createdAt desc")
+    List<Invite> findAllByTenantIdAndEmailForUpdate(
+            @Param("tenantId") UUID tenantId,
+            @Param("email") String email
+    );
+
 }

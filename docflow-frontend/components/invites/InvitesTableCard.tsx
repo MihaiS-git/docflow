@@ -53,8 +53,6 @@ export default function InvitesTableCard({ tenants }: Props) {
   const [tableSuccess, setTableSuccess] = useState<string | null>(null);
   const [invitesError, setInvitesError] = useState<string | null>(null);
 
-  const [reloadNonce, setReloadNonce] = useState(0);
-
   const queryKey = JSON.stringify({
     tenantId: selectedTenantId,
     page,
@@ -63,7 +61,6 @@ export default function InvitesTableCard({ tenants }: Props) {
     direction,
     email: emailFilter.debounced,
     status: filterStatus,
-    reloadNonce,
   });
 
   const loader = useCallback(async (): Promise<SpringPage<InviteRow>> => {
@@ -114,7 +111,7 @@ export default function InvitesTableCard({ tenants }: Props) {
     filterStatus,
   ]);
 
-  const { data, loading, isPending } = usePaginatedAdminTable(loader, {
+  const { data, loading, isPending, refetch } = usePaginatedAdminTable(loader, {
     enabled: Boolean(selectedTenantId),
     queryKey,
     resetKeys: [emailFilter.debounced, filterStatus],
@@ -143,14 +140,13 @@ export default function InvitesTableCard({ tenants }: Props) {
     setTableSuccess(null);
 
     try {
-      const result = await apiFetch<{
-        expiredInvites: number;
-      }>(`/api/tenants/${selectedTenantId}/invites/expire`, {
-        method: "POST",
-      });
+      const result = await apiFetch<{ expiredInvites: number }>(
+        `/api/tenants/${selectedTenantId}/invites/expire`,
+        { method: "POST" },
+      );
 
       setTableSuccess(`Expired ${result.expiredInvites} pending invites.`);
-      setReloadNonce((n) => n + 1);
+      await refetch();
     } catch (err) {
       if (err instanceof ApiError) setInvitesError(err.message);
       else setInvitesError("Cleanup failed.");
@@ -169,9 +165,20 @@ export default function InvitesTableCard({ tenants }: Props) {
       );
 
       setTableSuccess("Invite revoked successfully.");
+      setInvitesError(null);
+
+      await refetch();
     } catch (err) {
-      if (err instanceof ApiError) setInvitesError(err.message);
-      else setInvitesError("Failed to revoke invite.");
+      if (err instanceof ApiError) {
+        if (err.message.includes("terminal invite")) {
+          setInvitesError("Invite already processed. Refreshing...");
+          await refetch();
+          return;
+        }
+        setInvitesError(err.message);
+      } else {
+        setInvitesError("Failed to revoke invite.");
+      }
     } finally {
       setRevokeLoadingId(null);
     }

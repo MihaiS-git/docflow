@@ -5,6 +5,7 @@ import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantListItemDTO;
 import com.brutecx.docflow_backend.api.dto.admin.tenant.TenantLookupDTO;
 import com.brutecx.docflow_backend.api.dto.tenant.TenantUserResponseDTO;
 import com.brutecx.docflow_backend.api.error.*;
+import com.brutecx.docflow_backend.audit.AuditPublisher;
 import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
@@ -65,6 +66,7 @@ public class TenantService {
     private final ISensitiveAccessAuditService sensitiveAccessAuditService;
     private final UserService userService;
     private final AuditRequestContextExtractor contextExtractor;
+    private final AuditPublisher auditPublisher;
 
     @Transactional(readOnly = true)
     public Page<TenantUserResponseDTO> listUsersByTenant(
@@ -273,66 +275,21 @@ public class TenantService {
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
     public Tenant create(String name, String description, String dataRegion, Integer retentionDays) {
-        boolean success = false;
-        RuntimeException failure = null;
-        Tenant created = null;
-
         try {
             final String normalizedName = Tenant.normalizeName(name);
             requireUniqueTenantNameForCreate(normalizedName);
 
-            try {
-                Tenant tenant = buildTenant(normalizedName, description, dataRegion, retentionDays);
-                created = tenantRepository.save(tenant);
-            } catch (DataIntegrityViolationException ex) {
-                if (isTenantNameUniqueViolation(ex)) {
-                    throw new TenantAlreadyExistsException("Tenant name already exists");
-                }
-                InfraEventLogger.failure(
-                        InfraEventType.DATABASE,
-                        InfraEventActions.DB_ENTITY_PERSIST,
-                        "tenant_create_persist_failure",
-                        ex
-                );
-                throw ex;
-            } catch (RuntimeException ex) {
-                InfraEventLogger.failure(
-                        InfraEventType.DATABASE,
-                        InfraEventActions.DB_ENTITY_PERSIST,
-                        "tenant_create_persist_failure",
-                        ex
-                );
-                throw ex;
-            }
+            final User actor = userService.getRequiredCurrentUser();
+            final Tenant created = persistCreatedTenant(normalizedName, description, dataRegion, retentionDays, actor);
 
-            User actor = userService.getRequiredCurrentUser();
+            ensureCreatorMembership(created, actor);
 
-            try {
-                tenantMembershipService.ensureMembership(
-                        actor.getId(),
-                        created.getId(),
-                        TenantRole.MANAGER
-                );
+            publishTenantCreatedAuditAfterCommit(created.getId(), description);
 
-                assignOwnerInvariant(created, actor);
-                tenantRepository.save(created);
-            } catch (RuntimeException ex) {
-                InfraEventLogger.failure(
-                        InfraEventType.DATABASE,
-                        InfraEventActions.DB_ENTITY_PERSIST,
-                        "tenant_create_membership_persist_failure",
-                        ex
-                );
-                throw ex;
-            }
-
-            success = true;
             return created;
         } catch (RuntimeException ex) {
-            failure = ex;
+            publishTenantCreateFailedAudit(name, ex);
             throw ex;
-        } finally {
-            safeAuditCreate(success, created, name, description, failure);
         }
     }
 
@@ -757,27 +714,35 @@ public class TenantService {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(user, "user");
 
-        UserTenantMembership membership =
-                membershipRepository.findByUserIdAndTenantId(user.getId(), tenant.getId())
-                        .orElseThrow(() -> new TenantException(
-                                ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                                "Owner must be a member of the tenant"
-                        ));
+        // Post-persist: enforce full invariant
+        if (tenant.getId() != null) {
+            UserTenantMembership membership =
+                    membershipRepository.findByUserIdAndTenantId(user.getId(), tenant.getId())
+                            .orElse(null);
 
-        if (membership.getRole() != TenantRole.MANAGER) {
-            throw new TenantException(
-                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                    "Owner must have MANAGER role"
-            );
+            if (membership == null) {
+                throw new TenantException(
+                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                        "Owner must be a member of the tenant"
+                );
+            }
+
+            if (membership.getRole() != TenantRole.MANAGER) {
+                throw new TenantException(
+                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                        "Tenant role must be MANAGER"
+                );
+            }
+
+            if (membership.getStatus() != MembershipStatus.ACTIVE) {
+                throw new TenantException(
+                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                        "Membership status must be ACTIVE"
+                );
+            }
         }
 
-        if (membership.getStatus() != MembershipStatus.ACTIVE) {
-            throw new TenantException(
-                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                    "Owner must be ACTIVE"
-            );
-        }
-
+        // Always assign owner (creation + update)
         tenant.assignOwner(user);
     }
 
@@ -1073,56 +1038,9 @@ public class TenantService {
         SECURITY_LOG.info("security_event {}", entries(fields));
     }
 
-    private void safeAuditCreate(
-            boolean success,
-            Tenant created,
-            String name,
-            String description,
-            RuntimeException failure
-    ) {
-        UUID auditTenantId = success ? created.getId() : null;
-
-        AdminAuditActionType actionType =
-                success
-                        ? AdminAuditActionType.TENANT_CREATED
-                        : AdminAuditActionType.TENANT_CREATE_FAILED;
-
-        String subjectId =
-                success
-                        ? created.getId().toString()
-                        : "TENANT_CREATE:" + (name == null ? "NULL" : name.trim());
-
-        String failureType =
-                success
-                        ? null
-                        : resolveCreateFailureType(failure);
-
-        TenantAuditMetadata metadata = new TenantAuditMetadata(
-                success ? created.getId().toString() : null,
-                "CREATE_TENANT",
-                success ? description : failureType
-        );
-
-        try {
-            adminAuditEventService.record(
-                    actionType,
-                    auditTenantId,
-                    subjectId,
-                    null,
-                    metadata
-            );
-        } catch (RuntimeException auditEx) {
-            InfraEventLogger.failure(
-                    InfraEventType.DATABASE,
-                    InfraEventActions.DB_ENTITY_PERSIST,
-                    "tenant_create_audit_persist_failure",
-                    auditEx
-            );
-        }
-    }
-
     @Nonnull
-    private static Tenant buildTenant(String normalizedName, String description, String dataRegion, Integer retentionDays) {
+    private static Tenant buildTenant(String normalizedName, String description, String dataRegion, Integer
+            retentionDays) {
         Tenant tenant = new Tenant(normalizedName);
 
         if (description != null && !description.isBlank()) {
@@ -1165,5 +1083,116 @@ public class TenantService {
         if (value == null) return null;
         String v = value.trim().toLowerCase(Locale.ROOT);
         return v.isBlank() ? null : v;
+    }
+
+    private Tenant persistCreatedTenant(
+            String normalizedName,
+            String description,
+            String dataRegion,
+            Integer retentionDays,
+            User actor
+    ) {
+        try {
+            Tenant tenant = buildTenant(normalizedName, description, dataRegion, retentionDays);
+            tenant.assignOwner(actor);
+            return tenantRepository.save(tenant);
+
+        } catch (DataIntegrityViolationException ex) {
+            if (isTenantNameUniqueViolation(ex)) {
+                throw new TenantAlreadyExistsException("Tenant name already exists");
+            }
+
+            InfraEventLogger.failure(
+                    InfraEventType.DATABASE,
+                    InfraEventActions.DB_ENTITY_PERSIST,
+                    "tenant_create_persist_failure operation=CREATE_TENANT normalizedName=" + normalizedName,
+                    ex
+            );
+            throw ex;
+
+        } catch (RuntimeException ex) {
+            InfraEventLogger.failure(
+                    InfraEventType.DATABASE,
+                    InfraEventActions.DB_ENTITY_PERSIST,
+                    "tenant_create_persist_failure operation=CREATE_TENANT normalizedName=" + normalizedName,
+                    ex
+            );
+            throw ex;
+        }
+    }
+
+    private void ensureCreatorMembership(Tenant created, User actor) {
+        try {
+            tenantMembershipService.ensureMembership(
+                    actor.getId(),
+                    created.getId(),
+                    TenantRole.MANAGER
+            );
+        } catch (RuntimeException ex) {
+            InfraEventLogger.failure(
+                    InfraEventType.DATABASE,
+                    InfraEventActions.DB_ENTITY_PERSIST,
+                    "tenant_create_membership_persist_failure",
+                    ex
+            );
+            throw ex;
+        }
+    }
+
+    private void publishTenantCreatedAuditAfterCommit(UUID tenantId, String description) {
+        final String tenantIdValue = tenantId.toString();
+        final TenantAuditMetadata metadata = new TenantAuditMetadata(
+                tenantIdValue,
+                "CREATE_TENANT",
+                description
+        );
+
+        auditPublisher.publishAfterCommit(() -> {
+            try {
+                adminAuditEventService.record(
+                        AdminAuditActionType.TENANT_CREATED,
+                        tenantId,
+                        tenantIdValue,
+                        null,
+                        metadata
+                );
+            } catch (RuntimeException auditEx) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_create_audit_persist_failure",
+                        auditEx
+                );
+            }
+        });
+    }
+
+    private void publishTenantCreateFailedAudit(String name, RuntimeException failure) {
+        final String subjectId = "TENANT_CREATE:" + (name == null ? "NULL" : name.trim());
+        final String failureType = resolveCreateFailureType(failure);
+        final TenantAuditMetadata metadata = new TenantAuditMetadata(
+                null,
+                "CREATE_TENANT",
+                failureType
+        );
+
+        auditPublisher.publishNow(() -> {
+            try {
+                adminAuditEventService.record(
+                        AdminAuditActionType.TENANT_CREATE_FAILED,
+                        null,
+                        subjectId,
+                        null,
+                        metadata
+                );
+            } catch (RuntimeException auditEx) {
+                InfraEventLogger.failure(
+                        InfraEventType.DATABASE,
+                        InfraEventActions.DB_ENTITY_PERSIST,
+                        "tenant_create_failed_audit_persist_failure",
+                        auditEx
+                );
+            }
+        });
     }
 }

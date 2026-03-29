@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DocFlow Audit Report</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #dbe3ee;
+      --high: #b42318;
+      --high-bg: #fef3f2;
+      --medium: #b54708;
+      --medium-bg: #fffaeb;
+      --low: #175cd3;
+      --low-bg: #eff8ff;
+      --code-bg: #0f172a;
+      --code-text: #e5edf7;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 32px;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      line-height: 1.2;
+    }
+
+    h1 {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    h2 {
+      font-size: 24px;
+      margin-top: 40px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    .lead {
+      color: var(--muted);
+      max-width: 880px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .summary-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+    }
+
+    .summary-card strong {
+      display: block;
+      font-size: 28px;
+      margin-bottom: 4px;
+    }
+
+    .issue {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
+      margin-top: 18px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+
+    .issue-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .badge.high {
+      background: var(--high-bg);
+      color: var(--high);
+    }
+
+    .badge.medium {
+      background: var(--medium-bg);
+      color: var(--medium);
+    }
+
+    .badge.low {
+      background: var(--low-bg);
+      color: var(--low);
+    }
+
+    .meta {
+      margin: 10px 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .meta div {
+      margin-bottom: 4px;
+    }
+
+    pre {
+      margin: 12px 0 0;
+      padding: 16px;
+      overflow-x: auto;
+      border-radius: 12px;
+      background: var(--code-bg);
+      color: var(--code-text);
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .footer {
+      margin-top: 40px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 820px) {
+      body { padding: 20px; }
+      .summary { grid-template-columns: 1fr 1fr; }
+      .issue-header { flex-direction: column; align-items: flex-start; }
+    }
+
+    @media (max-width: 560px) {
+      .summary { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>DocFlow Audit Report</h1>
+    <p class="lead">
+      Audit scope: maintainability issues, code duplication, and bad practices across
+      <code>docflow-frontend</code>, <code>docflow-backend</code>, <code>docflow-infra</code>,
+      and selected repository hygiene. No project files were modified during the audit.
+    </p>
+
+    <section class="summary">
+      <div class="summary-card">
+        <strong>9</strong>
+        <span>Total issues</span>
+      </div>
+      <div class="summary-card">
+        <strong>2</strong>
+        <span>High severity</span>
+      </div>
+      <div class="summary-card">
+        <strong>4</strong>
+        <span>Medium severity</span>
+      </div>
+      <div class="summary-card">
+        <strong>3</strong>
+        <span>Low severity</span>
+      </div>
+    </section>
+
+    <h2>Summary</h2>
+    <p>
+      The strongest problems are configuration drift in backend schema management and
+      sensitive runtime data committed into the repository. The frontend also has
+      multiple duplication points in the audit stream layer, and the repo currently
+      carries tracked generated/vendor artifacts despite ignore rules that should have
+      prevented them.
+    </p>
+    <p>
+      The codebase is functional, but it is accumulating maintenance drag through stale
+      config files, duplicated metadata, inactive tests, and environment-specific values
+      that are embedded directly in source-controlled files.
+    </p>
+
+    <h2>High Issues</h2>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Committed Session Cookies and Auth Tokens</h3>
+        <span class="badge high">High</span>
+      </div>
+      <p>
+        <strong>Description:</strong> A generated cookie jar containing Keycloak session
+        cookies and a JSESSIONID is committed under infrastructure. This is both a
+        security hygiene failure and a maintenance risk because sensitive local artifacts
+        are now versioned like source code.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> High</div>
+        <div><strong>File path:</strong> <code>docflow-infra/cookies.txt:1-8</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-infra/cookies.txt b/docflow-infra/cookies.txt
+deleted file mode 100644
+--- a/docflow-infra/cookies.txt
++++ /dev/null
+@@ -1,8 +0,0 @@
+-# Netscape HTTP Cookie File
+-# https://curl.se/docs/http-cookies.html
+-# This file was generated by libcurl! Edit at your own risk.
+-
+-#HttpOnly_brutecx.test ...
+-brutecx.test ...
+-#HttpOnly_brutecx.test ...
+-#HttpOnly_brutecx.test ...</pre>
+    </article>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Conflicting Schema Management Between Base Config and Compose Overrides</h3>
+        <span class="badge high">High</span>
+      </div>
+      <p>
+        <strong>Description:</strong> The backend defaults to
+        <code>spring.jpa.hibernate.ddl-auto=create</code> while Flyway is disabled in
+        the base application config, but Docker Compose overrides Hibernate to
+        <code>update</code>. That means schema ownership changes by environment, which is
+        brittle and dangerous for production-like deployments and reproducible local setup.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> High</div>
+        <div><strong>File path:</strong> <code>docflow-backend/src/main/resources/application.yaml:29-36</code></div>
+        <div><strong>File path:</strong> <code>docflow-infra/docker-compose.yml:49-56</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-backend/src/main/resources/application.yaml b/docflow-backend/src/main/resources/application.yaml
+--- a/docflow-backend/src/main/resources/application.yaml
++++ b/docflow-backend/src/main/resources/application.yaml
+@@
+   jpa:
+     open-in-view: false
+     hibernate:
+-      ddl-auto: create
++      ddl-auto: validate
+
+   flyway:
+-    enabled: false
+-    baseline-on-migrate: false
++    enabled: true
++    baseline-on-migrate: true
+
+diff --git a/docflow-infra/docker-compose.yml b/docflow-infra/docker-compose.yml
+--- a/docflow-infra/docker-compose.yml
++++ b/docflow-infra/docker-compose.yml
+@@
+-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+       SPRING_JPA_OPEN_IN_VIEW: "false"</pre>
+    </article>
+
+    <h2>Medium Issues</h2>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Tracked Generated and Vendor Artifacts Despite Ignore Rules</h3>
+        <span class="badge medium">Medium</span>
+      </div>
+      <p>
+        <strong>Description:</strong> The repository contains tracked generated artifacts
+        and vendored dependencies even though the root ignore file explicitly excludes
+        them. Examples include <code>docflow-frontend/node_modules/</code> and backend
+        build outputs under test resources. This inflates diffs, slows code review, and
+        makes repository state harder to trust.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> Medium</div>
+        <div><strong>File path:</strong> <code>.gitignore:42-59</code></div>
+        <div><strong>File path:</strong> <code>docflow-backend/src/test/resources/build/libs/resources-0.0.1-SNAPSHOT.jar</code></div>
+        <div><strong>File path:</strong> <code>docflow-backend/src/test/resources/build/tmp/jar/MANIFEST.MF</code></div>
+        <div><strong>File path:</strong> <code>docflow-frontend/node_modules/</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-backend/src/test/resources/build/libs/resources-0.0.1-SNAPSHOT.jar b/docflow-backend/src/test/resources/build/libs/resources-0.0.1-SNAPSHOT.jar
+deleted file mode 100644
+--- a/docflow-backend/src/test/resources/build/libs/resources-0.0.1-SNAPSHOT.jar
++++ /dev/null
+
+diff --git a/docflow-backend/src/test/resources/build/tmp/jar/MANIFEST.MF b/docflow-backend/src/test/resources/build/tmp/jar/MANIFEST.MF
+deleted file mode 100644
+--- a/docflow-backend/src/test/resources/build/tmp/jar/MANIFEST.MF
++++ /dev/null</pre>
+    </article>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Hard-Coded Hostnames and Private IPs in Source-Controlled Config</h3>
+        <span class="badge medium">Medium</span>
+      </div>
+      <p>
+        <strong>Description:</strong> Multiple configs hard-code local hostnames,
+        callback URLs, and even a private LAN IP. This reduces portability and makes the
+        project harder to bootstrap outside one developer environment.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> Medium</div>
+        <div><strong>File path:</strong> <code>docflow-frontend/next.config.ts:3-10</code></div>
+        <div><strong>File path:</strong> <code>docflow-frontend/package.json:5-9</code></div>
+        <div><strong>File path:</strong> <code>docflow-infra/keycloak/docflow-realm.json:610</code></div>
+        <div><strong>File path:</strong> <code>docflow-infra/docker-compose.yml:237-241</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-frontend/next.config.ts b/docflow-frontend/next.config.ts
+--- a/docflow-frontend/next.config.ts
++++ b/docflow-frontend/next.config.ts
+@@
+ const nextConfig: NextConfig = {
+-  allowedDevOrigins: [
+-    "http://brutecx.test:3000",
+-    "http://brutecx.test",
+-    "http://localhost:3000",
+-    "http://192.168.100.27:3000",
+-  ],
++  allowedDevOrigins: (process.env.ALLOWED_DEV_ORIGINS ?? "")
++    .split(",")
++    .map((value) => value.trim())
++    .filter(Boolean),
+ };
+
+diff --git a/docflow-frontend/package.json b/docflow-frontend/package.json
+--- a/docflow-frontend/package.json
++++ b/docflow-frontend/package.json
+@@
+-    "dev": "next dev --hostname brutecx.test --port 3000",
++    "dev": "next dev --hostname ${HOSTNAME:-0.0.0.0} --port ${PORT:-3000}",</pre>
+    </article>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Audit Stream Metadata Is Duplicated in Two Registries</h3>
+        <span class="badge medium">Medium</span>
+      </div>
+      <p>
+        <strong>Description:</strong> Audit stream names, paths, and categories are
+        maintained in <code>auditStreams.ts</code> while keys, titles, endpoints, export
+        names, and paths are maintained separately in
+        <code>auditStreamsRegistry.ts</code>. These files overlap conceptually and will
+        drift as new streams are added or renamed.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> Medium</div>
+        <div><strong>File path:</strong> <code>docflow-frontend/lib/audit/auditStreams.ts:1-20</code></div>
+        <div><strong>File path:</strong> <code>docflow-frontend/lib/audit/auditStreamsRegistry.ts:1-93</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-frontend/lib/audit/auditStreams.ts b/docflow-frontend/lib/audit/auditStreams.ts
+--- a/docflow-frontend/lib/audit/auditStreams.ts
++++ b/docflow-frontend/lib/audit/auditStreams.ts
+@@
+-export type AuditStream = {
+-  name: string;
+-  path: string;
+-  category: "Security" | "Identity" | "Administration" | "System";
+-};
+-
+-export const AUDIT_STREAMS: AuditStream[] = [
+-  { name: "Authentication", path: "authentication", category: "Security" },
+-  { name: "RBAC Denied", path: "rbac-denied", category: "Security" },
+-  { name: "Sensitive Access", path: "sensitive-access", category: "Security" },
+-  { name: "Credential Lifecycle", path: "credential-lifecycle", category: "Identity" },
+-  { name: "Identity Projection", path: "identity-projection", category: "Identity" },
+-  { name: "Onboarding", path: "onboarding", category: "Identity" },
+-  { name: "Admin", path: "admin", category: "Administration" },
+-  { name: "Lifecycle Denied", path: "lifecycle-denied", category: "System" },
+-  { name: "Unauthenticated Access", path: "unauthenticated", category: "System" },
+-];
++import { AUDIT_STREAMS as AUDIT_STREAM_REGISTRY } from "./auditStreamsRegistry";
++
++export type AuditStream = {
++  name: string;
++  path: string;
++  category: "Security" | "Identity" | "Administration" | "System";
++};
++
++export const AUDIT_STREAMS: AuditStream[] = [
++  {
++    name: AUDIT_STREAM_REGISTRY.authentication.title,
++    path: "authentication",
++    category: "Security",
++  },
++  // derive the remaining entries from the shared registry instead of duplicating literals
++];</pre>
+    </article>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Backend Test Suite Is Effectively Disabled</h3>
+        <span class="badge medium">Medium</span>
+      </div>
+      <p>
+        <strong>Description:</strong> The only visible backend tests are fully commented
+        out. With 334 Java source files and no active equivalent coverage in the test
+        tree, regressions in security, persistence, and audit flows are far more likely
+        to slip through.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> Medium</div>
+        <div><strong>File path:</strong> <code>docflow-backend/src/test/java/com/brutecx/docflow_backend/DocflowRestApiApplicationTests.java:1-15</code></div>
+        <div><strong>File path:</strong> <code>docflow-backend/src/test/java/com/brutecx/docflow_backend/HealthTest.java:1-28</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-backend/src/test/java/com/brutecx/docflow_backend/DocflowRestApiApplicationTests.java b/docflow-backend/src/test/java/com/brutecx/docflow_backe
+         nd/DocflowRestApiApplicationTests.java
+--- a/docflow-backend/src/test/java/com/brutecx/docflow_backend/DocflowRestApiApplicationTests.java
++++ b/docflow-backend/src/test/java/com/brutecx/docflow_backend/DocflowRestApiApplicationTests.java
+@@
+-//package com.brutecx.docflow_backend;
+-//
+-//import org.junit.jupiter.api.Test;
+-//import org.springframework.boot.test.context.SpringBootTest;
+-//import org.springframework.test.context.ActiveProfiles;
+-//
+-//@ActiveProfiles("test")
+-//@SpringBootTest
+-//class DocflowRestApiApplicationTests {
+-//
+-//  @Test
+-//  void contextLoads() {
+-//  }
+-//
+-//}
++package com.brutecx.docflow_backend;
++
++import org.junit.jupiter.api.Test;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.test.context.ActiveProfiles;
++
++@ActiveProfiles("test")
++@SpringBootTest
++class DocflowRestApiApplicationTests {
++
++  @Test
++  void contextLoads() {
++  }
++}</pre>
+    </article>
+
+    <h2>Low Issues</h2>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Duplicate <code>pivotColumn</code> Implementations with Divergent Safety</h3>
+        <span class="badge low">Low</span>
+      </div>
+      <p>
+        <strong>Description:</strong> Two nearly identical implementations of
+        <code>pivotColumn</code> exist in different paths. One uses a cast for
+        <code>ctx.setFilter</code>; the other uses a non-null assertion. That is
+        unnecessary duplication and creates inconsistent behavior when the helper changes.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> Low</div>
+        <div><strong>File path:</strong> <code>docflow-frontend/components/audit/pivotColumn.tsx:1-25</code></div>
+        <div><strong>File path:</strong> <code>docflow-frontend/components/audit/columns/pivotColumn.tsx:1-25</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-frontend/components/audit/pivotColumn.tsx b/docflow-frontend/components/audit/pivotColumn.tsx
+deleted file mode 100644
+--- a/docflow-frontend/components/audit/pivotColumn.tsx
++++ /dev/null
+
+diff --git a/docflow-frontend/components/audit/columns/pivotColumn.tsx b/docflow-frontend/components/audit/columns/pivotColumn.tsx
+--- a/docflow-frontend/components/audit/columns/pivotColumn.tsx
++++ b/docflow-frontend/components/audit/columns/pivotColumn.tsx
+@@
+-        setFilter={ctx.setFilter!}
++        setFilter={ctx.setFilter as (key: keyof F, value: string) => void}</pre>
+    </article>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Stale Vite Configuration and Vite-Specific Dependency in a Next.js App</h3>
+        <span class="badge low">Low</span>
+      </div>
+      <p>
+        <strong>Description:</strong> The frontend clearly runs on Next.js, but an empty
+        <code>vite.config.ts</code> is still present and the project depends on
+        <code>@tailwindcss/vite</code>. This looks like a partial migration artifact and
+        increases cognitive load for no benefit.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> Low</div>
+        <div><strong>File path:</strong> <code>docflow-frontend/package.json:11-24</code></div>
+        <div><strong>File path:</strong> <code>docflow-frontend/vite.config.ts</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-frontend/package.json b/docflow-frontend/package.json
+--- a/docflow-frontend/package.json
++++ b/docflow-frontend/package.json
+@@
+-    "@tailwindcss/vite": "^4.2.1",
+     "lucide-react": "^0.577.0",
+
+diff --git a/docflow-frontend/vite.config.ts b/docflow-frontend/vite.config.ts
+deleted file mode 100644
+--- a/docflow-frontend/vite.config.ts
++++ /dev/null</pre>
+    </article>
+
+    <article class="issue">
+      <div class="issue-header">
+        <h3>Duplicate Mail Starter in Gradle Dependencies</h3>
+        <span class="badge low">Low</span>
+      </div>
+      <p>
+        <strong>Description:</strong> <code>spring-boot-starter-mail</code> is declared
+        twice in the backend build. This does not usually break the build, but it is
+        noisy and indicates dependency management is being maintained manually without
+        cleanup.
+      </p>
+      <div class="meta">
+        <div><strong>Severity:</strong> Low</div>
+        <div><strong>File path:</strong> <code>docflow-backend/build.gradle:27-61</code></div>
+      </div>
+      <p><strong>Suggested fix:</strong></p>
+      <pre>diff --git a/docflow-backend/build.gradle b/docflow-backend/build.gradle
+--- a/docflow-backend/build.gradle
++++ b/docflow-backend/build.gradle
+@@
+-    implementation "org.springframework.boot:spring-boot-starter-mail"
+-
+     // Flyway
+     implementation 'org.flywaydb:flyway-core'</pre>
+    </article>
+
+    <div class="footer">
+      Report generated from a read-only audit of the current workspace state on 2026-03-29.
+    </div>
+  </div>
+</body>
+</html>
