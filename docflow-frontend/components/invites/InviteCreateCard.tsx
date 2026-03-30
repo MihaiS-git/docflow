@@ -16,19 +16,22 @@ import Button from "../ui/Button";
 import { TENANT_ROLES } from "@/types/invites/types";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { InviteFormValues, inviteSchema } from "@/lib/validation/invite.schema";
+import { useQueryClient } from "@tanstack/react-query";
 
 type Props = {
   tenants: AdminTenant[];
 };
 
 export default function InviteCreateCard({ tenants }: Props) {
-const {
-  register,
-  handleSubmit,
-  reset,
-  formState: { errors, isSubmitting, isValid },
-} = useForm<InviteFormValues>({
-  resolver: zodResolver(inviteSchema),
+  const queryClient = useQueryClient();
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting, isValid },
+  } = useForm<InviteFormValues>({
+    resolver: zodResolver(inviteSchema),
     mode: "onBlur",
     reValidateMode: "onChange",
     defaultValues: {
@@ -58,6 +61,10 @@ const {
 
       toast.success("Invite sent successfully.");
       reset();
+
+      queryClient.invalidateQueries({
+        queryKey: ["invites", values.tenantId],
+      });
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 409) {

@@ -6,6 +6,7 @@ import { AuthProvider } from "@/lib/auth/AuthProvider";
 import AuthLifecycleGuard from "@/components/AuthLifecycleGuard";
 import { Toaster } from "sonner";
 import Header from "@/components/header/Header";
+import QueryProvider from "@/components/providers/QueryProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,20 +41,22 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-(--color-bg) text-(--color-text-primary)`}
       >
-        <AuthProvider>
-          <AuthLifecycleGuard>
-            <Header />
-            {children}
+        <QueryProvider>
+          <AuthProvider>
+            <AuthLifecycleGuard>
+              <Header />
+              {children}
 
-            <Toaster
-              position="bottom-right"
-              richColors
-              closeButton
-              theme="system"
-              expand
-            />
-          </AuthLifecycleGuard>
-        </AuthProvider>
+              <Toaster
+                position="bottom-right"
+                richColors
+                closeButton
+                theme="system"
+                expand
+              />
+            </AuthLifecycleGuard>
+          </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   );

@@ -1,41 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
-import { fetchManagedTenants } from "@/lib/admin/adminTenants";
-
-import type { AdminTenant } from "@/types/admin/Tenant";
 
 import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/layout/PageHeader";
 import InviteCreateCard from "@/components/invites/InviteCreateCard";
 import InvitesTableCard from "@/components/invites/InvitesTableCard";
+import { useManagedTenantsQuery } from "@/hooks/admin/useManagedTenantsQuery";
 
 export default function InvitesPage() {
   const { status, identity } = useAuth();
   const isAdmin = status === "AUTH" && identity?.roles.includes("ADMIN");
 
-  const [tenants, setTenants] = useState<AdminTenant[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isAdmin) return;
-
-    let active = true;
-
-    (async () => {
-      try {
-        const result = await fetchManagedTenants();
-        if (active) setTenants(result);
-      } catch {
-        if (active) setError("Failed to load tenants.");
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [isAdmin]);
+  const { data: tenants = [], error } = useManagedTenantsQuery(
+    isAdmin ?? false,
+  );
 
   if (!isAdmin) {
     return (
@@ -52,7 +31,11 @@ export default function InvitesPage() {
         description="Create, search, revoke, and clean up tenant invites."
       />
 
-      {error && <p className="mb-4 text-sm text-(--color-error)">{error}</p>}
+      {error && (
+        <p className="mb-4 text-sm text-(--color-error)">
+          {(error as Error).message || "Failed to load tenants."}
+        </p>
+      )}
 
       <div className="flex flex-col gap-6">
         <InviteCreateCard tenants={tenants} />

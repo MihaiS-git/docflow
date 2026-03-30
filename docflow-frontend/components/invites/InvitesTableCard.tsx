@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/apiFetch";
 import { ApiError } from "@/lib/apiErrors";
 
 import type { AdminTenant } from "@/types/admin/Tenant";
-import type { SpringPage } from "@/types/api/SpringPage";
-import type { InviteRow, InviteStatusFilter } from "@/types/invites/types";
+import type { InviteStatusFilter } from "@/types/invites/types";
 
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -21,13 +20,19 @@ import TableColumnWidths from "@/components/ui/TableColumnWidths";
 import SortableHeader from "@/components/ui/SortableHeader";
 
 import { useDebouncedPrefixFilter } from "@/hooks/useDebouncedPrefixFilter";
-import { usePaginatedAdminTable } from "@/hooks/usePaginatedAdminTable";
+import { useQueryClient } from "@tanstack/react-query";
+import { useInvitesQuery } from "@/hooks/invites/useInvitesQuery";
 
 const PAGE_SIZE = 20;
 
 type Props = {
   tenants: AdminTenant[];
 };
+
+type TableStatus =
+  | { type: "success"; message: string }
+  | { type: "error"; message: string }
+  | null;
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString();
@@ -50,74 +55,25 @@ export default function InvitesTableCard({ tenants }: Props) {
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
 
-  const [tableSuccess, setTableSuccess] = useState<string | null>(null);
-  const [invitesError, setInvitesError] = useState<string | null>(null);
+  const [status, setStatus] = useState<TableStatus>(null);
 
-  const queryKey = JSON.stringify({
-    tenantId: selectedTenantId,
-    page,
-    pageSize,
-    sort,
-    direction,
-    email: emailFilter.debounced,
-    status: filterStatus,
-  });
+  const queryClient = useQueryClient();
 
-  const loader = useCallback(async (): Promise<SpringPage<InviteRow>> => {
-    const empty: SpringPage<InviteRow> = {
-      content: [],
-      page: {
-        number: page,
-        size: pageSize,
-        totalElements: 0,
-        totalPages: 0,
-      },
-    };
-
-    if (!selectedTenantId || emailFilter.shouldBlock()) {
-      return empty;
-    }
-
-    const query = new URLSearchParams({
-      page: String(page),
-      size: String(pageSize),
+  const { invites, pageInfo, isLoading, isFetching, error } =
+    useInvitesQuery({
+      tenantId: selectedTenantId,
+      page,
+      pageSize,
       sort,
       direction,
+      email: emailFilter.debounced,
+      status: filterStatus,
+      enabled: !emailFilter.shouldBlock(),
     });
 
-    if (emailFilter.debounced) query.set("email", emailFilter.debounced);
-    if (filterStatus) query.set("status", filterStatus);
-
-    try {
-      const res = await apiFetch<SpringPage<InviteRow>>(
-        `/api/tenants/${selectedTenantId}/invites?${query.toString()}`,
-      );
-
-      emailFilter.registerResult(res.content.length);
-
-      return res;
-    } catch (err) {
-      if (err instanceof ApiError) setInvitesError(err.message);
-      else setInvitesError("Failed to load invites.");
-      return empty;
-    }
-  }, [
-    selectedTenantId,
-    page,
-    pageSize,
-    sort,
-    direction,
-    emailFilter,
-    filterStatus,
-  ]);
-
-  const { data, loading, isPending, refetch } = usePaginatedAdminTable(loader, {
-    enabled: Boolean(selectedTenantId),
-    queryKey,
-    resetKeys: [emailFilter.debounced, filterStatus],
-  });
-
-  const invites = useMemo(() => data?.content ?? [], [data?.content]);
+  useEffect(() => {
+    emailFilter.registerResult(invites.length);
+  }, [emailFilter, invites.length]);
 
   const handleSort = useCallback((field: string) => {
     setSort((prev) => {
@@ -137,7 +93,7 @@ export default function InvitesTableCard({ tenants }: Props) {
     if (!selectedTenantId) return;
 
     setCleanupLoading(true);
-    setTableSuccess(null);
+    setStatus(null);
 
     try {
       const result = await apiFetch<{ expiredInvites: number }>(
@@ -145,11 +101,20 @@ export default function InvitesTableCard({ tenants }: Props) {
         { method: "POST" },
       );
 
-      setTableSuccess(`Expired ${result.expiredInvites} pending invites.`);
-      await refetch();
+      setStatus({
+        type: "success",
+        message: `Expired ${result.expiredInvites} pending invites.`,
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["invites", selectedTenantId],
+      });
     } catch (err) {
-      if (err instanceof ApiError) setInvitesError(err.message);
-      else setInvitesError("Cleanup failed.");
+      if (err instanceof ApiError) {
+        setStatus({ type: "error", message: err.message });
+      } else {
+        setStatus({ type: "error", message: "Cleanup failed." });
+      }
     } finally {
       setCleanupLoading(false);
     }
@@ -157,6 +122,7 @@ export default function InvitesTableCard({ tenants }: Props) {
 
   async function onRevokeInvite(inviteId: string) {
     setRevokeLoadingId(inviteId);
+    setStatus(null);
 
     try {
       await apiFetch<void>(
@@ -164,20 +130,34 @@ export default function InvitesTableCard({ tenants }: Props) {
         { method: "POST" },
       );
 
-      setTableSuccess("Invite revoked successfully.");
-      setInvitesError(null);
+      setStatus({
+        type: "success",
+        message: "Invite revoked successfully.",
+      });
 
-      await refetch();
+      queryClient.invalidateQueries({
+        queryKey: ["invites", selectedTenantId],
+      });
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.message.includes("terminal invite")) {
-          setInvitesError("Invite already processed. Refreshing...");
-          await refetch();
+          setStatus({
+            type: "error",
+            message: "Invite already processed. Refreshing...",
+          });
+
+          queryClient.invalidateQueries({
+            queryKey: ["invites", selectedTenantId],
+          });
           return;
         }
-        setInvitesError(err.message);
+
+        setStatus({ type: "error", message: err.message });
       } else {
-        setInvitesError("Failed to revoke invite.");
+        setStatus({
+          type: "error",
+          message: "Failed to revoke invite.",
+        });
       }
     } finally {
       setRevokeLoadingId(null);
@@ -215,7 +195,9 @@ export default function InvitesTableCard({ tenants }: Props) {
 
       <td className="px-4 py-2 text-sm">{invite.status}</td>
 
-      <td className="px-4 py-2 text-sm">{formatDateTime(invite.expiresAt)}</td>
+      <td className="px-4 py-2 text-sm">
+        {formatDateTime(invite.expiresAt)}
+      </td>
 
       <td className="px-4 py-2 text-right">
         <Button
@@ -255,7 +237,9 @@ export default function InvitesTableCard({ tenants }: Props) {
         label="Status"
         value={filterStatus}
         className="w-56"
-        onChange={(e) => setFilterStatus(e.target.value as InviteStatusFilter)}
+        onChange={(e) =>
+          setFilterStatus(e.target.value as InviteStatusFilter)
+        }
       >
         <option value="">All statuses</option>
         <option value="PENDING">Pending</option>
@@ -353,23 +337,23 @@ export default function InvitesTableCard({ tenants }: Props) {
       >
         {selectedTenantId ? (
           <DataTable
-            loading={loading && invites.length === 0}
-            empty={!loading && invites.length === 0}
+            loading={isLoading && invites.length === 0}
+            empty={!isLoading && invites.length === 0}
             emptyMessage="No invites found"
             className={
-              (loading || isPending) && invites.length > 0
+              (isLoading || isFetching) && invites.length > 0
                 ? "pointer-events-none opacity-70 transition-opacity"
                 : ""
             }
             footer={
-              data ? (
+              pageInfo ? (
                 <DataTableFooter
                   page={page}
                   pageSize={pageSize}
-                  totalPages={data.page.totalPages}
-                  totalElements={data.page.totalElements}
+                  totalPages={pageInfo.totalPages}
+                  totalElements={pageInfo.totalElements}
                   onPageChange={setPage}
-                  onPageSizeChange={(size) => {
+                  onPageSizeChange={(size: number) => {
                     setPageSize(size);
                     setPage(0);
                   }}
@@ -387,12 +371,22 @@ export default function InvitesTableCard({ tenants }: Props) {
           </p>
         )}
 
-        {tableSuccess && (
-          <p className="mt-4 text-sm text-(--color-success)">{tableSuccess}</p>
+        {status?.type === "success" && (
+          <p className="mt-4 text-sm text-(--color-success)">
+            {status.message}
+          </p>
         )}
 
-        {invitesError && (
-          <p className="mt-4 text-sm text-(--color-error)">{invitesError}</p>
+        {status?.type === "error" && (
+          <p className="mt-4 text-sm text-(--color-error)">
+            {status.message}
+          </p>
+        )}
+
+        {error && (
+          <p className="mt-4 text-sm text-(--color-error)">
+            {(error as Error).message || "Failed to load invites"}
+          </p>
         )}
       </Card>
     </div>
