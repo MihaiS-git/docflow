@@ -1,14 +1,19 @@
 import { apiFetch } from "@/lib/apiFetch";
 import { AuthUser } from "@/types/auth/AuthUser";
 import { LocalUser } from "@/types/auth/LocalUser";
+import { AuthUserSchema } from "../validation/auth.schema";
 
 // Identity projection (Keycloak claims + roles)
 export async function fetchIdentity(): Promise<AuthUser | null> {
-  const res = await apiFetch<AuthUser | undefined>("/api/auth/me", {
-    allow401: true,
-  });
+  const res = await apiFetch<unknown>("/api/auth/me", {
+     allow401: true,
+   });
 
-  return res ?? null;
+  if (!res) return null;
+
+  const parsed = AuthUserSchema.parse(res);
+
+  return parsed;
 }
 
 // IMPORTANT:

@@ -1,10 +1,11 @@
 "use client";
 
 import { useAuth } from "@/lib/auth/useAuth";
+import Link from "next/link";
 
 export default function Home() {
-  const { status, isAuthenticated, identity, login, logout, refresh } =
-    useAuth();
+  const { status, identity, login, logout, refresh } = useAuth();
+  const isAuthenticated = status === "AUTH";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -29,9 +30,9 @@ export default function Home() {
 
         {identity?.roles.includes("ADMIN") && (
           <>
-            <a href="/console/users">Admin</a>
-            <a href="/console/invites">Invites</a>
-            <a href="/console/tenants">Tenants</a>
+            <Link href="/console/users">Admin</Link>
+            <Link href="/console/invites">Invites</Link>
+            <Link href="/console/tenants">Tenants</Link>
           </>
         )}
 

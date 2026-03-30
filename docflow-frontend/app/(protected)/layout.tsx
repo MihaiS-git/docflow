@@ -11,7 +11,8 @@ export default function ProtectedLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { status, isAuthenticated } = useAuth();
+  const { status } = useAuth();
+  const isAuthenticated = status === "AUTH";
   const router = useRouter();
 
   useEffect(() => {

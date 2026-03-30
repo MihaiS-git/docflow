@@ -17,9 +17,6 @@ export function useDebouncedPrefixFilter(
 ) {
   const [debounced, setDebounced] = useState(value);
 
-  /**
-   * Tracks the last prefix that produced zero results
-   */
   const lastEmptyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -30,9 +27,6 @@ export function useDebouncedPrefixFilter(
     return () => window.clearTimeout(timer);
   }, [value, delay]);
 
-  /**
-   * Prevent API calls when extending a prefix that already returned empty
-   */
   function shouldBlock(): boolean {
     return (
       lastEmptyRef.current !== null &&
@@ -41,9 +35,6 @@ export function useDebouncedPrefixFilter(
     );
   }
 
-  /**
-   * Register result size so the hook can update prefix guard state
-   */
   function registerResult(resultCount: number) {
     if (!debounced) {
       lastEmptyRef.current = null;
@@ -53,9 +44,6 @@ export function useDebouncedPrefixFilter(
     lastEmptyRef.current = resultCount === 0 ? debounced : null;
   }
 
-  /**
-   * Reset prefix guard (e.g. when filters reset)
-   */
   function reset() {
     lastEmptyRef.current = null;
   }

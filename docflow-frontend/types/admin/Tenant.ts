@@ -1,4 +1,23 @@
 export type TenantStatus = "ACTIVE" | "SUSPENDED" | "TERMINATED";
+export type TenantStatusFilter = "" | TenantStatus;
+export const TENANT_STATUS_LABELS: Record<TenantStatus, string> = {
+  ACTIVE: "Active",
+  SUSPENDED: "Suspended",
+  TERMINATED: "Terminated",
+};
+
+export const ALL_TENANT_STATUSES_OPTION = {
+  value: "",
+  label: "All",
+};
+
+export const TENANT_STATUS_OPTIONS = [
+  ALL_TENANT_STATUSES_OPTION,
+  ...Object.entries(TENANT_STATUS_LABELS).map(([value, label]) => ({
+    value,
+    label,
+  })),
+];
 
 export interface AdminTenant {
   id: string;

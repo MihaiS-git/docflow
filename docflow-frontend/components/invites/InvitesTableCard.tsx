@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { apiFetch } from "@/lib/apiFetch";
-import { ApiError } from "@/lib/apiErrors";
-
 import type { AdminTenant } from "@/types/admin/Tenant";
-import type { InviteStatusFilter } from "@/types/invites/types";
+import {
+  STATUS_LABELS,
+  STATUS_OPTIONS,
+  type InviteStatusFilter,
+} from "@/types/invites/types";
 
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -20,8 +21,8 @@ import TableColumnWidths from "@/components/ui/TableColumnWidths";
 import SortableHeader from "@/components/ui/SortableHeader";
 
 import { useDebouncedPrefixFilter } from "@/hooks/useDebouncedPrefixFilter";
-import { useQueryClient } from "@tanstack/react-query";
 import { useInvitesQuery } from "@/hooks/invites/useInvitesQuery";
+import { useInviteMutations } from "./useInviteMutations";
 
 const PAGE_SIZE = 20;
 
@@ -52,28 +53,27 @@ export default function InvitesTableCard({ tenants }: Props) {
   const [sort, setSort] = useState("createdAt");
   const [direction, setDirection] = useState<"ASC" | "DESC">("DESC");
 
-  const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
-
   const [status, setStatus] = useState<TableStatus>(null);
 
-  const queryClient = useQueryClient();
-
-  const { invites, pageInfo, isLoading, isFetching, error } =
-    useInvitesQuery({
-      tenantId: selectedTenantId,
-      page,
-      pageSize,
-      sort,
-      direction,
-      email: emailFilter.debounced,
-      status: filterStatus,
-      enabled: !emailFilter.shouldBlock(),
-    });
+  const { invites, pageInfo, isLoading, isFetching, error } = useInvitesQuery({
+    tenantId: selectedTenantId,
+    page,
+    pageSize,
+    sort,
+    direction,
+    email: emailFilter.debounced,
+    status: filterStatus,
+    enabled: Boolean(selectedTenantId) && !emailFilter.shouldBlock(),
+  });
 
   useEffect(() => {
     emailFilter.registerResult(invites.length);
   }, [emailFilter, invites.length]);
+
+  const { expireMutation, revokeMutation } = useInviteMutations({
+    tenantId: selectedTenantId,
+    setStatus,
+  });
 
   const handleSort = useCallback((field: string) => {
     setSort((prev) => {
@@ -89,79 +89,15 @@ export default function InvitesTableCard({ tenants }: Props) {
     setPage(0);
   }, []);
 
-  async function onExpireInvites() {
+  function onExpireInvites() {
     if (!selectedTenantId) return;
-
-    setCleanupLoading(true);
     setStatus(null);
-
-    try {
-      const result = await apiFetch<{ expiredInvites: number }>(
-        `/api/tenants/${selectedTenantId}/invites/expire`,
-        { method: "POST" },
-      );
-
-      setStatus({
-        type: "success",
-        message: `Expired ${result.expiredInvites} pending invites.`,
-      });
-
-      queryClient.invalidateQueries({
-        queryKey: ["invites", selectedTenantId],
-      });
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setStatus({ type: "error", message: err.message });
-      } else {
-        setStatus({ type: "error", message: "Cleanup failed." });
-      }
-    } finally {
-      setCleanupLoading(false);
-    }
+    expireMutation.mutate();
   }
 
-  async function onRevokeInvite(inviteId: string) {
-    setRevokeLoadingId(inviteId);
+  function onRevokeInvite(inviteId: string) {
     setStatus(null);
-
-    try {
-      await apiFetch<void>(
-        `/api/tenants/${selectedTenantId}/invites/${inviteId}/revoke`,
-        { method: "POST" },
-      );
-
-      setStatus({
-        type: "success",
-        message: "Invite revoked successfully.",
-      });
-
-      queryClient.invalidateQueries({
-        queryKey: ["invites", selectedTenantId],
-      });
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.message.includes("terminal invite")) {
-          setStatus({
-            type: "error",
-            message: "Invite already processed. Refreshing...",
-          });
-
-          queryClient.invalidateQueries({
-            queryKey: ["invites", selectedTenantId],
-          });
-          return;
-        }
-
-        setStatus({ type: "error", message: err.message });
-      } else {
-        setStatus({
-          type: "error",
-          message: "Failed to revoke invite.",
-        });
-      }
-    } finally {
-      setRevokeLoadingId(null);
-    }
+    revokeMutation.mutate(inviteId);
   }
 
   function onResetFilters() {
@@ -193,11 +129,9 @@ export default function InvitesTableCard({ tenants }: Props) {
 
       <td className="px-4 py-2 text-sm">{invite.tenantRole}</td>
 
-      <td className="px-4 py-2 text-sm">{invite.status}</td>
+      <td className="px-4 py-2 text-sm">{STATUS_LABELS[invite.status]}</td>
 
-      <td className="px-4 py-2 text-sm">
-        {formatDateTime(invite.expiresAt)}
-      </td>
+      <td className="px-4 py-2 text-sm">{formatDateTime(invite.expiresAt)}</td>
 
       <td className="px-4 py-2 text-right">
         <Button
@@ -205,10 +139,14 @@ export default function InvitesTableCard({ tenants }: Props) {
           variant="danger"
           onClick={() => onRevokeInvite(invite.id)}
           disabled={
-            revokeLoadingId === invite.id || invite.status !== "PENDING"
+            (revokeMutation.isPending &&
+              revokeMutation.variables === invite.id) ||
+            invite.status !== "PENDING"
           }
         >
-          {revokeLoadingId === invite.id ? "Revoking…" : "Revoke"}
+          {revokeMutation.isPending && revokeMutation.variables === invite.id
+            ? "Revoking…"
+            : "Revoke"}
         </Button>
       </td>
     </tr>
@@ -237,13 +175,18 @@ export default function InvitesTableCard({ tenants }: Props) {
         label="Status"
         value={filterStatus}
         className="w-56"
-        onChange={(e) =>
-          setFilterStatus(e.target.value as InviteStatusFilter)
-        }
+        onChange={(e) => {
+          const value = e.target.value;
+          if (value === "" || value in STATUS_LABELS) {
+            setFilterStatus(value as InviteStatusFilter);
+          }
+        }}
       >
-        <option value="">All statuses</option>
-        <option value="PENDING">Pending</option>
-        <option value="ACCEPTED">Accepted</option>
+        {STATUS_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
       </Select>
 
       <Input
@@ -267,10 +210,10 @@ export default function InvitesTableCard({ tenants }: Props) {
   const actions = (
     <Button
       onClick={onExpireInvites}
-      disabled={!selectedTenantId}
+      disabled={!selectedTenantId || expireMutation.isPending}
       variant="secondary"
     >
-      {cleanupLoading ? "Expiring…" : "Expire Pending Invites"}
+      {expireMutation.isPending ? "Expiring…" : "Expire Pending Invites"}
     </Button>
   );
 
@@ -378,9 +321,7 @@ export default function InvitesTableCard({ tenants }: Props) {
         )}
 
         {status?.type === "error" && (
-          <p className="mt-4 text-sm text-(--color-error)">
-            {status.message}
-          </p>
+          <p className="mt-4 text-sm text-(--color-error)">{status.message}</p>
         )}
 
         {error && (

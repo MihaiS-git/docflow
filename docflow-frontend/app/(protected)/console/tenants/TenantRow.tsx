@@ -1,6 +1,9 @@
 "use client";
 
 import { memo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+
 import type { AdminTenant } from "@/types/admin/Tenant";
 
 import RowActionMenu from "@/components/ui/RowActionMenu";
@@ -12,15 +15,15 @@ import {
   reactivateTenant,
   terminateTenant,
 } from "@/lib/admin/adminTenants";
-import { useRouter } from "next/navigation";
 
 type Props = {
   tenant: AdminTenant;
-  onUpdated: () => void;
 };
 
-function TenantRowComponent({ tenant, onUpdated }: Props) {
+function TenantRowComponent({ tenant }: Props) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+
   const [editOpen, setEditOpen] = useState(false);
 
   const [suspendOpen, setSuspendOpen] = useState(false);
@@ -28,43 +31,60 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
   const [terminateOpen, setTerminateOpen] = useState(false);
 
   const [comment, setComment] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  async function confirmSuspend() {
-    setLoading(true);
-    try {
-      await suspendTenant(tenant.id, comment);
+  const invalidateTenants = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["tenants"] });
+  };
+
+  const suspendMutation = useMutation({
+    mutationFn: async (nextComment: string) => {
+      await suspendTenant(tenant.id, nextComment);
+    },
+    onSuccess: async () => {
       setSuspendOpen(false);
       setComment("");
-      onUpdated();
-    } finally {
-      setLoading(false);
-    }
+      await invalidateTenants();
+    },
+  });
+
+  const reactivateMutation = useMutation({
+    mutationFn: async (nextComment: string) => {
+      await reactivateTenant(tenant.id, nextComment);
+    },
+    onSuccess: async () => {
+      setReactivateOpen(false);
+      setComment("");
+      await invalidateTenants();
+    },
+  });
+
+  const terminateMutation = useMutation({
+    mutationFn: async (nextComment: string) => {
+      await terminateTenant(tenant.id, nextComment);
+    },
+    onSuccess: async () => {
+      setTerminateOpen(false);
+      setComment("");
+      await invalidateTenants();
+    },
+  });
+
+  async function confirmSuspend() {
+    await suspendMutation.mutateAsync(comment);
   }
 
   async function confirmReactivate() {
-    setLoading(true);
-    try {
-      await reactivateTenant(tenant.id, comment);
-      setReactivateOpen(false);
-      setComment("");
-      onUpdated();
-    } finally {
-      setLoading(false);
-    }
+    await reactivateMutation.mutateAsync(comment);
   }
 
   async function confirmTerminate() {
-    setLoading(true);
-    try {
-      await terminateTenant(tenant.id, comment);
-      setTerminateOpen(false);
-      setComment("");
-      onUpdated();
-    } finally {
-      setLoading(false);
-    }
+    await terminateMutation.mutateAsync(comment);
   }
+
+  const loading =
+    suspendMutation.isPending ||
+    reactivateMutation.isPending ||
+    terminateMutation.isPending;
 
   const statusBadge =
     tenant.status === "ACTIVE"
@@ -75,9 +95,9 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
 
   return (
     <>
-      <tr className="border-b border-(--color-table-border) hover:bg-(--color-table-row-hover) h-13 text-sm">
+      <tr className="h-13 border-b border-(--color-table-border) text-sm hover:bg-(--color-table-row-hover)">
         <td
-          className="px-4 font-medium text-(--color-text-primary) text-left hover:underline hover:cursor-pointer"
+          className="px-4 text-left font-medium text-(--color-text-primary) hover:cursor-pointer hover:underline"
           onClick={() => router.push(`/console/tenants/${tenant.id}`)}
         >
           {tenant.name}
@@ -85,7 +105,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
 
         <td className="px-4">
           <span
-            className={`inline-flex items-center h-5 px-2 text-xs rounded-md ${statusBadge}`}
+            className={`inline-flex h-5 items-center rounded-md px-2 text-xs ${statusBadge}`}
           >
             {tenant.status}
           </span>
@@ -100,7 +120,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
         </td>
 
         <td className="px-4 text-(--color-text-primary)">
-          <span className="inline-flex items-center h-5 px-2 text-xs rounded-md bg-(--color-surface-alt)">
+          <span className="inline-flex h-5 items-center rounded-md bg-(--color-surface-alt) px-2 text-xs">
             {tenant.dataRegion ?? "Default"}
           </span>
         </td>
@@ -127,7 +147,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
                     close();
                     setEditOpen(true);
                   }}
-                  className="block w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface-alt) cursor-pointer disabled:pointer-events-none"
+                  className="block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:pointer-events-none"
                 >
                   Update
                 </button>
@@ -139,7 +159,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
                       close();
                       setSuspendOpen(true);
                     }}
-                    className="block w-full text-left px-3 py-2 text-sm text-(--color-warning) hover:bg-(--color-surface-alt) cursor-pointer disabled:pointer-events-none"
+                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-(--color-warning) hover:bg-(--color-surface-alt) disabled:pointer-events-none"
                   >
                     Suspend
                   </button>
@@ -152,7 +172,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
                       close();
                       setReactivateOpen(true);
                     }}
-                    className="block w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface-alt) cursor-pointer disabled:pointer-events-none"
+                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:pointer-events-none"
                   >
                     Reactivate
                   </button>
@@ -165,7 +185,7 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
                       close();
                       setTerminateOpen(true);
                     }}
-                    className="block w-full text-left px-3 py-2 text-sm text-(--color-error) hover:bg-(--color-surface-alt) cursor-pointer disabled:pointer-events-none"
+                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-(--color-error) hover:bg-(--color-surface-alt) disabled:pointer-events-none"
                   >
                     Terminate
                   </button>
@@ -180,7 +200,6 @@ function TenantRowComponent({ tenant, onUpdated }: Props) {
         tenant={tenant}
         open={editOpen}
         onClose={() => setEditOpen(false)}
-        onSaved={onUpdated}
       />
 
       <ConfirmDialog

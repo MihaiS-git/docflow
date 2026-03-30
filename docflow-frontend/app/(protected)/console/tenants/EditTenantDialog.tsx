@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
 import Dialog from "@/components/ui/Dialog";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
+
 import type { AdminTenant } from "@/types/admin/Tenant";
 import { updateTenant } from "@/lib/admin/adminTenants";
-
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import {
   tenantSchema,
   type TenantFormValues,
@@ -19,20 +21,20 @@ type Props = {
   tenant: AdminTenant;
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
 };
 
 export default function EditTenantDialog({
   tenant,
   open,
   onClose,
-  onSaved,
 }: Props) {
+  const queryClient = useQueryClient();
+
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<TenantFormValues>({
     resolver: zodResolver(tenantSchema),
     defaultValues: {
@@ -55,19 +57,26 @@ export default function EditTenantDialog({
     });
   }, [tenant, open, reset]);
 
-  const onSubmit = handleSubmit(async (values) => {
-    await updateTenant(tenant.id, {
-      name: values.name.trim(),
-      description: values.description?.trim() || undefined,
-      dataRegion: values.dataRegion?.trim() || undefined,
-      retentionDays:
-        values.retentionDays && values.retentionDays !== ""
-          ? Number(values.retentionDays)
-          : undefined,
-    });
+  const updateMutation = useMutation({
+    mutationFn: async (values: TenantFormValues) => {
+      await updateTenant(tenant.id, {
+        name: values.name.trim(),
+        description: values.description?.trim() || undefined,
+        dataRegion: values.dataRegion?.trim() || undefined,
+        retentionDays:
+          values.retentionDays && values.retentionDays !== ""
+            ? Number(values.retentionDays)
+            : undefined,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["tenants"] });
+      onClose();
+    },
+  });
 
-    onSaved();
-    onClose();
+  const onSubmit = handleSubmit(async (values) => {
+    await updateMutation.mutateAsync(values);
   });
 
   return (
@@ -84,12 +93,12 @@ export default function EditTenantDialog({
             rows={3}
             className={`
               w-full
+              resize-y
               rounded
               border ${errors.description ? "border-(--color-error)" : "border-(--color-border)"}
               bg-(--color-surface)
               px-2 py-2
               text-(--color-text-primary)
-              resize-y
               focus:outline-none
               focus:ring-2
               ${errors.description ? "focus:ring-(--color-error)" : "focus:ring-(--color-primary)"}
@@ -117,7 +126,7 @@ export default function EditTenantDialog({
             Cancel
           </Button>
 
-          <Button loading={isSubmitting} onClick={onSubmit}>
+          <Button loading={updateMutation.isPending} onClick={onSubmit}>
             Save
           </Button>
         </div>

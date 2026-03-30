@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { SpringPage } from "@/types/api/SpringPage";
 import type { InviteRow, InviteStatusFilter } from "@/types/invites/types";
 import { fetchInvites } from "@/lib/admin/adminInvites.query";
+import { invitesKeys } from "@/lib/queryKeys/invitesKeys";
 
 type Params = {
   tenantId: string;
@@ -27,16 +28,14 @@ export function useInvitesQuery({
   status,
   enabled = true,
 }: Params) {
-  const queryKey = [
-    "invites",
-    tenantId,
+  const queryKey = invitesKeys.list(tenantId, {
     page,
     pageSize,
     sort,
     direction,
-    email ?? "",
-    status ?? "",
-  ] as const;
+    email,
+    status,
+  });
 
   const query = useQuery<SpringPage<InviteRow>>({
     queryKey,
@@ -50,8 +49,8 @@ export function useInvitesQuery({
         email: email || undefined,
         status: status || undefined,
       }),
-    enabled: enabled && Boolean(tenantId),
-    placeholderData: (previousData) => previousData,
+    enabled: enabled,
+    placeholderData: (prev) => prev,
   });
 
   return {

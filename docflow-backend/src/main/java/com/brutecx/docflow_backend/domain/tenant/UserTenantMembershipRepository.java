@@ -69,4 +69,5 @@ public interface UserTenantMembershipRepository
             @Param("status") MembershipStatus status
     );
 
+    long countByTenantIdAndRoleAndStatus(UUID tenantId, TenantRole tenantRole, MembershipStatus membershipStatus);
 }

@@ -1,21 +1,26 @@
 "use client";
 
-import { useAuth } from "@/lib/auth/useAuth";
-
 import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/layout/PageHeader";
 import InviteCreateCard from "@/components/invites/InviteCreateCard";
 import InvitesTableCard from "@/components/invites/InvitesTableCard";
 import { useManagedTenantsQuery } from "@/hooks/admin/useManagedTenantsQuery";
+import { useHasRole } from "@/lib/auth/useHasRole";
+import { REALM_ROLES } from "@/types/auth/RealmRole";
+import { useAuth } from "@/lib/auth/useAuth";
 
 export default function InvitesPage() {
-  const { status, identity } = useAuth();
-  const isAdmin = status === "AUTH" && identity?.roles.includes("ADMIN");
+  const { status } = useAuth();
+  const isAdmin = useHasRole(REALM_ROLES.ADMIN);
 
   const { data: tenants = [], error } = useManagedTenantsQuery(
-    isAdmin ?? false,
+    status === "AUTH",
   );
 
+  if (status !== "AUTH") {
+    return null;
+  }
+  
   if (!isAdmin) {
     return (
       <PageContainer>

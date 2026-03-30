@@ -3,7 +3,6 @@
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 
-import { apiFetch } from "@/lib/apiFetch";
 import { ApiError } from "@/lib/apiErrors";
 
 import type { AdminTenant } from "@/types/admin/Tenant";
@@ -16,7 +15,9 @@ import Button from "../ui/Button";
 import { TENANT_ROLES } from "@/types/invites/types";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { InviteFormValues, inviteSchema } from "@/lib/validation/invite.schema";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/apiFetch";
+import { invitesKeys } from "@/lib/queryKeys/invitesKeys";
 
 type Props = {
   tenants: AdminTenant[];
@@ -29,7 +30,7 @@ export default function InviteCreateCard({ tenants }: Props) {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting, isValid },
+    formState: { errors, isValid },
   } = useForm<InviteFormValues>({
     resolver: zodResolver(inviteSchema),
     mode: "onBlur",
@@ -45,8 +46,8 @@ export default function InviteCreateCard({ tenants }: Props) {
     },
   });
 
-  const submit = handleSubmit(async (values) => {
-    try {
+  const createInviteMutation = useMutation({
+    mutationFn: async (values: InviteFormValues) => {
       await apiFetch<void>(`/api/tenants/${values.tenantId}/invites`, {
         method: "POST",
         body: JSON.stringify({
@@ -58,14 +59,17 @@ export default function InviteCreateCard({ tenants }: Props) {
           tenantRole: values.tenantRole,
         }),
       });
-
+    },
+    onSuccess: async (_, variables) => {
       toast.success("Invite sent successfully.");
       reset();
 
-      queryClient.invalidateQueries({
-        queryKey: ["invites", values.tenantId],
+      await queryClient.invalidateQueries({
+        queryKey: invitesKeys.lists(variables.tenantId),
+        refetchType: "active",
       });
-    } catch (err) {
+    },
+    onError: (err: unknown) => {
       if (err instanceof ApiError) {
         if (err.status === 409) {
           toast.error(
@@ -79,7 +83,11 @@ export default function InviteCreateCard({ tenants }: Props) {
       } else {
         toast.error("Unexpected error occurred.");
       }
-    }
+    },
+  });
+
+  const submit = handleSubmit(async (values) => {
+    await createInviteMutation.mutateAsync(values);
   });
 
   return (
@@ -142,7 +150,7 @@ export default function InviteCreateCard({ tenants }: Props) {
         <div className="col-span-full flex justify-end pt-2">
           <Button
             type="submit"
-            loading={isSubmitting}
+            loading={createInviteMutation.isPending}
             variant={isValid ? "primary" : "secondary"}
           >
             Send Invite

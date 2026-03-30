@@ -562,6 +562,8 @@ public class TenantService {
                 newStatus,
                 comment
         );
+
+        requireAtLeastOneActiveManager(tenantId);
     }
 
     @Transactional(readOnly = true)
@@ -713,34 +715,6 @@ public class TenantService {
     private void assignOwnerInvariant(Tenant tenant, User user) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(user, "user");
-
-        // Post-persist: enforce full invariant
-        if (tenant.getId() != null) {
-            UserTenantMembership membership =
-                    membershipRepository.findByUserIdAndTenantId(user.getId(), tenant.getId())
-                            .orElse(null);
-
-            if (membership == null) {
-                throw new TenantException(
-                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                        "Owner must be a member of the tenant"
-                );
-            }
-
-            if (membership.getRole() != TenantRole.MANAGER) {
-                throw new TenantException(
-                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                        "Tenant role must be MANAGER"
-                );
-            }
-
-            if (membership.getStatus() != MembershipStatus.ACTIVE) {
-                throw new TenantException(
-                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                        "Membership status must be ACTIVE"
-                );
-            }
-        }
 
         // Always assign owner (creation + update)
         tenant.assignOwner(user);
@@ -1194,5 +1168,20 @@ public class TenantService {
                 );
             }
         });
+    }
+
+    private void requireAtLeastOneActiveManager(UUID tenantId) {
+        long count = membershipRepository.countByTenantIdAndRoleAndStatus(
+                tenantId,
+                TenantRole.MANAGER,
+                MembershipStatus.ACTIVE
+        );
+
+        if (count == 0) {
+            throw new TenantException(
+                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
+                    "Tenant must have at least one ACTIVE MANAGER"
+            );
+        }
     }
 }

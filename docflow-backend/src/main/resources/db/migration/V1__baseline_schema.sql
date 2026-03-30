@@ -1,4 +1,5 @@
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE
+EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE TABLE public.users
 (
@@ -776,16 +777,26 @@ CREATE INDEX idx_audit_chain_state_state_key_last_event_hash
 CREATE UNIQUE INDEX ux_users_email_lower
     ON users (lower(email));
 
+CREATE INDEX idx_users_email_trgm
+    ON users USING gin (LOWER(email) gin_trgm_ops);
+
 CREATE INDEX idx_users_first_name_trgm
     ON users USING gin (first_name gin_trgm_ops);
 
 CREATE INDEX idx_users_last_name_trgm
     ON users USING gin (last_name gin_trgm_ops);
 
+CREATE INDEX idx_users_full_name_trgm
+    ON users USING gin (
+    (LOWER(first_name || ' ' || last_name)) gin_trgm_ops
+    );
 
 /* =========================================================
    TENANTS
    ========================================================= */
+
+CREATE INDEX idx_tenants_name_trgm
+    ON tenants USING gin (LOWER(name) gin_trgm_ops);
 
 CREATE INDEX idx_tenants_status_region_created_at
     ON tenants (status, LOWER(data_region), created_at DESC);
@@ -813,16 +824,14 @@ CREATE INDEX idx_memberships_tenant
     ON user_tenant_memberships (tenant_id);
 
 CREATE INDEX idx_memberships_active_managers
-    ON user_tenant_memberships (tenant_id, id) WHERE role = 'MANAGER' AND status = 'ACTIVE';
+    ON user_tenant_memberships (tenant_id)
+    WHERE role = 'MANAGER' AND status = 'ACTIVE';
 
 CREATE INDEX idx_memberships_tenant_role_status
     ON user_tenant_memberships (tenant_id, role, status, id);
 
 CREATE INDEX idx_memberships_user_role_status
     ON user_tenant_memberships (user_id, role, status, tenant_id);
-
-CREATE UNIQUE INDEX ux_tenant_single_active_manager
-    ON user_tenant_memberships (tenant_id) WHERE role = 'MANAGER' AND status = 'ACTIVE';
 
 
 /* =========================================================

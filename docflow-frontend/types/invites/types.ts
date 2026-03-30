@@ -6,8 +6,25 @@ export const TENANT_ROLES = [
 ] as const;
 export type TenantRole = (typeof TENANT_ROLES)[number];
 
-export type InviteStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
+export type InviteStatus = "PENDING" | "ACTIVATED" | "ACCEPTED" | "REVOKED" | "EXPIRED";
 export type InviteStatusFilter = "" | InviteStatus;
+
+export const ALL_STATUSES_OPTION = { value: "", label: "All statuses" };
+export const STATUS_LABELS: Record<InviteStatus, string> = {
+  PENDING: "Pending",
+  ACTIVATED: "Activated",
+  ACCEPTED: "Accepted",
+  REVOKED: "Revoked",
+  EXPIRED: "Expired",
+};
+
+export const STATUS_OPTIONS = [
+  ALL_STATUSES_OPTION,
+  ...Object.entries(STATUS_LABELS).map(([value, label]) => ({
+    value,
+    label,
+  })),
+];
 
 export type InviteRow = {
   id: string;

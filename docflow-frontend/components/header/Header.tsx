@@ -20,8 +20,6 @@ export default function Header() {
 
   const { login, logout } = useAuth();
 
-  const isAuthenticated = status === "AUTH";
-
   return (
     <nav className="relative bg-(--color-surface) border-b border-(--color-border)">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -39,7 +37,7 @@ export default function Header() {
           <div className="flex items-center gap-3">
             <ThemeToggleButton />
 
-            {isAuthenticated && <Button variant="outline" onClick={logout}>Logout</Button>}
+            {status === "AUTH" && <Button variant="outline" onClick={logout}>Logout</Button>}
 
             {status === "ANON" && <Button variant="outline" onClick={login}>Login</Button>}
 
@@ -54,7 +52,7 @@ export default function Header() {
       <MobileMenu
         open={mobileOpen}
         identity={identity}
-        isAuthenticated={isAuthenticated}
+        isAuthenticated={status === "AUTH"}
         login={login}
         logout={logout}
         onNavigate={() => setMobileOpen(false)}

@@ -2,18 +2,18 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useReducer,
   useState,
   type ChangeEvent,
 } from "react";
 
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+
 import { useAuth } from "@/lib/auth/useAuth";
 import { ApiError } from "@/lib/apiErrors";
-import { fetchAllTenants, createTenant } from "@/lib/admin/adminTenants";
-
-import type { AdminTenant } from "@/types/admin/Tenant";
-import type { SpringPage } from "@/types/api/SpringPage";
+import { createTenant } from "@/lib/admin/adminTenants";
 
 import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/layout/PageHeader";
@@ -32,8 +32,10 @@ import TableColumnWidths from "@/components/ui/TableColumnWidths";
 import DataTableFooter from "@/components/ui/DataTableFooter";
 
 import CreateTenantCard from "./CreateTenantCard";
-import { usePaginatedAdminTable } from "@/hooks/usePaginatedAdminTable";
 import { useDebouncedPrefixFilter } from "@/hooks/useDebouncedPrefixFilter";
+import { useTenantsQuery } from "@/hooks/admin/useTenantsQuery";
+import { safeParam } from "@/lib/utils/queryParams";
+import { ALL_TENANT_STATUSES_OPTION, TENANT_STATUS_OPTIONS, TenantStatusFilter } from "@/types/admin/Tenant";
 
 const PAGE_SIZE = 20;
 
@@ -41,7 +43,7 @@ type TenantFiltersState = {
   search: string;
   managerName: string;
   managerEmail: string;
-  status: string;
+  status: TenantStatusFilter;
   dataRegion: string;
   createdAfter: string;
   createdBefore: string;
@@ -59,7 +61,7 @@ const initialFilters: TenantFiltersState = {
   search: "",
   managerName: "",
   managerEmail: "",
-  status: "ACTIVE",
+  status: "",
   dataRegion: "",
   createdAfter: "",
   createdBefore: "",
@@ -87,13 +89,13 @@ function tenantFiltersReducer(
 }
 
 export default function TenantsPage() {
+  const queryClient = useQueryClient();
   const { status, identity } = useAuth();
 
   const isAdmin =
     status === "AUTH" && identity?.roles?.includes("ADMIN") === true;
 
   const [error, setError] = useState<string | null>(null);
-  const [createLoading, setCreateLoading] = useState(false);
 
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [page, setPage] = useState(0);
@@ -107,85 +109,78 @@ export default function TenantsPage() {
   );
 
   const searchFilter = useDebouncedPrefixFilter(filters.search);
-  const managerNameFilter = useDebouncedPrefixFilter(filters.managerName);
-  const managerEmailFilter = useDebouncedPrefixFilter(filters.managerEmail);
 
-  const queryKey = JSON.stringify({
-    page,
-    sort,
-    direction,
-    status: filters.status,
-    search: searchFilter.debounced,
-    managerName: managerNameFilter.debounced,
-    managerEmail: managerEmailFilter.debounced,
-    dataRegion: filters.dataRegion,
-    createdAfter: filters.createdAfter,
-    createdBefore: filters.createdBefore,
-  });
-
-  const loader = useCallback(async (): Promise<SpringPage<AdminTenant>> => {
-    const empty: SpringPage<AdminTenant> = {
-      content: [],
-      page: {
-        number: page,
-        size: pageSize,
-        totalElements: 0,
-        totalPages: 0,
-      },
-    };
-
-    if (
-      searchFilter.shouldBlock() ||
-      managerNameFilter.shouldBlock() ||
-      managerEmailFilter.shouldBlock()
-    ) {
-      return empty;
-    }
-
-    const result = await fetchAllTenants(page, pageSize, sort, direction, {
-      status: filters.status,
-      name: searchFilter.debounced || undefined,
-      dataRegion: filters.dataRegion || undefined,
-      managerName: managerNameFilter.debounced || undefined,
-      managerEmail: managerEmailFilter.debounced || undefined,
+  const { tenants, pageInfo, isLoading, isFetching, isSuccess } =
+    useTenantsQuery({
+      page,
+      pageSize,
+      sort,
+      direction,
+      status: filters.status || undefined,
+      name: safeParam(searchFilter.debounced, false),
+      dataRegion: safeParam(filters.dataRegion, false),
+      managerName: safeParam(filters.managerName, false),
+      managerEmail: safeParam(filters.managerEmail, false),
       createdAfter: filters.createdAfter || undefined,
       createdBefore: filters.createdBefore || undefined,
+      enabled: isAdmin,
     });
 
-    searchFilter.registerResult(result.content.length);
-    managerNameFilter.registerResult(result.content.length);
-    managerEmailFilter.registerResult(result.content.length);
+  useEffect(() => {
+    if (!isSuccess) return;
 
-    return result;
+    const isOnlySearchActive =
+      searchFilter.debounced !== "" &&
+      !filters.managerName.trim() &&
+      !filters.managerEmail.trim() &&
+      !filters.dataRegion.trim() &&
+      !filters.createdAfter &&
+      !filters.createdBefore;
+
+    if (isOnlySearchActive) {
+      searchFilter.registerResult(tenants.length);
+    } else {
+      searchFilter.reset();
+    }
   }, [
-    page,
-    pageSize,
-    searchFilter,
-    managerNameFilter,
-    managerEmailFilter,
-    sort,
-    direction,
-    filters.status,
-    filters.dataRegion,
     filters.createdAfter,
     filters.createdBefore,
+    filters.dataRegion,
+    filters.managerEmail,
+    filters.managerName,
+    isSuccess,
+    searchFilter,
+    tenants.length,
   ]);
 
-  const { data, loading, isPending, reload } = usePaginatedAdminTable(loader, {
-    enabled: isAdmin,
-    queryKey,
-    resetKeys: [
-      searchFilter.debounced,
-      managerNameFilter.debounced,
-      managerEmailFilter.debounced,
-      filters.status,
-      filters.dataRegion,
-      filters.createdAfter,
-      filters.createdBefore,
-    ],
-  });
+  const invalidateTenants = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["tenants"] });
+  }, [queryClient]);
 
-  const tenants = useMemo(() => data?.content ?? [], [data?.content]);
+  const createTenantMutation = useMutation({
+    mutationFn: async (data: {
+      name: string;
+      description?: string;
+      dataRegion?: string;
+      retentionDays?: number;
+    }) => {
+      await createTenant(
+        data.name,
+        data.description,
+        data.dataRegion,
+        data.retentionDays,
+      );
+    },
+    onSuccess: async () => {
+      setError(null);
+      await invalidateTenants();
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ApiError) setError(err.message);
+      else if (err instanceof Error) setError(err.message);
+      else setError("Unexpected error occurred.");
+    },
+  });
 
   const handleCreate = useCallback(
     async (data: {
@@ -194,27 +189,9 @@ export default function TenantsPage() {
       dataRegion?: string;
       retentionDays?: number;
     }) => {
-      setCreateLoading(true);
-      setError(null);
-
-      try {
-        await createTenant(
-          data.name,
-          data.description,
-          data.dataRegion,
-          data.retentionDays,
-        );
-
-        reload();
-      } catch (err) {
-        if (err instanceof ApiError) setError(err.message);
-        else if (err instanceof Error) setError(err.message);
-        else setError("Unexpected error occurred.");
-      } finally {
-        setCreateLoading(false);
-      }
+      await createTenantMutation.mutateAsync(data);
     },
-    [reload],
+    [createTenantMutation],
   );
 
   const handleSort = useCallback((field: string) => {
@@ -233,13 +210,9 @@ export default function TenantsPage() {
 
   const resetFilters = useCallback(() => {
     dispatchFilters({ type: "RESET" });
-
     searchFilter.reset();
-    managerNameFilter.reset();
-    managerEmailFilter.reset();
-
     setPage(0);
-  }, [searchFilter, managerNameFilter, managerEmailFilter]);
+  }, [searchFilter]);
 
   const handleSearchChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     dispatchFilters({
@@ -256,6 +229,7 @@ export default function TenantsPage() {
         field: "status",
         value: e.target.value,
       });
+      setPage(0);
     },
     [],
   );
@@ -267,6 +241,7 @@ export default function TenantsPage() {
         field: "managerName",
         value: e.target.value,
       });
+      setPage(0);
     },
     [],
   );
@@ -278,6 +253,7 @@ export default function TenantsPage() {
         field: "managerEmail",
         value: e.target.value,
       });
+      setPage(0);
     },
     [],
   );
@@ -289,6 +265,7 @@ export default function TenantsPage() {
         field: "dataRegion",
         value: e.target.value,
       });
+      setPage(0);
     },
     [],
   );
@@ -300,6 +277,7 @@ export default function TenantsPage() {
         field: "createdAfter",
         value: e.target.value,
       });
+      setPage(0);
     },
     [],
   );
@@ -311,16 +289,15 @@ export default function TenantsPage() {
         field: "createdBefore",
         value: e.target.value,
       });
+      setPage(0);
     },
     [],
   );
 
   const rows = useMemo(
     () =>
-      tenants.map((tenant) => (
-        <TenantRow key={tenant.id} tenant={tenant} onUpdated={reload} />
-      )),
-    [tenants, reload],
+      tenants.map((tenant) => <TenantRow key={tenant.id} tenant={tenant} />),
+    [tenants],
   );
 
   const columnWidths = useMemo(
@@ -403,19 +380,21 @@ export default function TenantsPage() {
           onChange={handleSearchChange}
           className="w-full sm:w-56"
         />
-
         <div className="w-full sm:w-40">
           <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
             <span>Status</span>
             <Select value={filters.status} onChange={handleStatusChange}>
-              <option value="ACTIVE">Active</option>
-              <option value="SUSPENDED">Suspended</option>
-              <option value="TERMINATED">Terminated</option>
-              <option value="ALL">All</option>
+              <option value={ALL_TENANT_STATUSES_OPTION.value}>
+                {ALL_TENANT_STATUSES_OPTION.label}
+              </option>
+              {TENANT_STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </Select>
           </label>
         </div>
-
         <Input
           label="Manager name"
           value={filters.managerName}
@@ -448,7 +427,6 @@ export default function TenantsPage() {
           onChange={handleCreatedBeforeChange}
           className="w-full sm:w-40"
         />
-
         <Button type="button" variant="outline" onClick={resetFilters}>
           Reset
         </Button>
@@ -484,7 +462,7 @@ export default function TenantsPage() {
 
       <div className="flex flex-col gap-6">
         <CreateTenantCard
-          loading={createLoading}
+          loading={createTenantMutation.isPending}
           error={error}
           onSubmit={handleCreate}
         />
@@ -495,21 +473,21 @@ export default function TenantsPage() {
 
         <Card>
           <DataTable
-            loading={loading && tenants.length === 0}
-            empty={!loading && tenants.length === 0}
+            loading={isLoading && tenants.length === 0}
+            empty={!isLoading && tenants.length === 0}
             emptyMessage="No tenants found"
             className={
-              (loading || isPending) && tenants.length > 0
+              isFetching && tenants.length > 0
                 ? "pointer-events-none opacity-70 transition-opacity"
                 : ""
             }
             footer={
-              data ? (
+              pageInfo ? (
                 <DataTableFooter
                   page={page}
                   pageSize={pageSize}
-                  totalPages={data.page.totalPages}
-                  totalElements={data.page.totalElements}
+                  totalPages={pageInfo.totalPages}
+                  totalElements={pageInfo.totalElements}
                   onPageChange={setPage}
                   onPageSizeChange={(size) => {
                     setPageSize(size);

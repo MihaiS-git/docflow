@@ -16,7 +16,6 @@ export function useAuth() {
 
   return {
     ...state,
-    isAuthenticated: state.status === "AUTH",
     ...actions,
   };
 }

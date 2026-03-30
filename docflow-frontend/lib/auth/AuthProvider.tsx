@@ -9,7 +9,6 @@ import {
 import { setAuthErrorHandler } from "@/lib/auth/authEvents";
 import { ForbiddenError } from "@/lib/apiErrors";
 
-import { AuthStatus } from "@/types/auth/AuthStatus";
 import { AuthUser } from "@/types/auth/AuthUser";
 import { LocalUser } from "@/types/auth/LocalUser";
 
@@ -22,12 +21,40 @@ import {
   useRef,
 } from "react";
 
-type State = {
-  status: AuthStatus;
-  identity: AuthUser | null;
-  localUser: LocalUser | null;
-  blockedCode: string | null;
-};
+/**
+ * ✅ Discriminated union state
+ */
+type State =
+  | {
+      status: "LOADING";
+      identity: null;
+      localUser: null;
+      blockedCode: null;
+    }
+  | {
+      status: "ANON";
+      identity: null;
+      localUser: null;
+      blockedCode: null;
+    }
+  | {
+      status: "BLOCKED";
+      identity: null;
+      localUser: null;
+      blockedCode: string;
+    }
+  | {
+      status: "BOOTSTRAP";
+      identity: AuthUser;
+      localUser: null;
+      blockedCode: null;
+    }
+  | {
+      status: "AUTH";
+      identity: AuthUser;
+      localUser: LocalUser;
+      blockedCode: null;
+    };
 
 type Action =
   | { type: "LOADING" }
@@ -47,7 +74,12 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "LOADING":
       if (state.status === "LOADING") return state;
-      return { ...state, status: "LOADING" };
+      return {
+        status: "LOADING",
+        identity: null,
+        localUser: null,
+        blockedCode: null,
+      };
 
     case "BOOTSTRAP_READY":
       return {
@@ -93,17 +125,14 @@ type AuthActionsContextValue = {
   clearBlocked: () => void;
 };
 
-export const AuthStateContext = createContext<AuthStateContextValue | null>(
-  null,
-);
+export const AuthStateContext =
+  createContext<AuthStateContextValue | null>(null);
 
-export const AuthActionsContext = createContext<AuthActionsContextValue | null>(
-  null,
-);
+export const AuthActionsContext =
+  createContext<AuthActionsContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
-
   const mountedRef = useRef(true);
 
   useEffect(() => {
