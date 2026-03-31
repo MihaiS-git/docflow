@@ -10,7 +10,6 @@ import com.brutecx.docflow_backend.audit.AuditRequestContextExtractor;
 import com.brutecx.docflow_backend.audit.admin.AdminAuditActionType;
 import com.brutecx.docflow_backend.audit.admin.IAdminAuditEventService;
 import com.brutecx.docflow_backend.audit.admin.TenantAuditMetadata;
-import com.brutecx.docflow_backend.audit.admin.TenantMembershipChangeMetadata;
 import com.brutecx.docflow_backend.audit.sensitive.ISensitiveAccessAuditService;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveAccessSubjectType;
 import com.brutecx.docflow_backend.audit.sensitive.SensitiveDataClassification;
@@ -22,8 +21,6 @@ import com.brutecx.docflow_backend.logging.InfraEventType;
 import jakarta.annotation.Nonnull;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
@@ -37,13 +34,10 @@ import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static net.logstash.logback.argument.StructuredArguments.entries;
-
 @Service
 @RequiredArgsConstructor
 public class TenantService {
 
-    private static final Logger SECURITY_LOG = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -512,60 +506,6 @@ public class TenantService {
         }
     }
 
-    @Transactional
-    public void updateMembership(
-            UUID tenantId,
-            UUID targetUserId,
-            TenantRole newRole,
-            MembershipStatus newStatus,
-            String comment
-    ) {
-        Objects.requireNonNull(tenantId, "tenantId");
-        Objects.requireNonNull(targetUserId, "targetUserId");
-
-        User actor = userService.getRequiredCurrentUser();
-        Tenant tenant = getRequired(tenantId);
-
-        enforceMembershipGuards(
-                tenant,
-                actor,
-                targetUserId,
-                newRole,
-                newStatus
-        );
-
-        UserTenantMembership membership =
-                membershipRepository.findByUserIdAndTenantId(targetUserId, tenantId)
-                        .orElseThrow(() -> new TenantNotFoundException("Membership not found"));
-
-        TenantRole oldRole = membership.getRole();
-        MembershipStatus oldStatus = membership.getStatus();
-
-        oldRole = applyRoleChange(
-                tenantId,
-                targetUserId,
-                actor,
-                membership,
-                oldRole,
-                oldStatus,
-                newRole,
-                comment
-        );
-
-        applyStatusChange(
-                tenantId,
-                targetUserId,
-                actor,
-                membership,
-                oldRole,
-                oldStatus,
-                newStatus,
-                comment
-        );
-
-        requireAtLeastOneActiveManager(tenantId);
-    }
-
     @Transactional(readOnly = true)
     public List<TenantLookupDTO> listManagedTenantsForCurrentUser() {
         User actor = userService.getRequiredCurrentUser();
@@ -641,31 +581,6 @@ public class TenantService {
         return date == null ? null : date.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
     }
 
-    private void securityWarnDenied(
-            String eventAction,
-            UUID tenantId,
-            User actor,
-            UUID targetUserId,
-            String errorCode
-    ) {
-        String correlationId = contextExtractor.fromCurrentRequest().correlationId();
-
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("schema_version", "docflow_siem_v1");
-        fields.put("correlation.id", correlationId);
-        fields.put("event.category", "security");
-        fields.put("event.type", "tenant_membership");
-        fields.put("event.action", eventAction);
-        fields.put("event.outcome", "failure");
-        fields.put("error.code", errorCode);
-        fields.put("tenant.id", tenantId);
-        fields.put("actor.user_id", actor != null ? actor.getId() : null);
-        fields.put("actor.subject_id", actor != null ? actor.getExternalSubjectId() : null);
-        fields.put("target.user_id", targetUserId);
-
-        SECURITY_LOG.warn("security_event {}", entries(fields));
-    }
-
     private void recordTenantAdminAudit(
             Tenant tenant,
             AdminAuditActionType actionType,
@@ -687,329 +602,12 @@ public class TenantService {
         );
     }
 
-    private void ensureNotLastActiveManager(UUID tenantId) {
-        final List<UUID> locked;
-
-        try {
-            locked =
-                    membershipRepository.lockActiveManagers(
-                            tenantId,
-                            TenantRole.MANAGER,
-                            MembershipStatus.ACTIVE
-                    );
-        } catch (RuntimeException ex) {
-            InfraEventLogger.failure(
-                    InfraEventType.DATABASE,
-                    InfraEventActions.DB_QUERY_EXECUTE,
-                    "lock_active_managers_failure",
-                    ex
-            );
-            throw ex;
-        }
-
-        if (locked.size() <= 1) {
-            throw new LastManagerViolationException("Cannot remove or suspend last MANAGER in tenant");
-        }
-    }
-
     private void assignOwnerInvariant(Tenant tenant, User user) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(user, "user");
 
         // Always assign owner (creation + update)
         tenant.assignOwner(user);
-    }
-
-    private void enforceMembershipGuards(
-            Tenant tenant,
-            User actor,
-            UUID targetUserId,
-            TenantRole newRole,
-            MembershipStatus newStatus
-    ) {
-        boolean actorIsTarget = actor.getId().equals(targetUserId);
-
-        boolean isOwner = tenant.getOwner() != null
-                && tenant.getOwner().getId().equals(targetUserId);
-
-        if (isOwner) {
-            if (newRole != null && newRole != TenantRole.MANAGER) {
-                securityWarnDenied(
-                        "TENANT_OWNER_ROLE_CHANGE_DENIED",
-                        tenant.getId(),
-                        actor,
-                        targetUserId,
-                        "OWNER_ROLE_CHANGE_DENIED"
-                );
-                throw new TenantException(
-                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                        "Owner role cannot be changed"
-                );
-            }
-
-            if (newStatus != null && newStatus != MembershipStatus.ACTIVE) {
-                securityWarnDenied(
-                        "TENANT_OWNER_STATUS_CHANGE_DENIED",
-                        tenant.getId(),
-                        actor,
-                        targetUserId,
-                        "OWNER_STATUS_CHANGE_DENIED"
-                );
-                throw new TenantException(
-                        ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                        "Owner must remain ACTIVE"
-                );
-            }
-        }
-
-        if (actorIsTarget) {
-            if (newRole != null && newRole != TenantRole.MANAGER) {
-                securityWarnDenied(
-                        "TENANT_MEMBERSHIP_SELF_DEMOTION_DENIED",
-                        tenant.getId(),
-                        actor,
-                        targetUserId,
-                        "SELF_DEMOTION_DENIED"
-                );
-                throw new SelfActionForbiddenException("Self-demotion is not allowed");
-            }
-
-            if (newStatus == MembershipStatus.SUSPENDED) {
-                securityWarnDenied(
-                        "TENANT_MEMBERSHIP_SELF_SUSPEND_DENIED",
-                        tenant.getId(),
-                        actor,
-                        targetUserId,
-                        "SELF_SUSPEND_DENIED"
-                );
-                throw new SelfActionForbiddenException("Self-suspension is not allowed");
-            }
-        }
-    }
-
-    private TenantRole applyRoleChange(
-            UUID tenantId,
-            UUID targetUserId,
-            User actor,
-            UserTenantMembership membership,
-            TenantRole oldRole,
-            MembershipStatus oldStatus,
-            TenantRole newRole,
-            String comment
-    ) {
-        Objects.requireNonNull(newRole, "newRole");
-        if (newRole.equals(oldRole)) {
-            return oldRole;
-        }
-
-        if (oldRole == TenantRole.MANAGER
-                && oldStatus == MembershipStatus.ACTIVE) {
-            try {
-                ensureNotLastActiveManager(tenantId);
-            } catch (LastManagerViolationException ex) {
-                securityWarnDenied(
-                        "TENANT_MEMBERSHIP_LAST_MANAGER_DENIED",
-                        tenantId,
-                        actor,
-                        targetUserId,
-                        "LAST_MANAGER_VIOLATION"
-                );
-                throw ex;
-            }
-        }
-
-        membership.changeRole(newRole);
-
-        try {
-            membershipRepository.save(membership);
-        } catch (RuntimeException ex) {
-            InfraEventLogger.failure(
-                    InfraEventType.DATABASE,
-                    InfraEventActions.DB_ENTITY_PERSIST,
-                    "tenant_membership_role_persist_failure",
-                    ex
-            );
-            throw ex;
-        }
-
-        AdminAuditActionType roleAction =
-                newRole.isMorePrivilegedThan(oldRole)
-                        ? AdminAuditActionType.ROLE_ASSIGNED
-                        : AdminAuditActionType.ROLE_REVOKED;
-
-        TenantMembershipChangeMetadata metadata =
-                new TenantMembershipChangeMetadata(
-                        tenantId.toString(),
-                        targetUserId.toString(),
-                        "UPDATE_TENANT_MEMBERSHIP_ROLE",
-                        oldRole,
-                        newRole,
-                        oldStatus,
-                        membership.getStatus(),
-                        comment
-                );
-
-        adminAuditEventService.record(
-                roleAction,
-                tenantId,
-                actor.getExternalSubjectId(),
-                targetUserId,
-                metadata
-        );
-
-        logRoleChangeSecurityEvent(
-                tenantId,
-                actor,
-                targetUserId,
-                oldRole,
-                newRole,
-                oldStatus,
-                membership.getStatus()
-        );
-
-        return newRole;
-    }
-
-    private void applyStatusChange(
-            UUID tenantId,
-            UUID targetUserId,
-            User actor,
-            UserTenantMembership membership,
-            TenantRole currentRole,
-            MembershipStatus oldStatus,
-            MembershipStatus newStatus,
-            String comment
-    ) {
-        Objects.requireNonNull(newStatus, "newStatus");
-        if (newStatus.equals(oldStatus)) {
-            return;
-        }
-
-        if (currentRole == TenantRole.MANAGER
-                && oldStatus == MembershipStatus.ACTIVE
-                && newStatus == MembershipStatus.SUSPENDED) {
-            try {
-                ensureNotLastActiveManager(tenantId);
-            } catch (LastManagerViolationException ex) {
-                securityWarnDenied(
-                        "TENANT_MEMBERSHIP_LAST_MANAGER_DENIED",
-                        tenantId,
-                        actor,
-                        targetUserId,
-                        "LAST_MANAGER_VIOLATION"
-                );
-                throw ex;
-            }
-        }
-
-        if (newStatus == MembershipStatus.SUSPENDED) {
-            membership.suspend();
-        } else {
-            membership.activate();
-        }
-
-        try {
-            membershipRepository.save(membership);
-        } catch (RuntimeException ex) {
-            InfraEventLogger.failure(
-                    InfraEventType.DATABASE,
-                    InfraEventActions.DB_ENTITY_PERSIST,
-                    "tenant_membership_status_persist_failure",
-                    ex
-            );
-            throw ex;
-        }
-
-        TenantMembershipChangeMetadata metadata =
-                new TenantMembershipChangeMetadata(
-                        tenantId.toString(),
-                        targetUserId.toString(),
-                        newStatus == MembershipStatus.SUSPENDED
-                                ? "SUSPEND_TENANT_MEMBERSHIP"
-                                : "ACTIVATE_TENANT_MEMBERSHIP",
-                        currentRole,
-                        membership.getRole(),
-                        oldStatus,
-                        newStatus,
-                        comment
-                );
-
-        adminAuditEventService.record(
-                newStatus == MembershipStatus.SUSPENDED
-                        ? AdminAuditActionType.USER_LOCKED
-                        : AdminAuditActionType.USER_ACTIVATED,
-                tenantId,
-                actor.getExternalSubjectId(),
-                targetUserId,
-                metadata
-        );
-
-        logStatusChangeSecurityEvent(
-                tenantId,
-                actor,
-                targetUserId,
-                membership.getRole(),
-                oldStatus,
-                newStatus
-        );
-    }
-
-    private void logRoleChangeSecurityEvent(
-            UUID tenantId,
-            User actor,
-            UUID targetUserId,
-            TenantRole oldRole,
-            TenantRole newRole,
-            MembershipStatus oldStatus,
-            MembershipStatus newStatus
-    ) {
-        String correlationId = contextExtractor.fromCurrentRequest().correlationId();
-
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("schema_version", "docflow_siem_v1");
-        fields.put("correlation.id", correlationId);
-        fields.put("event.category", "security");
-        fields.put("event.type", "tenant_membership");
-        fields.put("event.action", "TENANT_MEMBERSHIP_ROLE_CHANGED");
-        fields.put("event.outcome", "success");
-        fields.put("tenant.id", tenantId);
-        fields.put("actor.user_id", actor.getId());
-        fields.put("actor.subject_id", actor.getExternalSubjectId());
-        fields.put("target.user_id", targetUserId);
-        fields.put("membership.old_role", oldRole.name());
-        fields.put("membership.new_role", newRole.name());
-        fields.put("membership.old_status", oldStatus.name());
-        fields.put("membership.new_status", newStatus.name());
-
-        SECURITY_LOG.info("security_event {}", entries(fields));
-    }
-
-    private void logStatusChangeSecurityEvent(
-            UUID tenantId,
-            User actor,
-            UUID targetUserId,
-            TenantRole role,
-            MembershipStatus oldStatus,
-            MembershipStatus newStatus
-    ) {
-        String correlationId = contextExtractor.fromCurrentRequest().correlationId();
-
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("schema_version", "docflow_siem_v1");
-        fields.put("correlation.id", correlationId);
-        fields.put("event.category", "security");
-        fields.put("event.type", "tenant_membership");
-        fields.put("event.action", "TENANT_MEMBERSHIP_STATUS_CHANGED");
-        fields.put("event.outcome", "success");
-        fields.put("tenant.id", tenantId);
-        fields.put("actor.user_id", actor.getId());
-        fields.put("actor.subject_id", actor.getExternalSubjectId());
-        fields.put("target.user_id", targetUserId);
-        fields.put("membership.role", role.name());
-        fields.put("membership.old_status", oldStatus.name());
-        fields.put("membership.new_status", newStatus.name());
-
-        SECURITY_LOG.info("security_event {}", entries(fields));
     }
 
     @Nonnull
@@ -1168,20 +766,5 @@ public class TenantService {
                 );
             }
         });
-    }
-
-    private void requireAtLeastOneActiveManager(UUID tenantId) {
-        long count = membershipRepository.countByTenantIdAndRoleAndStatus(
-                tenantId,
-                TenantRole.MANAGER,
-                MembershipStatus.ACTIVE
-        );
-
-        if (count == 0) {
-            throw new TenantException(
-                    ErrorCode.TENANT_LIFECYCLE_VIOLATION,
-                    "Tenant must have at least one ACTIVE MANAGER"
-            );
-        }
     }
 }

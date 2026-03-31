@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import Button from "@/components/ui/Button";
+import { getErrorMessage } from "@/lib/api/getErrorMessage";
 
 type AuditRetentionPolicyDTO = {
   streamName: string;
@@ -42,7 +43,7 @@ export default function RetentionPolicyPage() {
       );
       setPolicies(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(getErrorMessage(e));
     } finally {
       setLoading(false);
     }

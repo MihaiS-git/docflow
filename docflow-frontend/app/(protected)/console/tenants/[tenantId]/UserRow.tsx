@@ -12,7 +12,10 @@ import type {
 import RowActionMenu from "@/components/ui/RowActionMenu";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Select from "@/components/ui/Select";
-import { changeUserRole, changeUserStatus } from "@/lib/admin/adminTenantUsers";
+import {
+  changeUserRole,
+  changeUserStatus,
+} from "@/lib/admin/adminTenantUsers";
 import { ROLE_OPTIONS_MUTATION } from "@/lib/admin/tenantUserOptions";
 
 type Props = {
@@ -27,10 +30,7 @@ function UserRowComponent({ tenantId, user }: Props) {
   const [statusOpen, setStatusOpen] = useState(false);
 
   const [nextRole, setNextRole] = useState<TenantRole>(user.role);
-  const [nextStatus, setNextStatus] = useState(user.status);
-
-  const [roleComment, setRoleComment] = useState("");
-  const [statusComment, setStatusComment] = useState("");
+  const [nextStatus, setNextStatus] = useState<MembershipStatus>(user.status);
 
   const invalidateUsers = async () => {
     await queryClient.invalidateQueries({
@@ -49,7 +49,6 @@ function UserRowComponent({ tenantId, user }: Props) {
     },
     onSuccess: async () => {
       setRoleOpen(false);
-      setRoleComment("");
       await invalidateUsers();
     },
   });
@@ -68,7 +67,6 @@ function UserRowComponent({ tenantId, user }: Props) {
     },
     onSuccess: async () => {
       setStatusOpen(false);
-      setStatusComment("");
       await invalidateUsers();
     },
   });
@@ -117,7 +115,6 @@ function UserRowComponent({ tenantId, user }: Props) {
                   onClick={() => {
                     close();
                     setNextRole(user.role);
-                    setRoleComment("");
                     setRoleOpen(true);
                   }}
                   className="block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt)"
@@ -132,7 +129,6 @@ function UserRowComponent({ tenantId, user }: Props) {
                     setNextStatus(
                       user.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE",
                     );
-                    setStatusComment("");
                     setStatusOpen(true);
                   }}
                   className="block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt)"
@@ -151,19 +147,16 @@ function UserRowComponent({ tenantId, user }: Props) {
         description={`Change role for "${user.displayName}"`}
         confirmLabel="Update role"
         requireComment
-        comment={roleComment}
-        onCommentChange={setRoleComment}
         loading={loading}
         confirmDisabled={nextRole === user.role}
-        onConfirm={() =>
+        onConfirm={(comment) =>
           roleMutation.mutateAsync({
             role: nextRole,
-            comment: roleComment,
+            comment,
           })
         }
         onClose={() => {
           setRoleOpen(false);
-          setRoleComment("");
         }}
       >
         <div className="flex flex-col gap-1">
@@ -187,19 +180,16 @@ function UserRowComponent({ tenantId, user }: Props) {
         description={`Update status for "${user.displayName}"`}
         confirmLabel="Update status"
         requireComment
-        comment={statusComment}
-        onCommentChange={setStatusComment}
         loading={loading}
         confirmDisabled={nextStatus === user.status}
-        onConfirm={() =>
+        onConfirm={(comment) =>
           statusMutation.mutateAsync({
             status: nextStatus,
-            comment: statusComment,
+            comment,
           })
         }
         onClose={() => {
           setStatusOpen(false);
-          setStatusComment("");
         }}
       />
     </>

@@ -43,7 +43,8 @@ public enum ErrorCode {
     AUDIT_EXPORT_SIGNING_KEY_MISSING(HttpStatus.FAILED_DEPENDENCY),
     AUDIT_VERIFY_INCLUDES_ARCHIVED_DATA(HttpStatus.CONFLICT),
 
-    RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND);
+    RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND),
+    LIFECYCLE_ACCESS_DENIED(HttpStatus.FORBIDDEN);
 
     private final HttpStatus httpStatus;
 

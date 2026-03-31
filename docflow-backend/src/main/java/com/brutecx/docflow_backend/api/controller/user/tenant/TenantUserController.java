@@ -55,21 +55,4 @@ public class TenantUserController {
                 )
         );
     }
-
-    @PatchMapping("/{userId}")
-    public ResponseEntity<Void> updateMembership(
-            @PathVariable UUID tenantId,
-            @PathVariable UUID userId,
-            @RequestBody com.brutecx.docflow_backend.api.dto.tenant.UpdateMembershipRequest request
-    ) {
-        tenantService.updateMembership(
-                tenantId,
-                userId,
-                request.role(),
-                request.status(),
-                request.comment()
-        );
-
-        return ResponseEntity.noContent().build();
-    }
 }

@@ -30,56 +30,39 @@ function TenantRowComponent({ tenant }: Props) {
   const [reactivateOpen, setReactivateOpen] = useState(false);
   const [terminateOpen, setTerminateOpen] = useState(false);
 
-  const [comment, setComment] = useState("");
-
   const invalidateTenants = async () => {
     await queryClient.invalidateQueries({ queryKey: ["tenants"] });
   };
 
   const suspendMutation = useMutation({
-    mutationFn: async (nextComment: string) => {
-      await suspendTenant(tenant.id, nextComment);
+    mutationFn: async (comment: string) => {
+      await suspendTenant(tenant.id, comment);
     },
     onSuccess: async () => {
       setSuspendOpen(false);
-      setComment("");
       await invalidateTenants();
     },
   });
 
   const reactivateMutation = useMutation({
-    mutationFn: async (nextComment: string) => {
-      await reactivateTenant(tenant.id, nextComment);
+    mutationFn: async (comment: string) => {
+      await reactivateTenant(tenant.id, comment);
     },
     onSuccess: async () => {
       setReactivateOpen(false);
-      setComment("");
       await invalidateTenants();
     },
   });
 
   const terminateMutation = useMutation({
-    mutationFn: async (nextComment: string) => {
-      await terminateTenant(tenant.id, nextComment);
+    mutationFn: async (comment: string) => {
+      await terminateTenant(tenant.id, comment);
     },
     onSuccess: async () => {
       setTerminateOpen(false);
-      setComment("");
       await invalidateTenants();
     },
   });
-
-  async function confirmSuspend() {
-    await suspendMutation.mutateAsync(comment);
-  }
-
-  async function confirmReactivate() {
-    await reactivateMutation.mutateAsync(comment);
-  }
-
-  async function confirmTerminate() {
-    await terminateMutation.mutateAsync(comment);
-  }
 
   const loading =
     suspendMutation.isPending ||
@@ -147,7 +130,7 @@ function TenantRowComponent({ tenant }: Props) {
                     close();
                     setEditOpen(true);
                   }}
-                  className="block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:pointer-events-none"
+                  className="block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt)"
                 >
                   Update
                 </button>
@@ -159,7 +142,7 @@ function TenantRowComponent({ tenant }: Props) {
                       close();
                       setSuspendOpen(true);
                     }}
-                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-(--color-warning) hover:bg-(--color-surface-alt) disabled:pointer-events-none"
+                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-(--color-warning) hover:bg-(--color-surface-alt)"
                   >
                     Suspend
                   </button>
@@ -172,7 +155,7 @@ function TenantRowComponent({ tenant }: Props) {
                       close();
                       setReactivateOpen(true);
                     }}
-                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:pointer-events-none"
+                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt)"
                   >
                     Reactivate
                   </button>
@@ -185,7 +168,7 @@ function TenantRowComponent({ tenant }: Props) {
                       close();
                       setTerminateOpen(true);
                     }}
-                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-(--color-error) hover:bg-(--color-surface-alt) disabled:pointer-events-none"
+                    className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-(--color-error) hover:bg-(--color-surface-alt)"
                   >
                     Terminate
                   </button>
@@ -208,13 +191,12 @@ function TenantRowComponent({ tenant }: Props) {
         description={`Suspend "${tenant.name}"?`}
         confirmLabel="Suspend"
         requireComment
-        comment={comment}
-        onCommentChange={setComment}
         loading={loading}
-        onConfirm={confirmSuspend}
+        onConfirm={(comment) =>
+          suspendMutation.mutateAsync(comment)
+        }
         onClose={() => {
           setSuspendOpen(false);
-          setComment("");
         }}
       />
 
@@ -224,13 +206,12 @@ function TenantRowComponent({ tenant }: Props) {
         description={`Reactivate "${tenant.name}"?`}
         confirmLabel="Reactivate"
         requireComment
-        comment={comment}
-        onCommentChange={setComment}
         loading={loading}
-        onConfirm={confirmReactivate}
+        onConfirm={(comment) =>
+          reactivateMutation.mutateAsync(comment)
+        }
         onClose={() => {
           setReactivateOpen(false);
-          setComment("");
         }}
       />
 
@@ -240,13 +221,12 @@ function TenantRowComponent({ tenant }: Props) {
         description={`Terminate "${tenant.name}"? This permanently disables access but keeps audit evidence.`}
         confirmLabel="Terminate"
         requireComment
-        comment={comment}
-        onCommentChange={setComment}
         loading={loading}
-        onConfirm={confirmTerminate}
+        onConfirm={(comment) =>
+          terminateMutation.mutateAsync(comment)
+        }
         onClose={() => {
           setTerminateOpen(false);
-          setComment("");
         }}
       />
     </>

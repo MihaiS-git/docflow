@@ -3,8 +3,6 @@
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 
-import { ApiError } from "@/lib/apiErrors";
-
 import type { AdminTenant } from "@/types/admin/Tenant";
 
 import Card from "@/components/ui/Card";
@@ -18,6 +16,7 @@ import { InviteFormValues, inviteSchema } from "@/lib/validation/invite.schema";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/apiFetch";
 import { invitesKeys } from "@/lib/queryKeys/invitesKeys";
+import { ApiError } from "@/lib/apiErrors";
 
 type Props = {
   tenants: AdminTenant[];
@@ -46,7 +45,7 @@ export default function InviteCreateCard({ tenants }: Props) {
     },
   });
 
-  const createInviteMutation = useMutation({
+  const createInviteMutation = useMutation<void, ApiError, InviteFormValues>({
     mutationFn: async (values: InviteFormValues) => {
       await apiFetch<void>(`/api/tenants/${values.tenantId}/invites`, {
         method: "POST",
@@ -69,20 +68,8 @@ export default function InviteCreateCard({ tenants }: Props) {
         refetchType: "active",
       });
     },
-    onError: (err: unknown) => {
-      if (err instanceof ApiError) {
-        if (err.status === 409) {
-          toast.error(
-            "An invitation already exists for this email or the user already belongs to this tenant.",
-          );
-        } else {
-          toast.error(err.message);
-        }
-      } else if (err instanceof Error) {
-        toast.error(err.message);
-      } else {
-        toast.error("Unexpected error occurred.");
-      }
+    onError: (err) => {
+      toast.error(err.response?.message ?? err.message);
     },
   });
 
