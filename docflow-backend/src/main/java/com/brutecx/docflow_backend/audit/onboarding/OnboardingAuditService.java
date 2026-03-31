@@ -39,7 +39,7 @@ public class OnboardingAuditService {
     private final AuditPartitionResolver partitionResolver;
     private final AuditStreamExecutor executor;
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void recordSuccess(
             UUID actorUserId,
             String subjectId,
@@ -145,7 +145,7 @@ public class OnboardingAuditService {
         }
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void recordFailure(
             UUID actorUserId,
             UUID tenantId,

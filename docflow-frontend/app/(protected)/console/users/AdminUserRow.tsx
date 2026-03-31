@@ -4,14 +4,8 @@ import { memo, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  activateUser,
-  assignRole,
-  disableUser,
-  lockUser,
-  revokeRole,
-} from "@/lib/admin/adminUsers";
 import { ForbiddenError } from "@/lib/apiErrors";
+import { useUserMutations } from "@/hooks/admin/useUserMutations";
 
 import type { AdminUser } from "@/types/admin/AdminUser";
 
@@ -22,10 +16,11 @@ import RowActionMenu from "@/components/ui/RowActionMenu";
 type Props = {
   user: AdminUser;
   allRoles: string[];
-  onUserUpdated: (user: AdminUser) => void;
 };
 
-function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
+function AdminUserRowComponent({ user, allRoles }: Props) {
+  const { activate, lock, disable, assign, revoke } = useUserMutations();
+
   const [selectedRole, setSelectedRole] = useState("");
   const [revokingRole, setRevokingRole] = useState<string | null>(null);
 
@@ -37,27 +32,26 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
   );
 
   async function onGrant() {
-    if (!selectedRole) return;
+    if (!selectedRole || assign.isPending) return;
 
-    await assignRole(user.id, selectedRole);
-
-    onUserUpdated({
-      ...user,
-      roles: [...userRoles, selectedRole],
+    await assign.mutateAsync({
+      userId: user.id,
+      role: selectedRole,
     });
 
     setSelectedRole("");
   }
 
   async function onActivate() {
-    await activateUser(user.id);
-    onUserUpdated({ ...user, status: "ACTIVE" });
+    if (activate.isPending || user.status === "ACTIVE") return;
+    await activate.mutateAsync(user.id);
   }
 
   async function onLock() {
+    if (lock.isPending || user.status === "LOCKED") return;
+
     try {
-      await lockUser(user.id);
-      onUserUpdated({ ...user, status: "LOCKED" });
+      await lock.mutateAsync(user.id);
     } catch (err) {
       if (
         err instanceof ForbiddenError &&
@@ -66,15 +60,15 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
         toast.error("You cannot lock your own account");
         return;
       }
-
       throw err;
     }
   }
 
   async function onDisable() {
+    if (disable.isPending || user.status === "DISABLED") return;
+
     try {
-      await disableUser(user.id);
-      onUserUpdated({ ...user, status: "DISABLED" });
+      await disable.mutateAsync(user.id);
     } catch (err) {
       if (
         err instanceof ForbiddenError &&
@@ -83,8 +77,21 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
         toast.error("You cannot disable your own account");
         return;
       }
-
       throw err;
+    }
+  }
+
+  async function onRevoke(role: string) {
+    if (revokingRole === role || revoke.isPending) return;
+
+    setRevokingRole(role);
+    try {
+      await revoke.mutateAsync({
+        userId: user.id,
+        role,
+      });
+    } finally {
+      setRevokingRole(null);
     }
   }
 
@@ -125,23 +132,8 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
 
                 <button
                   type="button"
-                  disabled={revokingRole === role}
-                  onClick={async () => {
-                    if (revokingRole === role) return;
-
-                    setRevokingRole(role);
-
-                    const updatedRoles = userRoles.filter((r) => r !== role);
-                    onUserUpdated({ ...user, roles: updatedRoles });
-
-                    try {
-                      await revokeRole(user.id, role);
-                    } catch {
-                      onUserUpdated({ ...user, roles: userRoles });
-                    } finally {
-                      setRevokingRole(null);
-                    }
-                  }}
+                  disabled={revokingRole === role || revoke.isPending}
+                  onClick={() => onRevoke(role)}
                   className="ml-1 flex items-center justify-center text-(--color-error) hover:opacity-80 disabled:opacity-40 cursor-pointer disabled:pointer-events-none"
                   aria-label={`Revoke ${role}`}
                 >
@@ -156,7 +148,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
           <Select
             value={selectedRole}
             onChange={(e) => setSelectedRole(e.target.value)}
-            disabled={availableRoles.length === 0}
+            disabled={availableRoles.length === 0 || assign.isPending}
           >
             <option value="">Add role…</option>
 
@@ -167,7 +159,11 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
             ))}
           </Select>
 
-          <Button size="sm" disabled={!selectedRole} onClick={onGrant}>
+          <Button
+            size="sm"
+            disabled={!selectedRole || assign.isPending}
+            onClick={onGrant}
+          >
             Add
           </Button>
         </div>
@@ -183,7 +179,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
                   await onActivate();
                   close();
                 }}
-                disabled={user.status === "ACTIVE"}
+                disabled={user.status === "ACTIVE" || activate.isPending}
                 className="block w-full px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
               >
                 Activate
@@ -195,7 +191,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
                   await onLock();
                   close();
                 }}
-                disabled={user.status === "LOCKED"}
+                disabled={user.status === "LOCKED" || lock.isPending}
                 className="block w-full px-3 py-2 text-left text-sm hover:bg-(--color-surface-alt) disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
               >
                 Lock
@@ -207,7 +203,7 @@ function AdminUserRowComponent({ user, allRoles, onUserUpdated }: Props) {
                   await onDisable();
                   close();
                 }}
-                disabled={user.status === "DISABLED"}
+                disabled={user.status === "DISABLED" || disable.isPending}
                 className="block w-full px-3 py-2 text-left text-sm text-(--color-error) hover:bg-(--color-surface-alt) disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
               >
                 Disable

@@ -195,6 +195,7 @@ export default function TenantsPage() {
   );
 
   const handleSort = useCallback((field: string) => {
+    setPage(0);
     setSort((prev) => {
       if (prev === field) {
         setDirection((current) => (current === "ASC" ? "DESC" : "ASC"));
@@ -204,17 +205,16 @@ export default function TenantsPage() {
       setDirection("ASC");
       return field;
     });
-
-    setPage(0);
   }, []);
 
   const resetFilters = useCallback(() => {
+    setPage(0);
     dispatchFilters({ type: "RESET" });
     searchFilter.reset();
-    setPage(0);
   }, [searchFilter]);
 
   const handleSearchChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setPage(0);
     dispatchFilters({
       type: "SET_FIELD",
       field: "search",
@@ -224,12 +224,12 @@ export default function TenantsPage() {
 
   const handleStatusChange = useCallback(
     (e: ChangeEvent<HTMLSelectElement>) => {
+      setPage(0);
       dispatchFilters({
         type: "SET_FIELD",
         field: "status",
         value: e.target.value,
       });
-      setPage(0);
     },
     [],
   );
@@ -384,9 +384,6 @@ export default function TenantsPage() {
           <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
             <span>Status</span>
             <Select value={filters.status} onChange={handleStatusChange}>
-              <option value={ALL_TENANT_STATUSES_OPTION.value}>
-                {ALL_TENANT_STATUSES_OPTION.label}
-              </option>
               {TENANT_STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}

@@ -10,12 +10,10 @@ import {
 } from "react";
 
 import { useAuth } from "@/lib/auth/useAuth";
-import { fetchAdminUsers } from "@/lib/admin/adminUsers";
 import { fetchAdminRoles } from "@/lib/admin/adminRoles";
 import { fetchManagedTenants } from "@/lib/admin/adminTenants";
 
 import type { AdminUser } from "@/types/admin/AdminUser";
-import type { SpringPage } from "@/types/api/SpringPage";
 import type { AdminTenant } from "@/types/admin/Tenant";
 
 import { AdminUserRow } from "./AdminUserRow";
@@ -34,8 +32,8 @@ import SortableHeader from "@/components/ui/SortableHeader";
 import TableColumnWidths from "@/components/ui/TableColumnWidths";
 import DataTableFooter from "@/components/ui/DataTableFooter";
 
-import { usePaginatedAdminTable } from "@/hooks/usePaginatedAdminTable";
 import { useDebouncedPrefixFilter } from "@/hooks/useDebouncedPrefixFilter";
+import { useUsersQuery } from "@/hooks/admin/useUsersQuery";
 
 const PAGE_SIZE = 20;
 
@@ -53,20 +51,10 @@ type FiltersAction =
     }
   | { type: "RESET" };
 
-type OptimisticUsersState = {
-  queryKey: string;
-  byId: Record<string, AdminUser>;
-};
-
 const initialFilters: FiltersState = {
   tenantId: "",
   status: "",
   email: "",
-};
-
-const initialOptimisticUsersState: OptimisticUsersState = {
-  queryKey: "",
-  byId: {},
 };
 
 function filtersReducer(
@@ -90,7 +78,15 @@ function filtersReducer(
   }
 }
 
-function emptyUsersPage(page: number): SpringPage<AdminUser> {
+function emptyUsersPage(page: number): {
+  content: AdminUser[];
+  page: {
+    number: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+  };
+} {
   return {
     content: [],
     page: {
@@ -118,13 +114,6 @@ export default function AdminUsersPage() {
 
   const [filters, dispatchFilters] = useReducer(filtersReducer, initialFilters);
 
-  const [optimisticUsers, setOptimisticUsers] = useState<OptimisticUsersState>(
-    initialOptimisticUsersState,
-  );
-
-  /**
-   * Debounced + prefix guarded email filter
-   */
   const emailFilter = useDebouncedPrefixFilter(filters.email);
 
   useEffect(() => {
@@ -151,83 +140,31 @@ export default function AdminUsersPage() {
     };
   }, [isAdmin]);
 
-  /**
-   * Reset prefix guard when non-email filters change
-   */
   useEffect(() => {
     emailFilter.reset();
   }, [filters.tenantId, filters.status, sort, direction, emailFilter]);
 
-  const queryKey = JSON.stringify({
+  const shouldBlock = emailFilter.shouldBlock();
+
+  const { data, isLoading, isFetching } = useUsersQuery({
+    enabled: isAdmin && !shouldBlock,
     page,
+    size: pageSize,
     sort,
     direction,
-    tenantId: filters.tenantId,
-    status: filters.status,
-    email: emailFilter.debounced,
+    tenantId: filters.tenantId || undefined,
+    status: filters.status || undefined,
+    email: emailFilter.debounced || undefined,
   });
 
-  const loader = useCallback(async (): Promise<SpringPage<AdminUser>> => {
-    if (emailFilter.shouldBlock()) {
-      return emptyUsersPage(page);
-    }
+  useEffect(() => {
+    if (!data || shouldBlock) return;
+    emailFilter.registerResult(data.content.length);
+  }, [data, shouldBlock, emailFilter]);
 
-    const result = await fetchAdminUsers(page, pageSize, sort, direction, {
-      tenantId: filters.tenantId || undefined,
-      status: filters.status || undefined,
-      email: emailFilter.debounced || undefined,
-    });
+  const effectiveData = shouldBlock ? emptyUsersPage(page) : data;
 
-    emailFilter.registerResult(result.content.length);
-
-    return result;
-  }, [
-    emailFilter,
-    page,
-    pageSize,
-    sort,
-    direction,
-    filters.tenantId,
-    filters.status,
-  ]);
-
-  const { data, loading, isPending } = usePaginatedAdminTable(loader, {
-    enabled: isAdmin,
-    queryKey,
-    resetKeys: [filters.tenantId, filters.status, emailFilter.debounced],
-  });
-
-  const users = useMemo(() => {
-    const content = data?.content ?? [];
-
-    if (optimisticUsers.queryKey !== queryKey) {
-      return content;
-    }
-
-    return content.map((user) => optimisticUsers.byId[user.id] ?? user);
-  }, [data?.content, optimisticUsers, queryKey]);
-
-  const handleUserUpdated = useCallback(
-    (updatedUser: AdminUser) => {
-      setOptimisticUsers((prev) => {
-        const nextById =
-          prev.queryKey === queryKey
-            ? {
-                ...prev.byId,
-                [updatedUser.id]: updatedUser,
-              }
-            : {
-                [updatedUser.id]: updatedUser,
-              };
-
-        return {
-          queryKey,
-          byId: nextById,
-        };
-      });
-    },
-    [queryKey],
-  );
+  const users: AdminUser[] = effectiveData?.content ?? [];
 
   const handleSort = useCallback((field: string) => {
     setSort((prev) => {
@@ -253,6 +190,7 @@ export default function AdminUsersPage() {
 
   const handleTenantChange = useCallback(
     (e: ChangeEvent<HTMLSelectElement>) => {
+      setPage(0);
       dispatchFilters({
         type: "SET_FIELD",
         field: "tenantId",
@@ -264,6 +202,7 @@ export default function AdminUsersPage() {
 
   const handleStatusChange = useCallback(
     (e: ChangeEvent<HTMLSelectElement>) => {
+      setPage(0);
       dispatchFilters({
         type: "SET_FIELD",
         field: "status",
@@ -274,6 +213,7 @@ export default function AdminUsersPage() {
   );
 
   const handleEmailChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setPage(0);
     dispatchFilters({
       type: "SET_FIELD",
       field: "email",
@@ -282,12 +222,7 @@ export default function AdminUsersPage() {
   }, []);
 
   const rows = users.map((user) => (
-    <AdminUserRow
-      key={user.id}
-      user={user}
-      allRoles={roles}
-      onUserUpdated={handleUserUpdated}
-    />
+    <AdminUserRow key={user.id} user={user} allRoles={roles} />
   ));
 
   const columnWidths = useMemo(
@@ -329,35 +264,31 @@ export default function AdminUsersPage() {
     () => (
       <form className="flex flex-wrap items-end gap-4">
         <div className="w-full sm:w-56">
-          <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
-            <Select
-              label="Tenant"
-              value={filters.tenantId}
-              onChange={handleTenantChange}
-            >
-              <option value="">Select tenant…</option>
-              {tenants.map((tenant) => (
-                <option key={tenant.id} value={tenant.id}>
-                  {tenant.name}
-                </option>
-              ))}
-            </Select>
-          </label>
+          <Select
+            label="Tenant"
+            value={filters.tenantId}
+            onChange={handleTenantChange}
+          >
+            <option value="">Select tenant…</option>
+            {tenants.map((tenant) => (
+              <option key={tenant.id} value={tenant.id}>
+                {tenant.name}
+              </option>
+            ))}
+          </Select>
         </div>
 
         <div className="w-full sm:w-40">
-          <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
-            <Select
-              label="Status"
-              value={filters.status}
-              onChange={handleStatusChange}
-            >
-              <option value="">All statuses</option>
-              <option value="ACTIVE">Active</option>
-              <option value="LOCKED">Locked</option>
-              <option value="DISABLED">Disabled</option>
-            </Select>
-          </label>
+          <Select
+            label="Status"
+            value={filters.status}
+            onChange={handleStatusChange}
+          >
+            <option value="">All statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="LOCKED">Locked</option>
+            <option value="DISABLED">Disabled</option>
+          </Select>
         </div>
 
         <Input
@@ -406,21 +337,21 @@ export default function AdminUsersPage() {
 
         <Card>
           <DataTable
-            loading={loading && users.length === 0}
-            empty={!loading && users.length === 0}
+            loading={isLoading && users.length === 0}
+            empty={!isLoading && !shouldBlock && users.length === 0}
             emptyMessage="No users found"
             className={
-              (isPending || loading) && users.length > 0
+              isFetching && users.length > 0
                 ? "pointer-events-none opacity-70 transition-opacity"
                 : ""
             }
             footer={
-              data ? (
+              effectiveData ? (
                 <DataTableFooter
                   page={page}
                   pageSize={pageSize}
-                  totalPages={data.page.totalPages}
-                  totalElements={data.page.totalElements}
+                  totalPages={effectiveData.page.totalPages}
+                  totalElements={effectiveData.page.totalElements}
                   onPageChange={setPage}
                   onPageSizeChange={(size) => {
                     setPageSize(size);
