@@ -18,6 +18,8 @@ type Props = {
   loading?: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  children?: React.ReactNode;
+  confirmDisabled?: boolean;
 };
 
 export default function ConfirmDialog({
@@ -32,6 +34,8 @@ export default function ConfirmDialog({
   loading = false,
   onConfirm,
   onClose,
+  children,
+  confirmDisabled = false,
 }: Props) {
   return (
     <Dialog open={open} onClose={onClose} title={title}>
@@ -42,13 +46,13 @@ export default function ConfirmDialog({
           </p>
         )}
 
+        {children}
+
         {requireComment && (
           <FormField label="Comment">
             <Input
               value={comment}
-              onChange={(e) =>
-                onCommentChange?.(e.target.value)
-              }
+              onChange={(e) => onCommentChange?.(e.target.value)}
               placeholder="Required comment"
             />
           </FormField>
@@ -62,7 +66,9 @@ export default function ConfirmDialog({
           <Button
             variant="danger"
             loading={loading}
-            disabled={requireComment && !comment?.trim()}
+            disabled={
+              confirmDisabled || (requireComment && !comment?.trim())
+            }
             onClick={onConfirm}
           >
             {confirmLabel}

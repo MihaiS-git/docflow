@@ -35,7 +35,7 @@ import CreateTenantCard from "./CreateTenantCard";
 import { useDebouncedPrefixFilter } from "@/hooks/useDebouncedPrefixFilter";
 import { useTenantsQuery } from "@/hooks/admin/useTenantsQuery";
 import { safeParam } from "@/lib/utils/queryParams";
-import { ALL_TENANT_STATUSES_OPTION, TENANT_STATUS_OPTIONS, TenantStatusFilter } from "@/types/admin/Tenant";
+import { TENANT_STATUS_OPTIONS, TenantStatusFilter } from "@/types/admin/Tenant";
 
 const PAGE_SIZE = 20;
 

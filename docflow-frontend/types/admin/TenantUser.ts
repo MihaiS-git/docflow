@@ -1,3 +1,11 @@
+export type TenantRole =
+  | "MANAGER"
+  | "MEMBER"
+  | "EXECUTOR"
+  | "REVIEWER";
+
+export type MembershipStatus = "ACTIVE" | "SUSPENDED";
+
 export type TenantUser = {
   userId: string;
   email: string;
@@ -10,10 +18,9 @@ export type TenantUser = {
   jobTitle?: string | null;
   department?: string | null;
 
-  role: string;
-  status: string;
+  role: TenantRole;
+  status: MembershipStatus;
 
   createdAt: string;
   updatedAt: string;
 };
-

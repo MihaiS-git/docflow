@@ -61,7 +61,7 @@ function DataTableComponent({
           onScroll={handleScroll}
           className="overflow-x-auto"
         >
-          <table className="min-w-225 w-full table-fixed">
+          <table className="w-full table-fixed md:min-w-full min-w-225">
             {children}
 
             <tbody>

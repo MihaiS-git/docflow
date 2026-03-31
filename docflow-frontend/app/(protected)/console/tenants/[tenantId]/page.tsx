@@ -25,12 +25,15 @@ import DataTableFooter from "@/components/ui/DataTableFooter";
 import { apiFetch } from "@/lib/apiFetch";
 import { ApiError } from "@/lib/apiErrors";
 
-import { usePaginatedAdminTable } from "@/hooks/usePaginatedAdminTable";
 import { useDebouncedPrefixFilter } from "@/hooks/useDebouncedPrefixFilter";
 
 import type { TenantResponseDTO } from "@/types/admin/Tenant";
-import type { SpringPage } from "@/types/api/SpringPage";
-import type { TenantUser } from "@/types/admin/TenantUser";
+import { useTenantUsersQuery } from "@/hooks/admin/useTenantUsersQuery";
+import { UserRow } from "./UserRow";
+import {
+  MEMBERSHIP_STATUS_OPTIONS,
+  ROLE_OPTIONS_FILTER,
+} from "@/lib/admin/tenantUserOptions";
 
 const PAGE_SIZE = 20;
 
@@ -154,110 +157,24 @@ export default function TenantDetailsPage() {
     departmentFilter,
   ]);
 
-  const queryKey = JSON.stringify({
-    tenantId,
-    page,
-    sort,
-    direction,
-    search: searchFilter.debounced,
-    jobTitle: jobTitleFilter.debounced,
-    department: departmentFilter.debounced,
-    role: filters.role,
-    status: filters.status,
-    createdAfter: filters.createdAfter,
-    createdBefore: filters.createdBefore,
-  });
-
-  const loader = useCallback(async (): Promise<SpringPage<TenantUser>> => {
-    const empty: SpringPage<TenantUser> = {
-      content: [],
-      page: {
-        number: page,
-        size: pageSize,
-        totalElements: 0,
-        totalPages: 0,
-      },
-    };
-
-    if (
-      searchFilter.shouldBlock() ||
-      jobTitleFilter.shouldBlock() ||
-      departmentFilter.shouldBlock()
-    ) {
-      return empty;
-    }
-
-    const params = new URLSearchParams();
-    params.append("page", String(page));
-    params.append("size", String(pageSize));
-    params.append("sort", sort);
-    params.append("direction", direction);
-
-    if (searchFilter.debounced) {
-      params.append("search", searchFilter.debounced);
-    }
-
-    if (jobTitleFilter.debounced) {
-      params.append("jobTitle", jobTitleFilter.debounced);
-    }
-
-    if (departmentFilter.debounced) {
-      params.append("department", departmentFilter.debounced);
-    }
-
-    if (filters.role) {
-      params.append("role", filters.role);
-    }
-
-    if (filters.status) {
-      params.append("status", filters.status);
-    }
-
-    if (filters.createdAfter) {
-      params.append("createdAfter", filters.createdAfter);
-    }
-
-    if (filters.createdBefore) {
-      params.append("createdBefore", filters.createdBefore);
-    }
-
-    const result = await apiFetch<SpringPage<TenantUser>>(
-      `/api/admin/tenants/${tenantId}/users?${params.toString()}`,
-    );
-
-    searchFilter.registerResult(result.content.length);
-    jobTitleFilter.registerResult(result.content.length);
-    departmentFilter.registerResult(result.content.length);
-
-    return result;
-  }, [
-    page,
-    searchFilter,
-    jobTitleFilter,
-    departmentFilter,
-    pageSize,
-    sort,
-    direction,
-    filters.role,
-    filters.status,
-    filters.createdAfter,
-    filters.createdBefore,
-    tenantId,
-  ]);
-
-  const { data, loading, isPending } = usePaginatedAdminTable(loader, {
+  const { data, isLoading, isFetching } = useTenantUsersQuery({
     enabled: Boolean(tenantId),
-    queryKey,
-    resetKeys: [
-      searchFilter.debounced,
-      jobTitleFilter.debounced,
-      departmentFilter.debounced,
-      filters.role,
-      filters.status,
-      filters.createdAfter,
-      filters.createdBefore,
-    ],
+    tenantId,
+    page,
+    size: pageSize,
+    sort,
+    direction,
+    search: searchFilter.debounced || undefined,
+    jobTitle: jobTitleFilter.debounced || undefined,
+    department: departmentFilter.debounced || undefined,
+    role: filters.role || undefined,
+    status: filters.status || undefined,
+    createdAfter: filters.createdAfter || undefined,
+    createdBefore: filters.createdBefore || undefined,
   });
+
+  const loading = isLoading;
+  const isPending = isFetching;
 
   const users = useMemo(() => data?.content ?? [], [data?.content]);
 
@@ -359,7 +276,7 @@ export default function TenantDetailsPage() {
   const columnWidths = useMemo(
     () => (
       <TableColumnWidths
-        widths={["24%", "14%", "14%", "12%", "12%", "12%", "12%"]}
+        widths={["22%", "12%", "12%", "10%", "10%", "12%", "12%", "10%"]}
       />
     ),
     [],
@@ -418,66 +335,20 @@ export default function TenantDetailsPage() {
             direction={direction}
             onSortChange={handleSort}
           />
+          <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide">
+            Actions
+          </th>
         </tr>
       </thead>
     ),
     [sort, direction, handleSort],
   );
 
-  const rows = useMemo(
-    () =>
-      users.map((u) => (
-        <tr
-          key={u.userId}
-          className="border-b border-(--color-table-border) align-top hover:bg-(--color-table-row-hover)"
-        >
-          <td className="px-4 py-3 text-sm text-(--color-text-primary)">
-            <div className="flex flex-col">
-              <span>{u.displayName}</span>
-              <span className="text-xs text-(--color-text-muted)">
-                {u.email}
-              </span>
-              {u.businessPhone && (
-                <span className="text-xs text-(--color-text-muted)">
-                  {u.businessPhone}
-                </span>
-              )}
-            </div>
-          </td>
-
-          <td className="px-4 py-3 text-sm text-(--color-text-primary)">
-            {u.jobTitle || "—"}
-          </td>
-
-          <td className="px-4 py-3 text-sm text-(--color-text-primary)">
-            {u.department || "—"}
-          </td>
-
-          <td className="px-4 py-3 text-sm text-(--color-text-primary)">
-            {u.role}
-          </td>
-
-          <td className="px-4 py-3 text-sm text-(--color-text-primary)">
-            {u.status}
-          </td>
-
-          <td className="px-4 py-3 text-sm text-(--color-text-primary)">
-            {new Date(u.createdAt).toLocaleDateString()}
-          </td>
-
-          <td className="px-4 py-3 text-sm text-(--color-text-primary)">
-            {new Date(u.updatedAt).toLocaleDateString()}
-          </td>
-        </tr>
-      )),
-    [users],
-  );
-
   const filtersUI = useMemo(
     () => (
       <form className="flex flex-wrap items-end gap-4">
         <Input
-          label="Search"
+          label="Manager email"
           value={filters.search}
           onChange={handleSearchChange}
           className="w-full sm:w-56"
@@ -501,11 +372,11 @@ export default function TenantDetailsPage() {
           <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
             <span>Role</span>
             <Select value={filters.role} onChange={handleRoleChange}>
-              <option value="">All</option>
-              <option value="MANAGER">MANAGER</option>
-              <option value="MEMBER">MEMBER</option>
-              <option value="EXECUTOR">EXECUTOR</option>
-              <option value="REVIEWER">REVIEWER</option>
+              {ROLE_OPTIONS_FILTER.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </Select>
           </label>
         </div>
@@ -514,9 +385,11 @@ export default function TenantDetailsPage() {
           <label className="flex flex-col gap-1 text-xs text-(--color-text-muted)">
             <span>Status</span>
             <Select value={filters.status} onChange={handleStatusChange}>
-              <option value="">All</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="SUSPENDED">SUSPENDED</option>
+              {MEMBERSHIP_STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </Select>
           </label>
         </div>
@@ -637,7 +510,11 @@ export default function TenantDetailsPage() {
             >
               {columnWidths}
               {tableHeader}
-              <tbody>{rows}</tbody>
+              <tbody>
+                {users.map((u) => (
+                  <UserRow key={u.userId} tenantId={tenantId} user={u} />
+                ))}
+              </tbody>
             </DataTable>
           </Card>
         </div>

@@ -33,13 +33,13 @@ export const tenantUsersKeys = {
       params.size,
       params.sort,
       params.direction,
-      params.search ?? "",
-      params.jobTitle ?? "",
-      params.department ?? "",
-      params.role ?? "",
-      params.status ?? "",
-      params.createdAfter ?? "",
-      params.createdBefore ?? "",
+      params.search ?? null,
+      params.jobTitle ?? null,
+      params.department ?? null,
+      params.role ?? null,
+      params.status ?? null,
+      params.createdAfter ?? null,
+      params.createdBefore ?? null,
     ] as const,
 };
 
@@ -88,6 +88,10 @@ export function useTenantUsersQuery({
       createdBefore,
     }),
     queryFn: async () => {
+      if (!tenantId) {
+        throw new Error("tenantId is required");
+      }
+
       const params = new URLSearchParams();
 
       params.append("page", String(page));
@@ -109,5 +113,6 @@ export function useTenantUsersQuery({
     },
     enabled,
     placeholderData: (prev) => prev,
+    staleTime: 30_000,
   });
 }
